@@ -49,7 +49,7 @@ namespace Alloy.Api
         {
             Configuration = configuration;
             Configuration.GetSection("Authorization").Bind(_authOptions);
-        }        
+        }
 
         // This method gets called by the runtime. Use this method to add services to the container.
         public void ConfigureServices(IServiceCollection services)
@@ -77,19 +77,19 @@ namespace Alloy.Api
             services
                 .Configure<ClientOptions>(Configuration.GetSection("ClientSettings"))
                 .AddScoped(config => config.GetService<IOptionsMonitor<ClientOptions>>().CurrentValue);
-            
+
             services
                 .Configure<FilesOptions>(Configuration.GetSection("Files"))
                 .AddScoped(config => config.GetService<IOptionsMonitor<FilesOptions>>().CurrentValue);
-            
+
             services
                 .Configure<ResourceOwnerAuthorizationOptions>(Configuration.GetSection("ResourceOwnerAuthorization"))
                 .AddScoped(config => config.GetService<IOptionsMonitor<ResourceOwnerAuthorizationOptions>>().CurrentValue);
-            
+
             services
                 .Configure<ResourceOptions>(Configuration.GetSection("Resource"))
                 .AddScoped(config => config.GetService<IOptionsMonitor<ResourceOptions>>().CurrentValue);
-            
+
             services.AddCors(options => options.UseConfiguredCors(Configuration.GetSection("CorsPolicy")));
 
             services.AddSignalR()
@@ -116,7 +116,7 @@ namespace Alloy.Api
                 options.JsonSerializerOptions.Converters.Add(new JsonIntegerConverter());
                 options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter());
             })
-            .SetCompatibilityVersion(CompatibilityVersion.Latest); 
+            .SetCompatibilityVersion(CompatibilityVersion.Latest);
 
             services.AddSwagger(_authOptions);
 
@@ -140,7 +140,7 @@ namespace Alloy.Api
                 options.LowercaseUrls = true;
             });
 
-            services.AddMemoryCache();            
+            services.AddMemoryCache();
 
             services.AddScoped<IEventTemplateService, EventTemplateService>();
             services.AddScoped<IEventService, EventService>();
@@ -148,15 +148,15 @@ namespace Alloy.Api
             services.AddScoped<IPlayerService, PlayerService>();
             services.AddScoped<ISteamfitterService, SteamfitterService>();
             services.AddScoped<IUserClaimsService, UserClaimsService>();
-            
+
             // add the other API clients
             services.AddS3PlayerApiClient();
             services.AddCasterApiClient();
             services.AddSteamfitterApiClient();
-           
+
             // add the background IHostedServices
             services.AddAlloyBackgroundService();
-            
+
             services.AddSingleton<IHttpContextAccessor, HttpContextAccessor>();
             services.AddScoped<IPrincipal>(p => p.GetService<IHttpContextAccessor>().HttpContext.User);
 
@@ -164,7 +164,8 @@ namespace Alloy.Api
 
             ApplyPolicies(services);
 
-            services.AddAutoMapper(cfg => {
+            services.AddAutoMapper(cfg =>
+            {
                 cfg.ForAllPropertyMaps(
                     pm => pm.SourceType != null && Nullable.GetUnderlyingType(pm.SourceType) == pm.DestinationType,
                     (pm, c) => c.MapFrom<object, object, object, object>(new IgnoreNullSourceValues(), pm.SourceMember.Name));
@@ -178,10 +179,10 @@ namespace Alloy.Api
             {
                 app.UseDeveloperExceptionPage();
             }
-            
+
             app.UseRouting();
             app.UseCors("default");
-            
+
             //move any querystring jwt to Auth bearer header
             app.Use(async (context, next) =>
             {
@@ -194,13 +195,13 @@ namespace Alloy.Api
                         .SingleOrDefault(x => x.StartsWith("bearer="))?.Split('=')[1];
 
                     if (!String.IsNullOrWhiteSpace(token))
-                        context.Request.Headers.Add("Authorization", new[] {$"Bearer {token}"});
+                        context.Request.Headers.Add("Authorization", new[] { $"Bearer {token}" });
                 }
 
                 await next.Invoke();
 
             });
-            
+
             app.UseAuthentication();
             app.UseAuthorization();
 
@@ -212,6 +213,7 @@ namespace Alloy.Api
             app.UseSwagger();
             app.UseSwaggerUI(c =>
             {
+                c.RoutePrefix = "api";
                 c.SwaggerEndpoint("/swagger/v1/swagger.json", "Alloy v1");
                 c.OAuthClientId(_authOptions.ClientId);
                 c.OAuthClientSecret(_authOptions.ClientSecret);
@@ -235,4 +237,3 @@ namespace Alloy.Api
         }
     }
 }
-

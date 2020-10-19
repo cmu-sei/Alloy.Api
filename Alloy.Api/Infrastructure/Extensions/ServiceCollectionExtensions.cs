@@ -74,9 +74,10 @@ namespace Alloy.Api.Infrastructure.Extensions
                 });
 
                 c.IncludeXmlComments(commentsFile);
+                c.EnableAnnotations();
                 c.OperationFilter<DefaultResponseOperationFilter>();
-                c.MapType<Optional<Guid?>>(() => new OpenApiSchema { Type = "string", Format = "uuid", Nullable= true });
-                c.MapType<JsonElement?>(() => new OpenApiSchema { Type = "object" , Nullable = true});
+                c.MapType<Optional<Guid?>>(() => new OpenApiSchema { Type = "string", Format = "uuid", Nullable = true });
+                c.MapType<JsonElement?>(() => new OpenApiSchema { Type = "object", Nullable = true });
             });
         }
 

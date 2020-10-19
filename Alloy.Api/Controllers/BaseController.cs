@@ -16,7 +16,9 @@ using System.Net;
 namespace Alloy.Api.Controllers
 {
     [Authorize]
-    public abstract class BaseController : Controller
+    [Route("api/")]
+    [ApiController]
+    public abstract class BaseController : ControllerBase
     {
     }
 }
