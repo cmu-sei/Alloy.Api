@@ -24,7 +24,7 @@ using System.Threading.Tasks;
 using Caster.Api;
 using IdentityModel.Client;
 using Steamfitter.Api;
-using S3.Player.Api;
+using Player.Api;
 
 namespace Alloy.Api.Services
 {
@@ -157,7 +157,7 @@ namespace Alloy.Api.Services
                         // get the auth token
                         var tokenResponse = await ApiClientsExtensions.GetToken(scope);
                         CasterApiClient casterApiClient = null;
-                        S3PlayerApiClient playerApiClient = null;
+                        PlayerApiClient playerApiClient = null;
                         SteamfitterApiClient steamfitterApiClient = null;
                         // LOOP until this thread's process is complete
                         while (eventEntity.Status == EventStatus.Creating ||
@@ -667,7 +667,7 @@ namespace Alloy.Api.Services
             }
         }
 
-        private S3PlayerApiClient RefreshClient(S3PlayerApiClient clientObject, TokenResponse tokenResponse, CancellationToken ct)
+        private PlayerApiClient RefreshClient(PlayerApiClient clientObject, TokenResponse tokenResponse, CancellationToken ct)
         {
             // TODO: check for token expiration also
             if (clientObject == null)

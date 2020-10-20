@@ -17,8 +17,8 @@ using System.Threading.Tasks;
 using IdentityModel.Client;
 using Caster.Api;
 using Caster.Api.Models;
-using S3.Player.Api;
-using S3.Player.Api.Models;
+using Player.Api;
+using Player.Api.Models;
 using Alloy.Api.Data.Models;
 
 namespace Alloy.Api.Infrastructure.Extensions
@@ -64,16 +64,16 @@ namespace Alloy.Api.Infrastructure.Extensions
             }
         }
 
-        public static async Task<string> GetCasterVarsFileContentAsync(EventEntity eventEntity, S3PlayerApiClient playerApiClient, CancellationToken ct)
+        public static async Task<string> GetCasterVarsFileContentAsync(EventEntity eventEntity, PlayerApiClient playerApiClient, CancellationToken ct)
         {
             try
             {
                 var varsFileContent = "";
-                var view = (await playerApiClient.GetViewAsync((Guid)eventEntity.ViewId, ct)) as S3.Player.Api.Models.View;
+                var view = await playerApiClient.GetViewAsync((Guid)eventEntity.ViewId, ct);
 
                 // TODO: exercise_id is deprecated. Remove when no longer in use
                 varsFileContent = $"exercise_id = \"{view.Id}\"\r\nview_id = \"{view.Id}\"\r\nuser_id = \"{eventEntity.UserId}\"\r\nusername = \"{eventEntity.Username}\"\r\n";
-                var teams = (await playerApiClient.GetViewTeamsAsync((Guid)view.Id, ct)) as IEnumerable<Team>;
+                var teams = await playerApiClient.GetViewTeamsAsync((Guid)view.Id, ct);
 
                 foreach (var team in teams)
                 {

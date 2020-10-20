@@ -15,32 +15,34 @@ using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
 using IdentityModel.Client;
-using S3.Player.Api;
-using S3.Player.Api.Models;
+using Player.Api;
+using Player.Api.Models;
 using Alloy.Api.Data.Models;
 
 namespace Alloy.Api.Infrastructure.Extensions
 {
     public static class PlayerApiExtensions
     {
-        public static S3PlayerApiClient GetPlayerApiClient(IHttpClientFactory httpClientFactory, string apiUrl, TokenResponse tokenResponse)
+        public static PlayerApiClient GetPlayerApiClient(IHttpClientFactory httpClientFactory, string apiUrl, TokenResponse tokenResponse)
         {
             var client = ApiClientsExtensions.GetHttpClient(httpClientFactory, apiUrl, tokenResponse);
-            var apiClient = new S3PlayerApiClient(client, true);
-            apiClient.BaseUri = client.BaseAddress;
+            var apiClient = new PlayerApiClient(client, true)
+            {
+                BaseUri = client.BaseAddress
+            };
             return apiClient;
         }
 
-        public static async Task<Guid?> CreatePlayerViewAsync(S3PlayerApiClient playerApiClient, EventEntity eventEntity, Guid parentViewId, CancellationToken ct)
+        public static async Task<Guid?> CreatePlayerViewAsync(PlayerApiClient playerApiClient, EventEntity eventEntity, Guid parentViewId, CancellationToken ct)
         {
             try
             {
-                var view = (await playerApiClient.CloneViewAsync(parentViewId, ct)) as S3.Player.Api.Models.View;
+                var view = await playerApiClient.CloneViewAsync(parentViewId, ct);
                 view.Name = $"{view.Name.Replace("Clone of ", "")} - {eventEntity.Username}";
                 await playerApiClient.UpdateViewAsync((Guid)view.Id, view, ct);
                 // add user to first non-admin team
-                var roles = await playerApiClient.GetRolesAsync(ct) as IEnumerable<Role>;
-                var teams = (await playerApiClient.GetViewTeamsAsync((Guid)view.Id, ct)) as IEnumerable<Team>;
+                var roles = await playerApiClient.GetRolesAsync(ct);
+                var teams = (await playerApiClient.GetViewTeamsAsync((Guid)view.Id, ct));
                 foreach (var team in teams)
                 {
                     if (team.Permissions.Where(p => p.Key == "ViewAdmin").Any())
@@ -64,7 +66,7 @@ namespace Alloy.Api.Infrastructure.Extensions
             }
         }
 
-        public static async Task<bool> DeletePlayerViewAsync(string playerApiUrl, Guid? viewId, S3PlayerApiClient playerApiClient, CancellationToken ct)
+        public static async Task<bool> DeletePlayerViewAsync(string playerApiUrl, Guid? viewId, PlayerApiClient playerApiClient, CancellationToken ct)
         {
             // no view to delete
             if (viewId == null)
@@ -86,5 +88,3 @@ namespace Alloy.Api.Infrastructure.Extensions
 
     }
 }
-
-

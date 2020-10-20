@@ -21,7 +21,7 @@ using Alloy.Api.Services;
 using Alloy.Api.ViewModels;
 using Alloy.Api.Infrastructure.Authorization;
 using Swashbuckle.AspNetCore.Annotations;
-using S3.Player.Api.Models;
+using Player.Api.Models;
 
 namespace Alloy.Api.Controllers
 {
@@ -41,7 +41,7 @@ namespace Alloy.Api.Controllers
         /// </summary>
         /// <remarks>
         /// Returns a list of all of the Views.
-        /// </remarks>       
+        /// </remarks>
         /// <returns></returns>
         [HttpGet("views")]
         [ProducesResponseType(typeof(IEnumerable<View>), (int)HttpStatusCode.OK)]
@@ -57,7 +57,7 @@ namespace Alloy.Api.Controllers
         /// </summary>
         /// <remarks>
         /// Returns a player User
-        /// </remarks>       
+        /// </remarks>
         /// <returns></returns>
         [HttpGet("users/me")]
         [ProducesResponseType(typeof(User), (int)HttpStatusCode.OK)]
@@ -71,4 +71,3 @@ namespace Alloy.Api.Controllers
     }
 
 }
-

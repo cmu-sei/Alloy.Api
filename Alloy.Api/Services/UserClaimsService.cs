@@ -20,12 +20,12 @@ using Microsoft.Extensions.Caching.Memory;
 using Alloy.Api.Data;
 using Alloy.Api.Extensions;
 using Alloy.Api.Options;
-using S3.Player.Api;
-using S3.Player.Api.Models;
+using Player.Api;
+using Player.Api.Models;
 
 namespace Alloy.Api.Services
 {
-    public interface IUserClaimsService 
+    public interface IUserClaimsService
     {
         Task<ClaimsPrincipal> AddUserClaims(ClaimsPrincipal principal, bool update);
         Task<ClaimsPrincipal> GetClaimsPrincipal(Guid userId, bool setAsCurrent);
@@ -39,22 +39,22 @@ namespace Alloy.Api.Services
     {
         private readonly AlloyContext _context;
         private readonly ClaimsTransformationOptions _options;
-        private IMemoryCache _cache;
+        private readonly IMemoryCache _cache;
         private ClaimsPrincipal _currentClaimsPrincipal;
-        private readonly IS3PlayerApiClient _s3PlayerApiClient;
+        private readonly IPlayerApiClient _playerApiClient;
 
-        public UserClaimsService(AlloyContext context, IMemoryCache cache, ClaimsTransformationOptions options, IS3PlayerApiClient s3PlayerApiClient)
+        public UserClaimsService(AlloyContext context, IMemoryCache cache, ClaimsTransformationOptions options, IPlayerApiClient playerApiClient)
         {
-            _context = context;            
+            _context = context;
             _options = options;
             _cache = cache;
-            _s3PlayerApiClient = s3PlayerApiClient;
+            _playerApiClient = playerApiClient;
         }
 
         public async Task<ClaimsPrincipal> AddUserClaims(ClaimsPrincipal principal, bool update)
         {
             List<Claim> claims;
-            var identity = ((ClaimsIdentity)principal.Identity);
+            var identity = (ClaimsIdentity)principal.Identity;
             var userId = principal.GetId();
 
             if (!_cache.TryGetValue(userId, out claims))
@@ -71,7 +71,7 @@ namespace Alloy.Api.Services
         }
 
         public async Task<ClaimsPrincipal> GetClaimsPrincipal(Guid userId, bool setAsCurrent)
-        {                        
+        {
             ClaimsIdentity identity = new ClaimsIdentity();
             identity.AddClaim(new Claim("sub", userId.ToString()));
             ClaimsPrincipal principal = new ClaimsPrincipal(identity);
@@ -106,14 +106,14 @@ namespace Alloy.Api.Services
         {
             List<Claim> claims = new List<Claim>();
             claims.AddRange(await GetUserClaimsAsync(userId, new CancellationToken()));
- 
+
             return claims;
         }
 
         private void addNewClaims(ClaimsIdentity identity, List<Claim> claims)
         {
             var newClaims = new List<Claim>();
-            claims.ForEach(delegate(Claim claim)
+            claims.ForEach(delegate (Claim claim)
             {
                 if (!identity.Claims.Any(identityClaim => identityClaim.Type == claim.Type))
                 {
@@ -126,7 +126,7 @@ namespace Alloy.Api.Services
         public async Task<IEnumerable<Claim>> GetUserClaimsAsync(Guid userId, CancellationToken ct)
         {
             var userClaims = new List<Claim>();
-            var user = (await _s3PlayerApiClient.GetUserAsync((Guid)userId, ct)) as User;
+            var user = await _playerApiClient.GetUserAsync((Guid)userId, ct);
             userClaims.Add(new Claim("Name", user.Name));
             userClaims.Add(new Claim(ClaimTypes.Role, user.Name));
             var userPermissions = user.Permissions.Select(p => p.Key);
@@ -134,12 +134,8 @@ namespace Alloy.Api.Services
             {
                 userClaims.Add(new Claim(ClaimTypes.Role, permission));
             }
-            
+
             return userClaims;
         }
-
-
-
     }
 }
-

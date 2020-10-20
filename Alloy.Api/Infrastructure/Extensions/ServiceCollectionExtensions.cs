@@ -18,7 +18,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
-using S3.Player.Api;
+using Player.Api;
 using Caster.Api;
 using Steamfitter.Api;
 using System.Net.Http;
@@ -81,9 +81,9 @@ namespace Alloy.Api.Infrastructure.Extensions
             });
         }
 
-        public static void AddS3PlayerApiClient(this IServiceCollection services)
+        public static void AddPlayerApiClient(this IServiceCollection services)
         {
-            services.AddScoped<IS3PlayerApiClient, S3PlayerApiClient>(p =>
+            services.AddScoped<IPlayerApiClient, PlayerApiClient>(p =>
             {
                 var httpContextAccessor = p.GetRequiredService<IHttpContextAccessor>();
                 var httpClientFactory = p.GetRequiredService<IHttpClientFactory>();
@@ -97,8 +97,10 @@ namespace Alloy.Api.Infrastructure.Extensions
                 httpClient.BaseAddress = playerUri;
                 httpClient.DefaultRequestHeaders.Add("Authorization", authHeader);
 
-                var apiClient = new S3PlayerApiClient(httpClient, true);
-                apiClient.BaseUri = playerUri;
+                var apiClient = new PlayerApiClient(httpClient, true)
+                {
+                    BaseUri = playerUri
+                };
 
                 return apiClient;
             });

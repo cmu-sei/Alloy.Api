@@ -11,8 +11,8 @@ DM20-0181
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
-using S3.Player.Api;
-using S3.Player.Api.Models;
+using Player.Api;
+using Player.Api.Models;
 using Alloy.Api.Extensions;
 using Alloy.Api.Infrastructure.Authorization;
 using System;
@@ -34,40 +34,40 @@ namespace Alloy.Api.Services
         Task<User> GetUserAsync(CancellationToken ct);
     }
 
-    public class PlayerService : IPlayerService 
+    public class PlayerService : IPlayerService
     {
-        private readonly IS3PlayerApiClient _s3PlayerApiClient;
+        private readonly IPlayerApiClient _playerApiClient;
         private readonly IAuthorizationService _authorizationService;
         private readonly IUserClaimsService _claimsService;
         private readonly ClaimsPrincipal _user;
 
         public PlayerService(
             IHttpContextAccessor httpContextAccessor,
-            IS3PlayerApiClient s3PlayerApiClient,
+            IPlayerApiClient playerApiClient,
             IAuthorizationService authorizationService,
             IPrincipal user,
             IUserClaimsService claimsService)
         {
-            _s3PlayerApiClient = s3PlayerApiClient;
+            _playerApiClient = playerApiClient;
             _authorizationService = authorizationService;
             _user = user as ClaimsPrincipal;
             _claimsService = claimsService;
-        }       
+        }
 
         public async Task<IEnumerable<View>> GetViewsAsync(CancellationToken ct)
         {
-            var views = await _s3PlayerApiClient.GetUserViewsAsync(_user.GetId(), ct);
+            var views = await _playerApiClient.GetUserViewsAsync(_user.GetId(), ct);
             return (IEnumerable<View>)views;
         }
 
         public async Task<View> CloneViewAsync(Guid viewId, CancellationToken ct)
         {
-            return (View) await _s3PlayerApiClient.CloneViewAsync(viewId);
+            return (View)await _playerApiClient.CloneViewAsync(viewId);
         }
 
         public async Task DeleteViewAsync(Guid viewId, CancellationToken ct)
         {
-            await _s3PlayerApiClient.DeleteViewAsync(viewId);
+            await _playerApiClient.DeleteViewAsync(viewId);
         }
 
         public async Task<IEnumerable<string>> GetUserClaimValuesAsync(CancellationToken ct)
@@ -76,17 +76,15 @@ namespace Alloy.Api.Services
             var user = await _claimsService.GetClaimsPrincipal(_user.GetId(), true);
             if ((await _authorizationService.AuthorizeAsync(user, null, new SystemAdminRightsRequirement())).Succeeded) claimValues.Add("SystemAdmin");
             if ((await _authorizationService.AuthorizeAsync(user, null, new ContentDeveloperRightsRequirement())).Succeeded) claimValues.Add("ContentDeveloper");
-            
+
             return claimValues;
         }
 
         public async Task<User> GetUserAsync(CancellationToken ct)
         {
-            var user = (await _s3PlayerApiClient.GetUserAsync(_user.GetId())) as User;
-            
+            var user = await _playerApiClient.GetUserAsync(_user.GetId());
             return user;
         }
 
     }
 }
-

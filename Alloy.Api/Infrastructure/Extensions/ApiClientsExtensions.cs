@@ -16,7 +16,7 @@ using System.Threading.Tasks;
 using Caster.Api;
 using IdentityModel.Client;
 using Steamfitter.Api;
-using S3.Player.Api;
+using Player.Api;
 
 namespace Alloy.Api.Infrastructure.Extensions
 {
@@ -58,5 +58,3 @@ namespace Alloy.Api.Infrastructure.Extensions
 
     }
 }
-
-

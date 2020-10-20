@@ -150,7 +150,7 @@ namespace Alloy.Api
             services.AddScoped<IUserClaimsService, UserClaimsService>();
 
             // add the other API clients
-            services.AddS3PlayerApiClient();
+            services.AddPlayerApiClient();
             services.AddCasterApiClient();
             services.AddSteamfitterApiClient();
 
