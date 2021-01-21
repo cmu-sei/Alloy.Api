@@ -36,12 +36,15 @@ namespace Alloy.Api
     public class Startup
     {
         public Options.AuthorizationOptions _authOptions = new Options.AuthorizationOptions();
+        private string _pathbase;
+
         public IConfiguration Configuration { get; }
 
         public Startup(IConfiguration configuration)
         {
             Configuration = configuration;
             Configuration.GetSection("Authorization").Bind(_authOptions);
+            _pathbase = Configuration["PathBase"] ?? "";
         }
 
         // This method gets called by the runtime. Use this method to add services to the container.
@@ -172,6 +175,8 @@ namespace Alloy.Api
             {
                 app.UseDeveloperExceptionPage();
             }
+
+            app.UsePathBase(_pathbase);
 
             app.UseRouting();
             app.UseCors("default");
