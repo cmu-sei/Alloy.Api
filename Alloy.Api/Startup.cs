@@ -212,9 +212,6 @@ namespace Alloy.Api
                 c.OAuthClientSecret(_authOptions.ClientSecret);
                 c.OAuthAppName(_authOptions.ClientName);
             });
-
-
-            app.UseHttpContext();
         }
 
 
