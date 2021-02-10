@@ -105,4 +105,5 @@ Have a good idea for a new feature? Submit all new feature requests through the 
 Include the reasons why you're requesting the new feature and how it might benefit other Crucible users.
 
 ## License
+
 Copyright 2021 Carnegie Mellon University. See the [LICENSE.md](./LICENSE.md) files for details.
