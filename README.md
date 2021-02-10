@@ -105,4 +105,4 @@ Have a good idea for a new feature? Submit all new feature requests through the 
 Include the reasons why you're requesting the new feature and how it might benefit other Crucible users.
 
 ## License
-Copyright 2020 Carnegie Mellon University. See the [LICENSE.txt](https://github.com/cmu-sei/crucible/blob/master/alloy.api/license.txt) files for details.
+Copyright 2020 Carnegie Mellon University. See the [LICENSE.md](.\license.md) files for details.
