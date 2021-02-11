@@ -34,6 +34,7 @@ namespace Alloy.Api.Services
         private readonly IServiceScopeFactory _scopeFactory;
         private readonly IAlloyEventQueue _eventQueue;
         private readonly int _minimumIntervalSeconds = 30;
+        private readonly HostedServiceHealthCheck _hostedServiceHealthCheck;
         
         private Timer _timer;
 
@@ -41,18 +42,22 @@ namespace Alloy.Api.Services
             ILogger<AlloyQueryService> logger,
             IOptionsMonitor<ClientOptions> clientOptions,
             IServiceScopeFactory scopeFactory,
-            IAlloyEventQueue eventQueue
+            IAlloyEventQueue eventQueue,
+            HostedServiceHealthCheck hostedServiceHealthCheck
         )
         {
             _logger = logger;
             _clientOptions = clientOptions;
             _scopeFactory = scopeFactory;
             _eventQueue = eventQueue;
+            _hostedServiceHealthCheck = hostedServiceHealthCheck;
         }
 
         public Task StartAsync(CancellationToken cancellationToken)
         {
             var intervalInSeconds = Math.Max(_clientOptions.CurrentValue.BackgroundTimerIntervalSeconds, _minimumIntervalSeconds);
+
+            _hostedServiceHealthCheck.HealthAllowance = _clientOptions.CurrentValue.BackgroundTimerHealthSeconds;
             
             _logger.LogInformation("AlloyQueryService is starting.");
             
@@ -101,6 +106,7 @@ namespace Alloy.Api.Services
                         }
                     }
                 }
+                _hostedServiceHealthCheck.CompletedRun();
             }
             catch (Exception e)
             {

@@ -6,6 +6,7 @@ namespace Alloy.Api.Infrastructure.Options
     public class ClientOptions
     {
         public int BackgroundTimerIntervalSeconds { get; set; }
+        public int BackgroundTimerHealthSeconds { get; set; }
         public int CasterCheckIntervalSeconds { get; set; }
         public int CasterPlanningMaxWaitMinutes { get; set; }
         public int CasterDeployMaxWaitMinutes { get; set; }
