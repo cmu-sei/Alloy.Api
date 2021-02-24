@@ -57,7 +57,7 @@ namespace Alloy.Api.Controllers
         /// <returns></returns>
         [HttpGet("eventTemplates/{id}")]
         [ProducesResponseType(typeof(EventTemplate), (int)HttpStatusCode.OK)]
-        [ProducesResponseType(typeof(ApiError), (int)HttpStatusCode.NotFound)]
+        [ProducesResponseType(typeof(ProblemDetails), (int)HttpStatusCode.NotFound)]
         [SwaggerOperation(OperationId = "getEventTemplate")]
         public async Task<IActionResult> Get(Guid id, CancellationToken ct)
         {
@@ -101,7 +101,7 @@ namespace Alloy.Api.Controllers
         /// <param name="ct"></param>
         [HttpPut("eventTemplates/{id}")]
         [ProducesResponseType(typeof(EventTemplate), (int)HttpStatusCode.OK)]
-        [ProducesResponseType(typeof(ApiError), (int)HttpStatusCode.NotFound)]
+        [ProducesResponseType(typeof(ProblemDetails), (int)HttpStatusCode.NotFound)]
         [SwaggerOperation(OperationId = "updateEventTemplate")]
         public async Task<IActionResult> Update([FromRoute] Guid id, [FromBody] EventTemplate eventTemplate, CancellationToken ct)
         {
@@ -121,7 +121,7 @@ namespace Alloy.Api.Controllers
         /// <param name="ct"></param>
         [HttpDelete("eventTemplates/{id}")]
         [ProducesResponseType((int)HttpStatusCode.NoContent)]
-        [ProducesResponseType(typeof(ApiError), (int)HttpStatusCode.NotFound)]
+        [ProducesResponseType(typeof(ProblemDetails), (int)HttpStatusCode.NotFound)]
         [SwaggerOperation(OperationId = "deleteEventTemplate")]
         public async Task<IActionResult> Delete(Guid id, CancellationToken ct)
         {
