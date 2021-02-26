@@ -30,6 +30,8 @@ using System.Text.Json.Serialization;
 using Microsoft.Extensions.Hosting;
 using Alloy.Api.Infrastructure.JsonConverters;
 using Alloy.Api.Infrastructure.Mappings;
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
 
 namespace Alloy.Api
 {
@@ -60,6 +62,32 @@ namespace Alloy.Api
                 case "SqlServer":
                 case "PostgreSQL":
                     services.AddDbContextPool<AlloyContext>(builder => builder.UseConfiguredDatabase(Configuration));
+                    break;
+            }
+ 
+            services.AddSingleton<StartupHealthCheck>();
+            services.AddSingleton<HostedServiceHealthCheck>();
+            services.AddHealthChecks()
+                .AddCheck<StartupHealthCheck>(
+                    "startup", 
+                    failureStatus: HealthStatus.Degraded, 
+                    tags: new[] { "ready" })
+                .AddCheck<HostedServiceHealthCheck>(
+                    "service_responsive", 
+                    failureStatus: HealthStatus.Unhealthy, 
+                    tags: new[] { "live" });
+
+            var connectionString = Configuration.GetConnectionString(DatabaseExtensions.DbProvider(Configuration));
+            switch (provider)
+            {
+                case "Sqlite":
+                    services.AddHealthChecks().AddSqlite(connectionString, tags: new[] { "ready", "live"});
+                    break;
+                case "SqlServer":
+                    services.AddHealthChecks().AddSqlServer(connectionString, tags: new[] { "ready", "live"});
+                    break;
+                case "PostgreSQL":
+                    services.AddHealthChecks().AddNpgSql(connectionString, tags: new[] { "ready", "live"});
                     break;
             }
 
@@ -206,6 +234,15 @@ namespace Alloy.Api
             app.UseEndpoints(endpoints =>
             {
                 endpoints.MapControllers();
+                endpoints.MapHealthChecks("/api/health/ready", new HealthCheckOptions()
+                {
+                    Predicate = (check) => check.Tags.Contains("ready"),
+                });
+
+                endpoints.MapHealthChecks("/api/health/live", new HealthCheckOptions()
+                {
+                    Predicate = (check) => check.Tags.Contains("live"),
+                });
             });
 
             app.UseSwagger();

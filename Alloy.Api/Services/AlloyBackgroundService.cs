@@ -32,13 +32,15 @@ namespace Alloy.Api.Services
         private readonly IServiceScopeFactory _scopeFactory;
         private readonly IAlloyEventQueue _eventQueue;
         private readonly IHttpClientFactory _httpClientFactory;
+        private readonly StartupHealthCheck _startupHealthCheck;
 
         public AlloyBackgroundService(
                 ILogger<AlloyBackgroundService> logger,
                 IOptionsMonitor<Infrastructure.Options.ClientOptions> clientOptions,
                 IServiceScopeFactory scopeFactory,
                 IAlloyEventQueue eventQueue,
-                IHttpClientFactory httpClientFactory
+                IHttpClientFactory httpClientFactory,
+                StartupHealthCheck startupHealthCheck
             )
         {
             _logger = logger;
@@ -46,6 +48,7 @@ namespace Alloy.Api.Services
             _scopeFactory = scopeFactory;
             _eventQueue = eventQueue;
             _httpClientFactory = httpClientFactory;
+            _startupHealthCheck = startupHealthCheck;
         }
 
         public Task StartAsync(CancellationToken cancellationToken)
@@ -93,7 +96,8 @@ namespace Alloy.Api.Services
                             }
                         }
                     }
-                    bootstrapComplete = true;
+                    bootstrapComplete = true;                    
+                    _startupHealthCheck.StartupTaskCompleted = true;
                 }
                 catch (System.Exception ex)
                 {
