@@ -17,7 +17,11 @@ namespace Alloy.Api.Infrastructure.Filters
 
             if (!modelState.IsValid)
             {
-                ApiError error = new ApiError("Invalid Data", System.Net.HttpStatusCode.BadRequest);
+                ProblemDetails error = new ProblemDetails
+                {
+                    Title = "Invalid Data",
+                    Status = (int)System.Net.HttpStatusCode.BadRequest
+                };
 
                 List<string> errorDetails = modelState.Keys
                     .SelectMany(key => modelState[key].Errors.Select(x => $"{key}: { (string.IsNullOrEmpty(x.ErrorMessage) ? x.Exception.Message : x.ErrorMessage) }"))
