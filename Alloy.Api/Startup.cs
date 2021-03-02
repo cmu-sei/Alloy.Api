@@ -38,6 +38,7 @@ namespace Alloy.Api
     public class Startup
     {
         public Options.AuthorizationOptions _authOptions = new Options.AuthorizationOptions();
+        private const string _routePrefix = "api";
         private string _pathbase;
 
         public IConfiguration Configuration { get; }
@@ -234,12 +235,12 @@ namespace Alloy.Api
             app.UseEndpoints(endpoints =>
             {
                 endpoints.MapControllers();
-                endpoints.MapHealthChecks("/api/health/ready", new HealthCheckOptions()
+                endpoints.MapHealthChecks($"/{_routePrefix}/health/ready", new HealthCheckOptions()
                 {
                     Predicate = (check) => check.Tags.Contains("ready"),
                 });
 
-                endpoints.MapHealthChecks("/api/health/live", new HealthCheckOptions()
+                endpoints.MapHealthChecks($"/{_routePrefix}/health/live", new HealthCheckOptions()
                 {
                     Predicate = (check) => check.Tags.Contains("live"),
                 });
@@ -248,7 +249,7 @@ namespace Alloy.Api
             app.UseSwagger();
             app.UseSwaggerUI(c =>
             {
-                c.RoutePrefix = "api";
+                c.RoutePrefix = _routePrefix;
                 c.SwaggerEndpoint("/swagger/v1/swagger.json", "Alloy v1");
                 c.OAuthClientId(_authOptions.ClientId);
                 c.OAuthClientSecret(_authOptions.ClientSecret);

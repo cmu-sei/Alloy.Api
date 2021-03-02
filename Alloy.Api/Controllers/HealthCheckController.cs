@@ -17,13 +17,11 @@ namespace Alloy.Api.Controllers
 {
     public class HealthController : BaseController
     {
-        private readonly HostedServiceHealthCheck _hostedHealthCheckService;
-        private readonly StartupHealthCheck _startupHealthCheckService;
-        public HealthController(HostedServiceHealthCheck hostedHealthCheckService,
-            StartupHealthCheck startupHealthCheckService)
+        private readonly HealthCheckService healthCheckService;
+
+        public HealthController(HealthCheckService healthCheckService)
         {
-            _hostedHealthCheckService = hostedHealthCheckService;
-            _startupHealthCheckService = startupHealthCheckService;
+            this.healthCheckService = healthCheckService;
         }
         
         /// <summary>
@@ -33,15 +31,18 @@ namespace Alloy.Api.Controllers
         /// Returns a HealthReport of the liveliness health check
         /// </remarks>
         /// <returns></returns>
-        [HttpGet("liveliness")]
+        [HttpGet("health/live")]
         [AllowAnonymous]
         [ProducesResponseType(typeof(HealthReport), (int)HttpStatusCode.OK)]
         [SwaggerOperation(OperationId = "Health_GetLiveliness")]
         public async Task<IActionResult> GetLiveliness(CancellationToken ct)
         {
-            var report = await _hostedHealthCheckService.CheckHealthAsync(null,ct);
-
-            return report.Status == HealthStatus.Healthy ? Ok(report) : StatusCode((int)HttpStatusCode.ServiceUnavailable, report);
+            HealthReport report = await this.healthCheckService.CheckHealthAsync((check) => check.Tags.Contains("live"));
+            var result = new
+            {
+                status = report.Status.ToString()
+            };
+            return report.Status == HealthStatus.Healthy ? this.Ok(result) : this.StatusCode((int)HttpStatusCode.ServiceUnavailable, result);
         }
 
         /// <summary>
@@ -51,15 +52,18 @@ namespace Alloy.Api.Controllers
         /// Returns a HealthReport of the readiness health check
         /// </remarks>
         /// <returns></returns>
-        [HttpGet("readiness")]
+        [HttpGet("health/ready")]
         [AllowAnonymous]
         [ProducesResponseType(typeof(HealthReport), (int)HttpStatusCode.OK)]
         [SwaggerOperation(OperationId = "Health_GetReadiness")]
         public async Task<IActionResult> GetReadiness(CancellationToken ct)
         {
-            var report = await _startupHealthCheckService.CheckHealthAsync(null,ct);
-
-            return report.Status == HealthStatus.Healthy ? Ok(report) : StatusCode((int)HttpStatusCode.ServiceUnavailable, report);
+	        HealthReport report = await this.healthCheckService.CheckHealthAsync((check) => check.Tags.Contains("ready"));
+            var result = new
+            {
+                status = report.Status.ToString()
+            };
+            return report.Status == HealthStatus.Healthy ? this.Ok(result) : this.StatusCode((int)HttpStatusCode.ServiceUnavailable, result);
         }
     }
 }
