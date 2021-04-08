@@ -131,6 +131,7 @@ namespace Alloy.Api
             {
                 options.PayloadSerializerOptions.PropertyNameCaseInsensitive = true;
                 options.PayloadSerializerOptions.Converters.Add(new JsonStringEnumConverter());
+                options.PayloadSerializerOptions.Converters.Add(new JsonDateTimeConverter());
             });
 
             services.AddMvc(options =>
@@ -138,8 +139,8 @@ namespace Alloy.Api
                 options.Filters.Add(typeof(ValidateModelStateFilter));
                 options.Filters.Add(typeof(JsonExceptionFilter));
 
-          // Require all scopes in authOptions
-          var policyBuilder = new AuthorizationPolicyBuilder().RequireAuthenticatedUser();
+                // Require all scopes in authOptions
+                var policyBuilder = new AuthorizationPolicyBuilder().RequireAuthenticatedUser();
                 Array.ForEach(_authOptions.AuthorizationScope.Split(' '), x => policyBuilder.RequireScope(x));
 
                 var policy = policyBuilder.Build();
@@ -150,6 +151,7 @@ namespace Alloy.Api
                 options.JsonSerializerOptions.Converters.Add(new JsonNullableGuidConverter());
                 options.JsonSerializerOptions.Converters.Add(new JsonIntegerConverter());
                 options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter());
+                options.JsonSerializerOptions.Converters.Add(new JsonDateTimeConverter());
 
             })
             .SetCompatibilityVersion(CompatibilityVersion.Latest);
@@ -174,18 +176,18 @@ namespace Alloy.Api
                 {
                     OnMessageReceived = context =>
               {
-              // If the request is for our hub...
-              var path = context.HttpContext.Request.Path;
-                    var accessToken = context.Request.Query["access_token"];
+                  // If the request is for our hub...
+                  var path = context.HttpContext.Request.Path;
+                  var accessToken = context.Request.Query["access_token"];
 
-                    if (!string.IsNullOrEmpty(accessToken) &&
-                            (path.StartsWithSegments("/hubs")))
-                    {
-                  // Read the token out of the query string
-                  context.Token = accessToken;
-                    }
-                    return Task.CompletedTask;
-                }
+                  if (!string.IsNullOrEmpty(accessToken) &&
+                          (path.StartsWithSegments("/hubs")))
+                  {
+                      // Read the token out of the query string
+                      context.Token = accessToken;
+                  }
+                  return Task.CompletedTask;
+              }
                 };
             });
 

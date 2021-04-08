@@ -19,7 +19,7 @@ namespace Alloy.Api.Infrastructure.JsonConverters
             return reader.GetInt32();
         }
 
-        public override void Write( Utf8JsonWriter writer, int value, JsonSerializerOptions options)
+        public override void Write(Utf8JsonWriter writer, int value, JsonSerializerOptions options)
         {
             writer.WriteStringValue(value.ToString());
         }

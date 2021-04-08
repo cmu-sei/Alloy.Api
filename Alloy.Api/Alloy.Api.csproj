@@ -36,13 +36,13 @@
     <PackageReference Include="Microsoft.AspNetCore.SignalR" Version="1.1.0" />
     <PackageReference Include="IdentityServer4.AccessTokenValidation" Version="2.7.0" />
     <PackageReference Include="Player.Api.Client" Version="1.6.0" />
-    <PackageReference Include="steamfitter.api.client" Version="1.5.1" />
+    <PackageReference Include="steamfitter.api.client" Version="1.7.0" />
     <PackageReference Include="caster.api.client" Version="1.3.0" />
     <PackageReference Include="AspNetCore.HealthChecks.NpgSql" Version="3.1.0" />
     <PackageReference Include="AspNetCore.HealthChecks.SqlServer" Version="3.1.0" />
     <PackageReference Include="AspNetCore.HealthChecks.Sqlite" Version="3.1.0" />
   </ItemGroup>
-  
+
   <ItemGroup>
     <ProjectReference Include="..\Alloy.Api.Data\Alloy.Api.Data.csproj" />
     <ProjectReference Include="..\Alloy.Api.Migrations.PostgreSQL\Alloy.Api.Migrations.PostgreSQL.csproj" />

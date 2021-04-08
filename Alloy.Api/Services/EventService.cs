@@ -443,13 +443,22 @@ namespace Alloy.Api.Services
             // user may not have access to the player api, so we get the resource owner token
             var token = await ApiClientsExtensions.GetToken(_serviceProvider);
             var playerApiClient = PlayerApiExtensions.GetPlayerApiClient(_httpClientFactory, _clientOptions.urls.playerApi, token);
+            var steamfitterApiClient = SteamfitterApiExtensions.GetSteamfitterApiClient(_httpClientFactory, _clientOptions.urls.steamfitterApi, token);
+
             var alloyEvent = await GetEventByShareCodeAsync(code, ct);
             if (alloyEvent.Status == EventStatus.Active || alloyEvent.Status == EventStatus.Paused)
             {
-                // Add user to player view as first non-admin team.
-                if (alloyEvent != null && alloyEvent.ViewId.Value != null)
+                if (alloyEvent != null)
                 {
-                    await PlayerApiExtensions.AddUserToViewTeamAsync(playerApiClient, alloyEvent.ViewId.Value, _user.GetId(), ct);
+                    if (alloyEvent.ViewId.HasValue)
+                    {
+                        await PlayerApiExtensions.AddUserToViewTeamAsync(playerApiClient, alloyEvent.ViewId.Value, _user.GetId(), ct);
+                    }
+
+                    if (alloyEvent.ScenarioId.HasValue)
+                    {
+                        await steamfitterApiClient.AddUsersToScenarioAsync(alloyEvent.ScenarioId.Value, new List<Guid> { _user.GetId() }, ct);
+                    }
 
                     try
                     {

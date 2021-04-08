@@ -1,20 +1,15 @@
 // Copyright 2021 Carnegie Mellon University. All Rights Reserved.
 // Released under a MIT (SEI)-style license. See LICENSE.md in the project root for license information.
 
-using System;
 using System.Collections.Generic;
 using System.Net;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Alloy.Api.Extensions;
-using Alloy.Api.Infrastructure.Exceptions;
 using Alloy.Api.Services;
-using Alloy.Api.ViewModels;
-using Alloy.Api.Infrastructure.Authorization;
 using Swashbuckle.AspNetCore.Annotations;
-using Steamfitter.Api.Models;
+using Steamfitter.Api.Client;
 
 namespace Alloy.Api.Controllers
 {
@@ -34,7 +29,7 @@ namespace Alloy.Api.Controllers
         /// </summary>
         /// <remarks>
         /// Returns a list of all of the ScenarioTemplates.
-        /// </remarks>       
+        /// </remarks>
         /// <returns></returns>
         [HttpGet("scenarioTemplates")]
         [ProducesResponseType(typeof(IEnumerable<ScenarioTemplate>), (int)HttpStatusCode.OK)]
@@ -48,4 +43,3 @@ namespace Alloy.Api.Controllers
     }
 
 }
-
