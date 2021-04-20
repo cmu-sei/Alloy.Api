@@ -3,23 +3,25 @@
 
 using System;
 using System.Net;
+using System.Text.RegularExpressions;
+
 namespace Alloy.Api.Infrastructure.Exceptions
 {
-  public class ForbiddenException : Exception, IApiException
+  public class InviteException : Exception, IApiException
   {
-    public ForbiddenException()
-        : base("Insufficient Permissions")
+    public InviteException()
+        : base("Invite Failed")
     {
     }
 
-    public ForbiddenException(string message)
+    public InviteException(string message)
         : base(message)
     {
     }
 
     public HttpStatusCode GetStatusCode()
     {
-      return HttpStatusCode.Forbidden;
+      return HttpStatusCode.Conflict;
     }
   }
 }

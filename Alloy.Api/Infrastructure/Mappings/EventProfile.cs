@@ -6,15 +6,16 @@ using Alloy.Api.ViewModels;
 
 namespace Alloy.Api.Infrastructure.Mappings
 {
-    public class EventProfile : AutoMapper.Profile
+  public class EventProfile : AutoMapper.Profile
+  {
+    public EventProfile()
     {
-        public EventProfile()
-        {
-            CreateMap<EventEntity, Event>();
-
-            CreateMap<Event, EventEntity>();
-        }
+      CreateMap<EventEntity, Event>();
+      CreateMap<Event, EventEntity>();
+      CreateMap<EventEntity, EventInvite>()
+      .ForMember(e => e.EventId, opt => opt.MapFrom(s => s.Id));
     }
+  }
 }
 
 
