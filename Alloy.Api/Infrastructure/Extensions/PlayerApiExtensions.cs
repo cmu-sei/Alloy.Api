@@ -85,7 +85,6 @@ namespace Alloy.Api.Infrastructure.Extensions
         var view = await playerApiClient.GetViewAsync(viewId, ct);
         var roles = await playerApiClient.GetRolesAsync(ct);
         var teams = await playerApiClient.GetViewTeamsAsync(viewId, ct);
-        var userAdded = false;
         //Get first non-admin team
         foreach (var team in teams)
         {

@@ -9,6 +9,7 @@ namespace Alloy.Api.Infrastructure.Exceptions
 {
   public class InviteException : Exception, IApiException
   {
+    Guid _eventId;
     public InviteException()
         : base("Invite Failed")
     {
@@ -18,7 +19,6 @@ namespace Alloy.Api.Infrastructure.Exceptions
         : base(message)
     {
     }
-
     public HttpStatusCode GetStatusCode()
     {
       return HttpStatusCode.Conflict;

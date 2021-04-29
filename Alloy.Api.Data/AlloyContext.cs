@@ -22,6 +22,7 @@ namespace Alloy.Api.Data
 
     public DbSet<EventTemplateEntity> EventTemplates { get; set; }
     public DbSet<EventEntity> Events { get; set; }
+    public DbSet<EventUserEntity> EventUsers { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

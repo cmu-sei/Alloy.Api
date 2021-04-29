@@ -35,6 +35,7 @@ namespace Alloy.Api.Services
     Task<IEnumerable<Event>> GetEventTemplateEventsAsync(Guid eventTemplateId, CancellationToken ct);
     Task<IEnumerable<Event>> GetMyEventTemplateEventsAsync(Guid eventTemplateId, CancellationToken ct);
     Task<IEnumerable<Event>> GetMyViewEventsAsync(Guid viewId, CancellationToken ct);
+    Task<IEnumerable<Event>> GetMyEventsAsync(CancellationToken ct);
     Task<Event> GetAsync(Guid id, CancellationToken ct);
     Task<Event> CreateAsync(Event eventx, CancellationToken ct);
     Task<Event> LaunchEventFromEventTemplateAsync(Guid eventTemplateId, CancellationToken ct);
@@ -42,8 +43,8 @@ namespace Alloy.Api.Services
     Task<bool> DeleteAsync(Guid id, CancellationToken ct);
     Task<Event> EndAsync(Guid eventId, CancellationToken ct);
     Task<Event> RedeployAsync(Guid eventId, CancellationToken ct);
-    Task<EventInvite> CreateInviteAsync(Guid eventId, CancellationToken ct);
-    Task<bool> EnlistAsync(string code, CancellationToken ct);
+    Task<Event> CreateInviteAsync(Guid eventId, CancellationToken ct);
+    Task<EventUser> EnlistAsync(string code, CancellationToken ct);
   }
 
   public class EventService : IEventService
@@ -158,6 +159,18 @@ namespace Alloy.Api.Services
           .Where(x => x.UserId == user.GetId() && x.ViewId == viewId)
           .ToListAsync(ct);
 
+      return _mapper.Map<IEnumerable<Event>>(items);
+    }
+
+    public async Task<IEnumerable<Event>> GetMyEventsAsync(CancellationToken ct)
+    {
+      var user = await _claimsService.GetClaimsPrincipal(_user.GetId(), true);
+      if (!(await _authorizationService.AuthorizeAsync(user, null, new BasicRightsRequirement())).Succeeded)
+        throw new ForbiddenException();
+      var items = await _context.EventUsers
+      .Where(u => u.UserId == _user.GetId())
+      .Select(u => u.Event)
+      .ToListAsync();
       return _mapper.Map<IEnumerable<Event>>(items);
     }
 
@@ -383,7 +396,7 @@ namespace Alloy.Api.Services
       return eventEntity;
     }
 
-    public async Task<EventInvite> CreateInviteAsync(Guid eventId, CancellationToken ct)
+    public async Task<Event> CreateInviteAsync(Guid eventId, CancellationToken ct)
     {
       var user = await _claimsService.GetClaimsPrincipal(_user.GetId(), true);
       var eventEntity = await GetTheEventAsync(eventId, true, false, ct);
@@ -396,12 +409,12 @@ namespace Alloy.Api.Services
 
       if (eventEntity.ShareCode != null)
       {
-        return _mapper.Map<EventInvite>(eventEntity);
+        return _mapper.Map<Event>(eventEntity);
       }
       eventEntity.ShareCode = Guid.NewGuid().ToString("N");
       await UpdateAsync(eventId, _mapper.Map<Event>(eventEntity), ct);
 
-      return _mapper.Map<EventInvite>(eventEntity);
+      return _mapper.Map<Event>(eventEntity);
     }
 
     private async Task<Event> GetEventByShareCodeAsync(string code, CancellationToken ct)
@@ -422,33 +435,41 @@ namespace Alloy.Api.Services
 
     }
 
-    public async Task<bool> EnlistAsync(string code, CancellationToken ct)
+    public async Task<EventUser> EnlistAsync(string code, CancellationToken ct)
     {
       using (var scope = _scopeFactory.CreateScope())
       {
-        try
-        {
-          // user may not have access to the player api, so we get the resource owner token
-          var token = await ApiClientsExtensions.GetToken(scope);
-          var playerApiClient = PlayerApiExtensions.GetPlayerApiClient(_httpClientFactory, _clientOptions.urls.playerApi, token);
-          var item = await GetEventByShareCodeAsync(code, ct);
-          var userAdded = false;
 
+        // user may not have access to the player api, so we get the resource owner token
+        var token = await ApiClientsExtensions.GetToken(scope);
+        var playerApiClient = PlayerApiExtensions.GetPlayerApiClient(_httpClientFactory, _clientOptions.urls.playerApi, token);
+        var item = await GetEventByShareCodeAsync(code, ct);
+        if (item.Status == EventStatus.Active || item.Status == EventStatus.Paused)
+        {
           // Add user to player view as first non-admin team. 
           if (item != null && item.ViewId.Value != null)
           {
-            userAdded = await PlayerApiExtensions.AddUserToViewTeamAsync(playerApiClient, item.ViewId.Value, _user.GetId(), ct);
+            await PlayerApiExtensions.AddUserToViewTeamAsync(playerApiClient, item.ViewId.Value, _user.GetId(), ct);
+            var eventUser = new EventUserEntity
+            {
+              EventId = item.Id,
+              UserId = _user.GetId(),
+              CreatedBy = _user.GetId()
+            };
+            try
+            {
+              _context.EventUsers.Add(eventUser);
+              await _context.SaveChangesAsync();
+              return _mapper.Map<EventUser>(eventUser);
+            }
+            catch (Exception e)
+            {
+              throw new InviteException("Invite Failed, Accepted Already");
+            }
+
           }
-
-          //Add user to Invited Users for event. 
-
-          return true;
         }
-        catch (Exception ex)
-        {
-          _logger.LogError(ex.ToString());
-          return false;
-        }
+        throw new InviteException($"Invite Failed, Event Status: {Enum.GetName(typeof(EventStatus), item.Status)}");
       }
     }
   }

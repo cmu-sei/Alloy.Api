@@ -2,6 +2,7 @@
 // Released under a MIT (SEI)-style license. See LICENSE.md in the project root for license information.
 
 using System;
+using System.Data;
 using System.Collections.Generic;
 using System.Net;
 using System.Threading;
@@ -89,6 +90,20 @@ namespace Alloy.Api.Controllers
     public async Task<IActionResult> GetMyViewEvents(string viewId, CancellationToken ct)
     {
       var list = await _eventService.GetMyViewEventsAsync(Guid.Parse(viewId), ct);
+      return Ok(list);
+    }
+    /// <summary>
+    /// Gets all events for a user
+    /// </summary>
+    /// <returns>
+    /// Returns a list of events for a user
+    /// </returns>
+    [HttpGet("events/mine")]
+    [ProducesResponseType(typeof(IEnumerable<Event>), (int)HttpStatusCode.OK)]
+    [SwaggerOperation(OperationId = "GetMyEvents")]
+    public async Task<IActionResult> GetMyEventsAsync(CancellationToken ct)
+    {
+      var list = await _eventService.GetMyEventsAsync(ct);
       return Ok(list);
     }
 
@@ -235,22 +250,21 @@ namespace Alloy.Api.Controllers
     /// <param name="ct"></param>
     /// <returns></returns>
     [HttpPost("events/{id}/invite")]
-    [ProducesResponseType(typeof(EventInvite), (int)HttpStatusCode.OK)]
+    [ProducesResponseType(typeof(Event), (int)HttpStatusCode.Created)]
     [SwaggerOperation(OperationId = "invite")]
-    public async Task<ActionResult<EventInvite>> Invite(Guid id, CancellationToken ct)
+    public async Task<ActionResult<EventUser>> Invite(Guid id, CancellationToken ct)
     {
       var state = await _eventService.CreateInviteAsync(id, ct);
-      return Ok(state);
+      return CreatedAtAction(nameof(this.Get), state);
     }
     [HttpPost("events/enlist/{code}")]
+    [ProducesResponseType(typeof(EventUser), (int)HttpStatusCode.Created)]
+    [SwaggerOperation(OperationId = "invite")]
     public async Task<ActionResult> Enlist(string code, CancellationToken ct)
     {
-      var enlisted = await _eventService.EnlistAsync(code, ct);
-      if (!enlisted)
-      {
-        throw new InviteException();
-      }
-      return NoContent();
+      var enlistedUser = await _eventService.EnlistAsync(code, ct);
+
+      return CreatedAtAction(nameof(this.Get), enlistedUser);
     }
   }
 }
