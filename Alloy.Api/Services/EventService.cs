@@ -169,7 +169,7 @@ namespace Alloy.Api.Services
         throw new ForbiddenException();
       var items = await _context.EventUsers
       .Where(u => u.UserId == _user.GetId())
-      .Select(u => u.Event)
+      .Select(u => u.Event).Where(e => e.Status == EventStatus.Active || e.Status == EventStatus.Paused)
       .ToListAsync();
       return _mapper.Map<IEnumerable<Event>>(items);
     }

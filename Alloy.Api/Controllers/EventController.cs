@@ -259,7 +259,7 @@ namespace Alloy.Api.Controllers
     }
     [HttpPost("events/enlist/{code}")]
     [ProducesResponseType(typeof(EventUser), (int)HttpStatusCode.Created)]
-    [SwaggerOperation(OperationId = "invite")]
+    [SwaggerOperation(OperationId = "enlist")]
     public async Task<ActionResult> Enlist(string code, CancellationToken ct)
     {
       var enlistedUser = await _eventService.EnlistAsync(code, ct);
