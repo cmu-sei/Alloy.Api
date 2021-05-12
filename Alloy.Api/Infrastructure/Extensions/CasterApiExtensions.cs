@@ -13,6 +13,7 @@ using Caster.Api.Models;
 using Player.Api;
 using Player.Api.Models;
 using Alloy.Api.Data.Models;
+using Microsoft.Extensions.Logging;
 
 namespace Alloy.Api.Infrastructure.Extensions
 {
@@ -86,6 +87,7 @@ namespace Alloy.Api.Infrastructure.Extensions
             EventEntity eventEntity,
             CasterApiClient casterApiClient,
             bool isDestroy,
+            ILogger logger,
             CancellationToken ct)
         {
             var runCommand = new CreateRunCommand()
@@ -100,6 +102,7 @@ namespace Alloy.Api.Infrastructure.Extensions
             }
             catch (Exception ex)
             {
+                logger.LogError(ex, "Error Creating Run");
                 return null;
             }
         }
@@ -109,6 +112,7 @@ namespace Alloy.Api.Infrastructure.Extensions
             CasterApiClient casterApiClient,
             int loopIntervalSeconds,
             int maxWaitMinutes,
+            ILogger logger,
             CancellationToken ct)
         {
             if (eventEntity.RunId == null)
@@ -117,6 +121,7 @@ namespace Alloy.Api.Infrastructure.Extensions
             }
             var endTime = DateTime.UtcNow.AddMinutes(maxWaitMinutes);
             var status = RunStatus.Planning;
+
             while (status == RunStatus.Planning && DateTime.UtcNow < endTime)
             {
                 var casterRun = await casterApiClient.GetRunAsync((Guid)eventEntity.RunId);
@@ -174,6 +179,7 @@ namespace Alloy.Api.Infrastructure.Extensions
             CasterApiClient casterApiClient,
             int loopIntervalSeconds,
             int maxWaitMinutes,
+            ILogger logger,
             CancellationToken ct)
         {
             if (eventEntity.RunId == null)
@@ -181,29 +187,35 @@ namespace Alloy.Api.Infrastructure.Extensions
                 return false;
             }
             var endTime = DateTime.UtcNow.AddMinutes(maxWaitMinutes);
-            var status = ApplyStatus.Applying;
-            while ((status == ApplyStatus.Applying ||
-                    status == ApplyStatus.AppliedStateError ||
-                    status == ApplyStatus.FailedStateError)
+            var status = RunStatus.Applying;
+
+            while ((status == RunStatus.Applying ||
+                    status == RunStatus.Planned ||
+                    status == RunStatus.Queued ||
+                    status == RunStatus.AppliedStateError ||
+                    status == RunStatus.FailedStateError)
                     && DateTime.UtcNow < endTime)
             {
                 var casterRun = await casterApiClient.GetRunAsync((Guid)eventEntity.RunId);
                 status = casterRun.Status;
+
                 // if not there yet, pause before the next check
-                if (status == ApplyStatus.Applying ||
-                    status == ApplyStatus.AppliedStateError ||
-                    status == ApplyStatus.FailedStateError)
+                if (status == RunStatus.Applying ||
+                    status == RunStatus.Planned ||
+                    status == RunStatus.Queued ||
+                    status == RunStatus.AppliedStateError ||
+                    status == RunStatus.FailedStateError)
                 {
                     Thread.Sleep(TimeSpan.FromSeconds(loopIntervalSeconds));
 
-                    if (status == ApplyStatus.AppliedStateError ||
-                        status == ApplyStatus.FailedStateError)
+                    if (status == RunStatus.AppliedStateError ||
+                        status == RunStatus.FailedStateError)
                     {
                         await casterApiClient.SaveStateAsync(eventEntity.RunId.Value);
                     }
                 }
             }
-            if (status == ApplyStatus.Applied)
+            if (status == RunStatus.Applied)
             {
                 return true;
             }
