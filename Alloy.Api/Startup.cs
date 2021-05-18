@@ -16,12 +16,17 @@ using Alloy.Api.Extensions;
 using Alloy.Api.Data;
 using Alloy.Api.Options;
 using Alloy.Api.Services;
+using Alloy.Api.Hubs;
 using System;
+using System.Reflection;
+using System.Threading.Tasks;
 using AutoMapper;
+using MediatR;
 using Alloy.Api.Infrastructure;
 using Alloy.Api.Infrastructure.Authorization;
 using Alloy.Api.Infrastructure.Filters;
 using Alloy.Api.Infrastructure.Options;
+using Alloy.Api.Infrastructure.DbInterceptors;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Principal;
 using System.Linq;
@@ -57,12 +62,16 @@ namespace Alloy.Api
       switch (provider)
       {
         case "InMemory":
-          services.AddDbContextPool<AlloyContext>(opt => opt.UseInMemoryDatabase("api"));
+          services.AddDbContextPool<AlloyContext>((ServiceProvider, builder) => builder
+          .AddInterceptors(ServiceProvider.GetRequiredService<EventTransactionInterceptor>())
+          .UseInMemoryDatabase("api"));
           break;
         case "Sqlite":
         case "SqlServer":
         case "PostgreSQL":
-          services.AddDbContextPool<AlloyContext>(builder => builder.UseConfiguredDatabase(Configuration));
+          services.AddDbContextPool<AlloyContext>((serviceProvider, builder) => builder
+          .AddInterceptors(serviceProvider.GetRequiredService<EventTransactionInterceptor>())
+          .UseConfiguredDatabase(Configuration));
           break;
       }
 
@@ -120,6 +129,7 @@ namespace Alloy.Api
       services.AddSignalR()
       .AddJsonProtocol(options =>
       {
+        options.PayloadSerializerOptions.PropertyNameCaseInsensitive = true;
         options.PayloadSerializerOptions.Converters.Add(new JsonStringEnumConverter());
       });
 
@@ -159,6 +169,24 @@ namespace Alloy.Api
           ValidateIssuer = true,
           ValidAudiences = _authOptions.AuthorizationScope.Split(' ')
         };
+
+        options.Events = new JwtBearerEvents
+        {
+          OnMessageReceived = context =>
+          {
+            // If the request is for our hub...
+            var path = context.HttpContext.Request.Path;
+            var accessToken = context.Request.Query["access_token"];
+
+            if (!string.IsNullOrEmpty(accessToken) &&
+                          (path.StartsWithSegments("/hubs")))
+            {
+              // Read the token out of the query string
+              context.Token = accessToken;
+            }
+            return Task.CompletedTask;
+          }
+        };
       });
 
       services.AddRouting(options =>
@@ -174,6 +202,7 @@ namespace Alloy.Api
       services.AddScoped<IPlayerService, PlayerService>();
       services.AddScoped<ISteamfitterService, SteamfitterService>();
       services.AddScoped<IUserClaimsService, UserClaimsService>();
+      services.AddTransient<EventTransactionInterceptor>();
 
       // add the other API clients
       services.AddPlayerApiClient();
@@ -198,6 +227,8 @@ namespace Alloy.Api
 
 
       }, typeof(Startup));
+
+      services.AddMediatR(typeof(Startup).GetTypeInfo().Assembly);
 
     }
 
@@ -248,6 +279,7 @@ namespace Alloy.Api
         {
           Predicate = (check) => check.Tags.Contains("live"),
         });
+        endpoints.MapHub<EventHub>("/hubs/event");
       });
 
       app.UseSwagger();
@@ -258,6 +290,7 @@ namespace Alloy.Api
         c.OAuthClientId(_authOptions.ClientId);
         c.OAuthClientSecret(_authOptions.ClientSecret);
         c.OAuthAppName(_authOptions.ClientName);
+        c.OAuthUsePkce();
       });
     }
 
