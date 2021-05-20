@@ -1,23 +1,24 @@
 // Copyright 2021 Carnegie Mellon University. All Rights Reserved.
 // Released under a MIT (SEI)-style license. See LICENSE.md in the project root for license information.
 
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.AspNetCore.Http;
-using Alloy.Api.Infrastructure.Options;
-using Alloy.Api.Infrastructure.OperationFilters;
-using Alloy.Api.Options;
-using Alloy.Api.Services;
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Reflection;
-using Player.Api;
-using Caster.Api;
-using Steamfitter.Api;
 using System.Net.Http;
-using Microsoft.CodeAnalysis;
+using System.Net.Http.Headers;
+using System.Reflection;
 using System.Text.Json;
+using Alloy.Api.Infrastructure.OperationFilters;
+using Alloy.Api.Infrastructure.Options;
+using Alloy.Api.Options;
+using Alloy.Api.Services;
+using Caster.Api;
+using Microsoft.AspNetCore.Http;
+using Microsoft.CodeAnalysis;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.OpenApi.Models;
+using Player.Api;
+using Steamfitter.Api;
 
 namespace Alloy.Api.Infrastructure.Extensions
 {
@@ -87,9 +88,16 @@ namespace Alloy.Api.Infrastructure.Extensions
 
                 string authHeader = httpContextAccessor.HttpContext.Request.Headers["Authorization"];
 
+                if (authHeader == null)
+                {
+                    var token = httpContextAccessor.HttpContext.Request.Query["access_token"];
+                    authHeader = new AuthenticationHeaderValue("Bearer", token).ToString();
+                }
+
                 var httpClient = httpClientFactory.CreateClient();
                 httpClient.BaseAddress = playerUri;
                 httpClient.DefaultRequestHeaders.Add("Authorization", authHeader);
+
 
                 var apiClient = new PlayerApiClient(httpClient, true)
                 {
