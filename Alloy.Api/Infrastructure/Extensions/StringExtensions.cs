@@ -5,21 +5,21 @@ using System;
 
 namespace Alloy.Api.Infrastructure.Extensions
 {
-  public static class StringExtensions
-  {
-    /// <summary>
-    /// Converts a string to CamelCase, assuming it is already in TitleCase
-    /// </summary>
-    public static string TitleCaseToCamelCase(this string str)
+    public static class StringExtensions
     {
-      var camelCaseStr = str;
+        /// <summary>
+        /// Converts a string to CamelCase, assuming it is already in TitleCase
+        /// </summary>
+        public static string TitleCaseToCamelCase(this string str)
+        {
+            var camelCaseStr = str;
 
-      if (!string.IsNullOrEmpty(str) && str.Length > 1)
-      {
-        camelCaseStr = Char.ToLowerInvariant(camelCaseStr[0]) + camelCaseStr.Substring(1);
-      }
+            if (!string.IsNullOrEmpty(str) && str.Length > 1)
+            {
+                camelCaseStr = Char.ToLowerInvariant(camelCaseStr[0]) + camelCaseStr.Substring(1);
+            }
 
-      return camelCaseStr;
+            return camelCaseStr;
+        }
     }
-  }
 }

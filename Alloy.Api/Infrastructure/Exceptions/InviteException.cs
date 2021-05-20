@@ -7,22 +7,22 @@ using System.Text.RegularExpressions;
 
 namespace Alloy.Api.Infrastructure.Exceptions
 {
-  public class InviteException : Exception, IApiException
-  {
-    Guid _eventId;
-    public InviteException()
-        : base("Invite Failed")
+    public class InviteException : Exception, IApiException
     {
-    }
+        Guid _eventId;
+        public InviteException()
+            : base("Invite Failed")
+        {
+        }
 
-    public InviteException(string message)
-        : base(message)
-    {
+        public InviteException(string message)
+            : base(message)
+        {
+        }
+        public HttpStatusCode GetStatusCode()
+        {
+            return HttpStatusCode.Conflict;
+        }
     }
-    public HttpStatusCode GetStatusCode()
-    {
-      return HttpStatusCode.Conflict;
-    }
-  }
 }
 

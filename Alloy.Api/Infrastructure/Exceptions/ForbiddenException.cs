@@ -5,22 +5,22 @@ using System;
 using System.Net;
 namespace Alloy.Api.Infrastructure.Exceptions
 {
-  public class ForbiddenException : Exception, IApiException
-  {
-    public ForbiddenException()
-        : base("Insufficient Permissions")
+    public class ForbiddenException : Exception, IApiException
     {
-    }
+        public ForbiddenException()
+            : base("Insufficient Permissions")
+        {
+        }
 
-    public ForbiddenException(string message)
-        : base(message)
-    {
-    }
+        public ForbiddenException(string message)
+            : base(message)
+        {
+        }
 
-    public HttpStatusCode GetStatusCode()
-    {
-      return HttpStatusCode.Forbidden;
+        public HttpStatusCode GetStatusCode()
+        {
+            return HttpStatusCode.Forbidden;
+        }
     }
-  }
 }
 

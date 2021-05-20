@@ -5,35 +5,35 @@ using MediatR;
 
 namespace Alloy.Api.Domain.Events
 {
-  public class EntityCreated<TEntity> : INotification
-  {
-    public TEntity Entity { get; set; }
-
-    public EntityCreated(TEntity entity)
+    public class EntityCreated<TEntity> : INotification
     {
-      Entity = entity;
+        public TEntity Entity { get; set; }
+
+        public EntityCreated(TEntity entity)
+        {
+            Entity = entity;
+        }
     }
-  }
 
-  public class EntityUpdated<TEntity> : INotification
-  {
-    public TEntity Entity { get; set; }
-    public string[] ModifiedProperties { get; set; }
-
-    public EntityUpdated(TEntity entity, string[] modifiedProperties)
+    public class EntityUpdated<TEntity> : INotification
     {
-      Entity = entity;
-      ModifiedProperties = modifiedProperties;
+        public TEntity Entity { get; set; }
+        public string[] ModifiedProperties { get; set; }
+
+        public EntityUpdated(TEntity entity, string[] modifiedProperties)
+        {
+            Entity = entity;
+            ModifiedProperties = modifiedProperties;
+        }
     }
-  }
 
-  public class EntityDeleted<TEntity> : INotification
-  {
-    public TEntity Entity { get; set; }
-
-    public EntityDeleted(TEntity entity)
+    public class EntityDeleted<TEntity> : INotification
     {
-      Entity = entity;
+        public TEntity Entity { get; set; }
+
+        public EntityDeleted(TEntity entity)
+        {
+            Entity = entity;
+        }
     }
-  }
 }

@@ -7,14 +7,14 @@ using Alloy.Api.ViewModels;
 
 namespace Alloy.Api.Infrastructure.Mappings
 {
-  public class EventProfile : AutoMapper.Profile
-  {
-    public EventProfile()
+    public class EventProfile : AutoMapper.Profile
     {
-      CreateMap<EventEntity, Event>()
-      .ReverseMap();
-      CreateMap<EventEntity, EventUserEntity>()
-      .ForMember(dest => dest.EventId, opt => opt.MapFrom(source => source.Id));
+        public EventProfile()
+        {
+            CreateMap<EventEntity, Event>()
+            .ReverseMap();
+            CreateMap<EventEntity, EventUserEntity>()
+            .ForMember(dest => dest.EventId, opt => opt.MapFrom(source => source.Id));
+        }
     }
-  }
 }
