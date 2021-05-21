@@ -1,15 +1,16 @@
+using System;
+using System.Net.Http;
+using System.Threading;
+using System.Threading.Tasks;
+using Alloy.Api.Infrastructure.Options;
+using Caster.Api;
+using IdentityModel.Client;
 // Copyright 2021 Carnegie Mellon University. All Rights Reserved.
 // Released under a MIT (SEI)-style license. See LICENSE.md in the project root for license information.
 
 using Microsoft.Extensions.DependencyInjection;
-using Alloy.Api.Infrastructure.Options;
-using System;
-using System.Net.Http;
-using System.Threading.Tasks;
-using Caster.Api;
-using IdentityModel.Client;
-using Steamfitter.Api;
 using Player.Api;
+using Steamfitter.Api;
 
 namespace Alloy.Api.Infrastructure.Extensions
 {

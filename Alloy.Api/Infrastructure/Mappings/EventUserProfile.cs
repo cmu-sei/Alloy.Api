@@ -1,4 +1,3 @@
-using System.Security.Claims;
 // Copyright 2021 Carnegie Mellon University. All Rights Reserved.
 // Released under a MIT (SEI)-style license. See LICENSE.md in the project root for license information.
 
@@ -7,14 +6,12 @@ using Alloy.Api.ViewModels;
 
 namespace Alloy.Api.Infrastructure.Mappings
 {
-    public class EventProfile : AutoMapper.Profile
+    public class EventUserProfile : AutoMapper.Profile
     {
-        public EventProfile()
+        public EventUserProfile()
         {
-            CreateMap<EventEntity, Event>()
+            CreateMap<EventUserEntity, EventUser>()
             .ReverseMap();
-            CreateMap<EventEntity, EventUserEntity>()
-            .ForMember(dest => dest.EventId, opt => opt.MapFrom(source => source.Id));
         }
     }
 }

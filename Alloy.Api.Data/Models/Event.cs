@@ -2,6 +2,7 @@
 // Released under a MIT (SEI)-style license. See LICENSE.md in the project root for license information.
 
 using System;
+using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 
@@ -22,6 +23,8 @@ namespace Alloy.Api.Data.Models
         public Guid? ScenarioId { get; set; }
         public string Name { get; set; }
         public string Description { get; set; }
+        public string ShareCode { get; set; }
+        public virtual ICollection<EventUserEntity> EventUsers { get; set; } = new List<EventUserEntity>();
         public EventStatus Status { get; set; }
         public InternalEventStatus InternalStatus { get; set; }
         public int FailureCount { get; set; }

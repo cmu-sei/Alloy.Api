@@ -8,15 +8,17 @@ using System;
 using Alloy.Api.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
 namespace Alloy.Api.Migrations.PostgreSQL.Migrations
 {
     [DbContext(typeof(AlloyContext))]
-    partial class AlloyContextModelSnapshot : ModelSnapshot
+    [Migration("20210419180942_Share_Code_Migration")]
+    partial class Share_Code_Migration
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -201,60 +203,11 @@ namespace Alloy.Api.Migrations.PostgreSQL.Migrations
                     b.ToTable("event_templates");
                 });
 
-            modelBuilder.Entity("Alloy.Api.Data.Models.EventUserEntity", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnName("id")
-                        .HasColumnType("uuid")
-                        .HasDefaultValueSql("uuid_generate_v4()");
-
-                    b.Property<Guid>("CreatedBy")
-                        .HasColumnName("created_by")
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTime>("DateCreated")
-                        .HasColumnName("date_created")
-                        .HasColumnType("timestamp without time zone");
-
-                    b.Property<DateTime?>("DateModified")
-                        .HasColumnName("date_modified")
-                        .HasColumnType("timestamp without time zone");
-
-                    b.Property<Guid>("EventId")
-                        .HasColumnName("event_id")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid?>("ModifiedBy")
-                        .HasColumnName("modified_by")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid>("UserId")
-                        .HasColumnName("user_id")
-                        .HasColumnType("uuid");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("EventId", "UserId")
-                        .IsUnique();
-
-                    b.ToTable("event_users");
-                });
-
             modelBuilder.Entity("Alloy.Api.Data.Models.EventEntity", b =>
                 {
                     b.HasOne("Alloy.Api.Data.Models.EventTemplateEntity", "EventTemplate")
                         .WithMany()
                         .HasForeignKey("EventTemplateId");
-                });
-
-            modelBuilder.Entity("Alloy.Api.Data.Models.EventUserEntity", b =>
-                {
-                    b.HasOne("Alloy.Api.Data.Models.EventEntity", "Event")
-                        .WithMany("EventUsers")
-                        .HasForeignKey("EventId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
                 });
 #pragma warning restore 612, 618
         }

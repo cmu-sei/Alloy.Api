@@ -1,37 +1,42 @@
 // Copyright 2021 Carnegie Mellon University. All Rights Reserved.
 // Released under a MIT (SEI)-style license. See LICENSE.md in the project root for license information.
 
+using System;
+using System.IdentityModel.Tokens.Jwt;
+using System.Linq;
+using System.Reflection;
+using System.Security.Principal;
+using System.Text.Json.Serialization;
+using System.Threading.Tasks;
+using Alloy.Api.Data;
+using Alloy.Api.Extensions;
+using Alloy.Api.Hubs;
+using Alloy.Api.Infrastructure;
+using Alloy.Api.Infrastructure.Authorization;
+using Alloy.Api.Infrastructure.DbInterceptors;
+using Alloy.Api.Infrastructure.Extensions;
+using Alloy.Api.Infrastructure.Filters;
+using Alloy.Api.Infrastructure.JsonConverters;
+using Alloy.Api.Infrastructure.Mappings;
+using Alloy.Api.Infrastructure.Options;
+using Alloy.Api.Options;
+using Alloy.Api.Services;
+using AutoMapper;
+using MediatR;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
-using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Authorization;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Options;
-using Alloy.Api.Extensions;
-using Alloy.Api.Data;
-using Alloy.Api.Options;
-using Alloy.Api.Services;
-using System;
-using AutoMapper;
-using Alloy.Api.Infrastructure;
-using Alloy.Api.Infrastructure.Authorization;
-using Alloy.Api.Infrastructure.Filters;
-using Alloy.Api.Infrastructure.Options;
-using System.IdentityModel.Tokens.Jwt;
-using System.Security.Principal;
-using System.Linq;
-using Alloy.Api.Infrastructure.Extensions;
-using System.Text.Json.Serialization;
-using Microsoft.Extensions.Hosting;
-using Alloy.Api.Infrastructure.JsonConverters;
-using Alloy.Api.Infrastructure.Mappings;
-using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Options;
 
 namespace Alloy.Api
 {
@@ -57,38 +62,42 @@ namespace Alloy.Api
             switch (provider)
             {
                 case "InMemory":
-                    services.AddDbContextPool<AlloyContext>(opt => opt.UseInMemoryDatabase("api"));
+                    services.AddDbContextPool<AlloyContext>((ServiceProvider, builder) => builder
+                    .AddInterceptors(ServiceProvider.GetRequiredService<EventTransactionInterceptor>())
+                    .UseInMemoryDatabase("api"));
                     break;
                 case "Sqlite":
                 case "SqlServer":
                 case "PostgreSQL":
-                    services.AddDbContextPool<AlloyContext>(builder => builder.UseConfiguredDatabase(Configuration));
+                    services.AddDbContextPool<AlloyContext>((serviceProvider, builder) => builder
+                    .AddInterceptors(serviceProvider.GetRequiredService<EventTransactionInterceptor>())
+                    .UseConfiguredDatabase(Configuration));
                     break;
             }
- 
+
             services.AddSingleton<StartupHealthCheck>();
             services.AddSingleton<HostedServiceHealthCheck>();
             services.AddHealthChecks()
                 .AddCheck<StartupHealthCheck>(
-                    "startup", 
-                    failureStatus: HealthStatus.Degraded, 
+                    "startup",
+                    failureStatus: HealthStatus.Degraded,
                     tags: new[] { "ready" })
                 .AddCheck<HostedServiceHealthCheck>(
-                    "service_responsive", 
-                    failureStatus: HealthStatus.Unhealthy, 
+                    "service_responsive",
+                    failureStatus: HealthStatus.Unhealthy,
                     tags: new[] { "live" });
 
             var connectionString = Configuration.GetConnectionString(DatabaseExtensions.DbProvider(Configuration));
             switch (provider)
             {
                 case "Sqlite":
-                    services.AddHealthChecks().AddSqlite(connectionString, tags: new[] { "ready", "live"});
+                    services.AddHealthChecks().AddSqlite(connectionString, tags: new[] { "ready", "live" });
                     break;
                 case "SqlServer":
-                    services.AddHealthChecks().AddSqlServer(connectionString, tags: new[] { "ready", "live"});
+                    services.AddHealthChecks().AddSqlServer(connectionString, tags: new[] { "ready", "live" });
                     break;
                 case "PostgreSQL":
-                    services.AddHealthChecks().AddNpgSql(connectionString, tags: new[] { "ready", "live"});
+                    services.AddHealthChecks().AddNpgSql(connectionString, tags: new[] { "ready", "live" });
                     break;
             }
 
@@ -120,6 +129,7 @@ namespace Alloy.Api
             services.AddSignalR()
             .AddJsonProtocol(options =>
             {
+                options.PayloadSerializerOptions.PropertyNameCaseInsensitive = true;
                 options.PayloadSerializerOptions.Converters.Add(new JsonStringEnumConverter());
             });
 
@@ -128,8 +138,8 @@ namespace Alloy.Api
                 options.Filters.Add(typeof(ValidateModelStateFilter));
                 options.Filters.Add(typeof(JsonExceptionFilter));
 
-                // Require all scopes in authOptions
-                var policyBuilder = new AuthorizationPolicyBuilder().RequireAuthenticatedUser();
+          // Require all scopes in authOptions
+          var policyBuilder = new AuthorizationPolicyBuilder().RequireAuthenticatedUser();
                 Array.ForEach(_authOptions.AuthorizationScope.Split(' '), x => policyBuilder.RequireScope(x));
 
                 var policy = policyBuilder.Build();
@@ -140,6 +150,7 @@ namespace Alloy.Api
                 options.JsonSerializerOptions.Converters.Add(new JsonNullableGuidConverter());
                 options.JsonSerializerOptions.Converters.Add(new JsonIntegerConverter());
                 options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter());
+
             })
             .SetCompatibilityVersion(CompatibilityVersion.Latest);
 
@@ -158,6 +169,24 @@ namespace Alloy.Api
                     ValidateIssuer = true,
                     ValidAudiences = _authOptions.AuthorizationScope.Split(' ')
                 };
+
+                options.Events = new JwtBearerEvents
+                {
+                    OnMessageReceived = context =>
+              {
+              // If the request is for our hub...
+              var path = context.HttpContext.Request.Path;
+                    var accessToken = context.Request.Query["access_token"];
+
+                    if (!string.IsNullOrEmpty(accessToken) &&
+                            (path.StartsWithSegments("/hubs")))
+                    {
+                  // Read the token out of the query string
+                  context.Token = accessToken;
+                    }
+                    return Task.CompletedTask;
+                }
+                };
             });
 
             services.AddRouting(options =>
@@ -173,6 +202,7 @@ namespace Alloy.Api
             services.AddScoped<IPlayerService, PlayerService>();
             services.AddScoped<ISteamfitterService, SteamfitterService>();
             services.AddScoped<IUserClaimsService, UserClaimsService>();
+            services.AddTransient<EventTransactionInterceptor>();
 
             // add the other API clients
             services.AddPlayerApiClient();
@@ -194,7 +224,12 @@ namespace Alloy.Api
                 cfg.ForAllPropertyMaps(
                     pm => pm.SourceType != null && Nullable.GetUnderlyingType(pm.SourceType) == pm.DestinationType,
                     (pm, c) => c.MapFrom<object, object, object, object>(new IgnoreNullSourceValues(), pm.SourceMember.Name));
+
+
             }, typeof(Startup));
+
+            services.AddMediatR(typeof(Startup).GetTypeInfo().Assembly);
+
         }
 
         // This method gets called by the runtime. Use this method to configure the HTTP request pipeline.
@@ -244,6 +279,7 @@ namespace Alloy.Api
                 {
                     Predicate = (check) => check.Tags.Contains("live"),
                 });
+                endpoints.MapHub<EventHub>("/hubs/event");
             });
 
             app.UseSwagger();

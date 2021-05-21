@@ -7,10 +7,10 @@ using System.Linq;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
+using Alloy.Api.Data.Models;
 using IdentityModel.Client;
 using Player.Api;
 using Player.Api.Models;
-using Alloy.Api.Data.Models;
 
 namespace Alloy.Api.Infrastructure.Extensions
 {
@@ -78,6 +78,36 @@ namespace Alloy.Api.Infrastructure.Extensions
             }
         }
 
+        public static async Task<bool> AddUserToViewTeamAsync(PlayerApiClient playerApiClient, Guid viewId, Guid userId, CancellationToken ct)
+        {
+            try
+            {
+                var view = await playerApiClient.GetViewAsync(viewId, ct);
+                var roles = await playerApiClient.GetRolesAsync(ct);
+                var teams = await playerApiClient.GetViewTeamsAsync(viewId, ct);
+                //Get first non-admin team
+                foreach (var team in teams)
+                {
+                    if (team.Permissions.Where(p => p.Key == "ViewAdmin").Any())
+                        continue;
 
+                    if (team.RoleId.HasValue)
+                    {
+                        var role = roles.Where(r => r.Id == team.RoleId).FirstOrDefault();
+
+                        if (role != null && role.Permissions.Where(p => p.Key == "ViewAdmin").Any())
+                            continue;
+                    }
+
+                    await playerApiClient.AddUserToTeamAsync(team.Id.Value, userId, ct);
+                }
+
+                return true;
+            }
+            catch (Exception ex)
+            {
+                return false;
+            }
+        }
     }
 }

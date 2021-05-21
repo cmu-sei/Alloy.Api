@@ -1,13 +1,13 @@
 // Copyright 2021 Carnegie Mellon University. All Rights Reserved.
 // Released under a MIT (SEI)-style license. See LICENSE.md in the project root for license information.
 
-using Microsoft.EntityFrameworkCore;
-using Alloy.Api.Data.Models;
-using Alloy.Api.Data.Extensions;
 using System;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using Alloy.Api.Data.Extensions;
+using Alloy.Api.Data.Models;
+using Microsoft.EntityFrameworkCore;
 
 namespace Alloy.Api.Data
 {
@@ -15,16 +15,18 @@ namespace Alloy.Api.Data
     {
         private DbContextOptions<AlloyContext> _options;
 
-        public AlloyContext(DbContextOptions<AlloyContext> options) : base(options) {
+        public AlloyContext(DbContextOptions<AlloyContext> options) : base(options)
+        {
             _options = options;
         }
-        
+
         public DbSet<EventTemplateEntity> EventTemplates { get; set; }
         public DbSet<EventEntity> Events { get; set; }
+        public DbSet<EventUserEntity> EventUsers { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
-            modelBuilder.ApplyConfigurations();             
+            modelBuilder.ApplyConfigurations();
 
             // Apply PostgreSQL specific options
             if (Database.IsNpgsql())
