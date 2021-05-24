@@ -37,51 +37,49 @@ namespace Alloy.Api.Hubs
     {
         private readonly AlloyContext _context;
         private readonly IAuthorizationService _authorizationService;
-        private readonly IUserClaimsService _claimsService;
         private readonly ClaimsPrincipal _user;
 
-
-
-        public EventHub(AlloyContext context, IAuthorizationService authorizationService, IUserClaimsService claimsService, IPrincipal user)
+        public EventHub(AlloyContext context, IAuthorizationService authorizationService, IPrincipal user)
         {
             _context = context;
             _authorizationService = authorizationService;
-            _claimsService = claimsService;
             _user = user as ClaimsPrincipal;
 
         }
 
         public async Task JoinEvent(Guid eventId)
         {
-            var user = await _claimsService.GetClaimsPrincipal(_user.GetId(), true);
-            if (!(await _authorizationService.AuthorizeAsync(user, null, new BasicRightsRequirement())).Succeeded)
+            if (!(await _authorizationService.AuthorizeAsync(_user, null, new BasicRightsRequirement())).Succeeded)
                 throw new ForbiddenException();
 
-            var userEvent = await _context.EventUsers.Where(u => u.EventId == eventId && u.UserId == _user.GetId()).FirstOrDefaultAsync();
-            if (userEvent != null)
+            var evt = await _context.Events
+                .Include(x => x.EventUsers)
+                .SingleOrDefaultAsync(x => x.Id == eventId);
+
+            if (evt.UserId == _user.GetId() || evt.EventUsers.Any(x => x.UserId == _user.GetId()))
+            {
                 await Groups.AddToGroupAsync(Context.ConnectionId, eventId.ToString());
+            }
         }
         public async Task LeaveEvent(Guid eventId)
         {
-            var user = await _claimsService.GetClaimsPrincipal(_user.GetId(), true);
-            if (!(await _authorizationService.AuthorizeAsync(user, null, new BasicRightsRequirement())).Succeeded)
+            if (!(await _authorizationService.AuthorizeAsync(_user, null, new BasicRightsRequirement())).Succeeded)
                 throw new ForbiddenException();
-
 
             await Groups.RemoveFromGroupAsync(Context.ConnectionId, eventId.ToString());
         }
         public async Task JoinAdmin()
         {
-            var user = await _claimsService.GetClaimsPrincipal(_user.GetId(), true);
-            if (!(await _authorizationService.AuthorizeAsync(user, null, new SystemAdminRightsRequirement())).Succeeded)
+            if (!(await _authorizationService.AuthorizeAsync(_user, null, new SystemAdminRightsRequirement())).Succeeded)
                 throw new ForbiddenException();
+
             await Groups.AddToGroupAsync(Context.ConnectionId, "admin");
         }
         public async Task LeaveAdmin()
         {
-            var user = await _claimsService.GetClaimsPrincipal(_user.GetId(), true);
-            if (!(await _authorizationService.AuthorizeAsync(user, null, new SystemAdminRightsRequirement())).Succeeded)
+            if (!(await _authorizationService.AuthorizeAsync(_user, null, new SystemAdminRightsRequirement())).Succeeded)
                 throw new ForbiddenException();
+
             await Groups.AddToGroupAsync(Context.ConnectionId, "admin");
         }
     }

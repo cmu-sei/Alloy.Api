@@ -96,7 +96,7 @@ namespace Alloy.Api.Services
                             }
                         }
                     }
-                    bootstrapComplete = true;                    
+                    bootstrapComplete = true;
                     _startupHealthCheck.StartupTaskCompleted = true;
                 }
                 catch (System.Exception ex)
@@ -152,7 +152,7 @@ namespace Alloy.Api.Services
                         eventEntity = alloyContext.Events.First(x => x.Id == eventEntity.Id);
                         var eventTemplateEntity = alloyContext.EventTemplates.First(x => x.Id == eventEntity.EventTemplateId);
                         // get the auth token
-                        var tokenResponse = await ApiClientsExtensions.GetToken(scope);
+                        var tokenResponse = await ApiClientsExtensions.GetToken(scope.ServiceProvider);
                         CasterApiClient casterApiClient = null;
                         PlayerApiClient playerApiClient = null;
                         SteamfitterApiClient steamfitterApiClient = null;
