@@ -24,9 +24,9 @@ namespace Alloy.Api.Infrastructure.Extensions
             return client;
         }
 
-        public static async Task<TokenResponse> GetToken(IServiceScope scope)
+        public static async Task<TokenResponse> GetToken(IServiceProvider serviceProvider)
         {
-            var resourceOwnerAuthorizationOptions = scope.ServiceProvider.GetRequiredService<ResourceOwnerAuthorizationOptions>();
+            var resourceOwnerAuthorizationOptions = serviceProvider.GetRequiredService<ResourceOwnerAuthorizationOptions>();
             var tokenResponse = await RequestTokenAsync(resourceOwnerAuthorizationOptions);
             return tokenResponse;
         }

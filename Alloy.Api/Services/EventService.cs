@@ -63,7 +63,8 @@ namespace Alloy.Api.Services
         private readonly ResourceOwnerAuthorizationOptions _resourceOwnerAuthorizationOptions;
         private readonly ClientOptions _clientOptions;
         private readonly IHttpClientFactory _httpClientFactory;
-        private readonly IServiceScopeFactory _scopeFactory;
+        private readonly IServiceProvider _serviceProvider;
+
 
         public EventService(
             AlloyContext context,
@@ -79,8 +80,8 @@ namespace Alloy.Api.Services
             IUserClaimsService claimsService,
             ResourceOwnerAuthorizationOptions resourceOwnerAuthorizationOptions,
             ClientOptions clientOptions,
-            IServiceScopeFactory scopeFactory,
-            IHttpClientFactory httpClientFactory)
+            IHttpClientFactory httpClientFactory,
+            IServiceProvider serviceProvider)
         {
             _context = context;
             _authorizationService = authorizationService;
@@ -95,8 +96,8 @@ namespace Alloy.Api.Services
             _claimsService = claimsService;
             _resourceOwnerAuthorizationOptions = resourceOwnerAuthorizationOptions;
             _clientOptions = clientOptions;
-            _scopeFactory = scopeFactory;
             _httpClientFactory = httpClientFactory;
+            _serviceProvider = serviceProvider;
         }
 
         public async Task<IEnumerable<Event>> GetAsync(CancellationToken ct)
@@ -439,50 +440,42 @@ namespace Alloy.Api.Services
 
         public async Task<Event> EnlistAsync(string code, CancellationToken ct)
         {
-            using (var scope = _scopeFactory.CreateScope())
+            // user may not have access to the player api, so we get the resource owner token
+            var token = await ApiClientsExtensions.GetToken(_serviceProvider);
+            var playerApiClient = PlayerApiExtensions.GetPlayerApiClient(_httpClientFactory, _clientOptions.urls.playerApi, token);
+            var alloyEvent = await GetEventByShareCodeAsync(code, ct);
+            if (alloyEvent.Status == EventStatus.Active || alloyEvent.Status == EventStatus.Paused)
             {
-
-                // user may not have access to the player api, so we get the resource owner token
-                var token = await ApiClientsExtensions.GetToken(scope);
-                var playerApiClient = PlayerApiExtensions.GetPlayerApiClient(_httpClientFactory, _clientOptions.urls.playerApi, token);
-                var alloyEvent = await GetEventByShareCodeAsync(code, ct);
-                if (alloyEvent.Status == EventStatus.Active || alloyEvent.Status == EventStatus.Paused)
+                // Add user to player view as first non-admin team.
+                if (alloyEvent != null && alloyEvent.ViewId.Value != null)
                 {
-                    // Add user to player view as first non-admin team. 
-                    if (alloyEvent != null && alloyEvent.ViewId.Value != null)
+                    await PlayerApiExtensions.AddUserToViewTeamAsync(playerApiClient, alloyEvent.ViewId.Value, _user.GetId(), ct);
+
+                    try
                     {
-                        await PlayerApiExtensions.AddUserToViewTeamAsync(playerApiClient, alloyEvent.ViewId.Value, _user.GetId(), ct);
-
-
-                        var eventUser = new EventUserEntity
+                        var entity = await _context.EventUsers.Where(e => e.UserId == _user.GetId() && e.EventId == alloyEvent.Id).FirstOrDefaultAsync();
+                        if (entity == null)
                         {
-                            EventId = alloyEvent.Id,
-                            UserId = _user.GetId(),
-                            CreatedBy = _user.GetId()
-                        };
-                        try
-                        {
-                            var entity = await _context.EventUsers.Where(e => e.UserId == _user.GetId() && e.EventId == alloyEvent.Id).FirstOrDefaultAsync();
-                            if (entity == null)
+                            var eventUser = new EventUserEntity
                             {
-                                _context.EventUsers.Add(eventUser);
-                                await _context.SaveChangesAsync();
-                            }
-                            else
-                            {
-                                return alloyEvent;
-                            }
+                                EventId = alloyEvent.Id,
+                                UserId = _user.GetId(),
+                                CreatedBy = _user.GetId()
+                            };
 
-                        }
-                        catch (Exception e)
-                        {
-                            throw new InviteException("Invite Failed, Accepted Already");
+                            _context.EventUsers.Add(eventUser);
+                            await _context.SaveChangesAsync();
                         }
 
+                        return alloyEvent;
+                    }
+                    catch (Exception)
+                    {
+                        throw new InviteException("Invite Failed, Accepted Already");
                     }
                 }
-                throw new InviteException($"Invite Failed, Event Status: {Enum.GetName(typeof(EventStatus), alloyEvent.Status)}");
             }
+            throw new InviteException($"Invite Failed, Event Status: {Enum.GetName(typeof(EventStatus), alloyEvent.Status)}");
         }
     }
 }
