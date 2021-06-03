@@ -1,18 +1,14 @@
 // Copyright 2021 Carnegie Mellon University. All Rights Reserved.
 // Released under a MIT (SEI)-style license. See LICENSE.md in the project root for license information.
 
-using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Http;
-using Microsoft.Rest;
-using Steamfitter.Api;
-using Steamfitter.Api.Models;
 using Alloy.Api.Extensions;
 using Alloy.Api.Infrastructure.Options;
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using Steamfitter.Api.Client;
 
 namespace Alloy.Api.Services
 {
@@ -30,7 +26,7 @@ namespace Alloy.Api.Services
         {
             _userId = httpContextAccessor.HttpContext.User.GetId();
             _steamfitterApiClient = steamfitterApiClient;
-        }       
+        }
 
         public async Task<IEnumerable<ScenarioTemplate>> GetScenarioTemplatesAsync(CancellationToken ct)
         {
@@ -44,4 +40,3 @@ namespace Alloy.Api.Services
 
     }
 }
-

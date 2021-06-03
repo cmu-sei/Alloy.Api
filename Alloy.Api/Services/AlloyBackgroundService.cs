@@ -8,16 +8,15 @@ using Microsoft.Extensions.Options;
 using Alloy.Api.Data;
 using Alloy.Api.Data.Models;
 using Alloy.Api.Infrastructure.Extensions;
-using Alloy.Api.Infrastructure.Options;
 using System;
 using System.Linq;
 using System.Net.Http;
 using System.Threading;
-using System.Threading.Tasks;
 using Caster.Api;
 using IdentityModel.Client;
-using Steamfitter.Api;
 using Player.Api;
+using Steamfitter.Api.Client;
+using Task = System.Threading.Tasks.Task;
 
 namespace Alloy.Api.Services
 {

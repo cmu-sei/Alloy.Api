@@ -6,9 +6,9 @@ using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
 using IdentityModel.Client;
-using Steamfitter.Api;
-using Steamfitter.Api.Models;
 using Alloy.Api.Data.Models;
+using Steamfitter.Api.Client;
+using System.Collections.Generic;
 
 namespace Alloy.Api.Infrastructure.Extensions
 {
@@ -17,8 +17,7 @@ namespace Alloy.Api.Infrastructure.Extensions
         public static SteamfitterApiClient GetSteamfitterApiClient(IHttpClientFactory httpClientFactory, string apiUrl, TokenResponse tokenResponse)
         {
             var client = ApiClientsExtensions.GetHttpClient(httpClientFactory, apiUrl, tokenResponse);
-            var apiClient = new SteamfitterApiClient(client, true);
-            apiClient.BaseUri = client.BaseAddress;
+            var apiClient = new SteamfitterApiClient(client);
             return apiClient;
         }
 
@@ -26,10 +25,14 @@ namespace Alloy.Api.Infrastructure.Extensions
         {
             try
             {
-                var scenario = await steamfitterApiClient.CreateScenarioFromScenarioTemplateAsync(scenarioTemplateId, ct);
-                scenario.Name = $"{scenario.Name.Replace("From ScenarioTemplate ", "")} - {eventEntity.Username}";
-                scenario.ViewId = eventEntity.ViewId;
-                scenario = await steamfitterApiClient.UpdateScenarioAsync((Guid)scenario.Id, scenario, ct);
+                var options = new ScenarioCloneOptions
+                {
+                    ViewId = eventEntity.ViewId,
+                    NameSuffix = $"- {eventEntity.Username}",
+                    UserIds = new List<Guid>() { eventEntity.UserId }
+                };
+
+                var scenario = await steamfitterApiClient.CreateScenarioFromScenarioTemplateAsync(scenarioTemplateId, options, ct);
                 return scenario;
             }
             catch (Exception ex)
@@ -45,7 +48,7 @@ namespace Alloy.Api.Infrastructure.Extensions
                 await steamfitterApiClient.StartScenarioAsync(scenarioId, ct);
                 return true;
             }
-            catch(Exception ex)
+            catch (Exception ex)
             {
                 return false;
             }
@@ -71,5 +74,3 @@ namespace Alloy.Api.Infrastructure.Extensions
 
     }
 }
-
-
