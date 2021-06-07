@@ -286,7 +286,7 @@ namespace Alloy.Api.Services
                                             case InternalEventStatus.PlanningRedeploy:
                                                 {
                                                     casterApiClient = RefreshClient(casterApiClient, tokenResponse, ct);
-                                                    var runId = await CasterApiExtensions.CreateRunAsync(eventEntity, casterApiClient, false, ct);
+                                                    var runId = await CasterApiExtensions.CreateRunAsync(eventEntity, casterApiClient, false, _logger, ct);
                                                     if (runId != null)
                                                     {
                                                         eventEntity.RunId = runId;
@@ -312,7 +312,7 @@ namespace Alloy.Api.Services
                                             case InternalEventStatus.PlannedRedeploy:
                                                 {
                                                     casterApiClient = RefreshClient(casterApiClient, tokenResponse, ct);
-                                                    updateTheEntity = await CasterApiExtensions.WaitForRunToBePlannedAsync(eventEntity, casterApiClient, _clientOptions.CurrentValue.CasterCheckIntervalSeconds, _clientOptions.CurrentValue.CasterPlanningMaxWaitMinutes, ct);
+                                                    updateTheEntity = await CasterApiExtensions.WaitForRunToBePlannedAsync(eventEntity, casterApiClient, _clientOptions.CurrentValue.CasterCheckIntervalSeconds, _clientOptions.CurrentValue.CasterPlanningMaxWaitMinutes, _logger, ct);
                                                     if (updateTheEntity)
                                                     {
                                                         eventEntity.Status = EventStatus.Applying;
@@ -375,7 +375,7 @@ namespace Alloy.Api.Services
                                             case InternalEventStatus.AppliedRedeploy:
                                                 {
                                                     casterApiClient = RefreshClient(casterApiClient, tokenResponse, ct);
-                                                    updateTheEntity = await CasterApiExtensions.WaitForRunToBeAppliedAsync(eventEntity, casterApiClient, _clientOptions.CurrentValue.CasterCheckIntervalSeconds, _clientOptions.CurrentValue.CasterDeployMaxWaitMinutes, ct);
+                                                    updateTheEntity = await CasterApiExtensions.WaitForRunToBeAppliedAsync(eventEntity, casterApiClient, _clientOptions.CurrentValue.CasterCheckIntervalSeconds, _clientOptions.CurrentValue.CasterDeployMaxWaitMinutes, _logger, ct);
                                                     if (updateTheEntity)
                                                     {
                                                         switch (eventEntity.InternalStatus)
@@ -445,7 +445,7 @@ namespace Alloy.Api.Services
                                                     if (eventEntity.WorkspaceId != null)
                                                     {
                                                         casterApiClient = RefreshClient(casterApiClient, tokenResponse, ct);
-                                                        var runId = await CasterApiExtensions.CreateRunAsync(eventEntity, casterApiClient, true, ct);
+                                                        var runId = await CasterApiExtensions.CreateRunAsync(eventEntity, casterApiClient, true, _logger, ct);
                                                         if (runId != null)
                                                         {
                                                             eventEntity.RunId = runId;
@@ -475,7 +475,7 @@ namespace Alloy.Api.Services
                                                     else
                                                     {
                                                         casterApiClient = RefreshClient(casterApiClient, tokenResponse, ct);
-                                                        updateTheEntity = await CasterApiExtensions.WaitForRunToBePlannedAsync(eventEntity, casterApiClient, _clientOptions.CurrentValue.CasterCheckIntervalSeconds, _clientOptions.CurrentValue.CasterPlanningMaxWaitMinutes, ct);
+                                                        updateTheEntity = await CasterApiExtensions.WaitForRunToBePlannedAsync(eventEntity, casterApiClient, _clientOptions.CurrentValue.CasterCheckIntervalSeconds, _clientOptions.CurrentValue.CasterPlanningMaxWaitMinutes, _logger, ct);
                                                         if (updateTheEntity)
                                                         {
                                                             eventEntity.InternalStatus = InternalEventStatus.ApplyingDestroy;
@@ -504,7 +504,7 @@ namespace Alloy.Api.Services
                                             case InternalEventStatus.AppliedDestroy:
                                                 {
                                                     casterApiClient = RefreshClient(casterApiClient, tokenResponse, ct);
-                                                    await CasterApiExtensions.WaitForRunToBeAppliedAsync(eventEntity, casterApiClient, _clientOptions.CurrentValue.CasterCheckIntervalSeconds, _clientOptions.CurrentValue.CasterDestroyMaxWaitMinutes, ct);
+                                                    await CasterApiExtensions.WaitForRunToBeAppliedAsync(eventEntity, casterApiClient, _clientOptions.CurrentValue.CasterCheckIntervalSeconds, _clientOptions.CurrentValue.CasterDestroyMaxWaitMinutes, _logger, ct);
                                                     // all conditions in this case require an event entity update
                                                     updateTheEntity = true;
                                                     // make sure that the run successfully deleted the resources
