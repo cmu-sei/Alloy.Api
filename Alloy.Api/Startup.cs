@@ -13,6 +13,7 @@ using Alloy.Api.Extensions;
 using Alloy.Api.Hubs;
 using Alloy.Api.Infrastructure;
 using Alloy.Api.Infrastructure.Authorization;
+using Alloy.Api.Infrastructure.ClaimsTransformers;
 using Alloy.Api.Infrastructure.DbInterceptors;
 using Alloy.Api.Infrastructure.Extensions;
 using Alloy.Api.Infrastructure.Filters;
@@ -23,6 +24,7 @@ using Alloy.Api.Options;
 using Alloy.Api.Services;
 using AutoMapper;
 using MediatR;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Builder;
@@ -231,7 +233,7 @@ namespace Alloy.Api
             }, typeof(Startup));
 
             services.AddMediatR(typeof(Startup).GetTypeInfo().Assembly);
-
+            services.AddScoped<IClaimsTransformation, AuthorizationClaimsTransformer>();
         }
 
         // This method gets called by the runtime. Use this method to configure the HTTP request pipeline.
