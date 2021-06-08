@@ -66,9 +66,8 @@ namespace Alloy.Api.Services
         public async Task<IEnumerable<string>> GetUserClaimValuesAsync(CancellationToken ct)
         {
             var claimValues = new List<string>();
-            var user = await _claimsService.GetClaimsPrincipal(_user.GetId(), true);
-            if ((await _authorizationService.AuthorizeAsync(user, null, new SystemAdminRightsRequirement())).Succeeded) claimValues.Add("SystemAdmin");
-            if ((await _authorizationService.AuthorizeAsync(user, null, new ContentDeveloperRightsRequirement())).Succeeded) claimValues.Add("ContentDeveloper");
+            if ((await _authorizationService.AuthorizeAsync(_user, null, new SystemAdminRightsRequirement())).Succeeded) claimValues.Add("SystemAdmin");
+            if ((await _authorizationService.AuthorizeAsync(_user, null, new ContentDeveloperRightsRequirement())).Succeeded) claimValues.Add("ContentDeveloper");
 
             return claimValues;
         }

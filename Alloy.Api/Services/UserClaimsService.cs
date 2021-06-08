@@ -7,14 +7,11 @@ using System.Linq;
 using System.Security.Claims;
 using System.Threading;
 using System.Threading.Tasks;
-using AutoMapper.QueryableExtensions;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
 using Alloy.Api.Data;
 using Alloy.Api.Extensions;
 using Alloy.Api.Options;
 using Player.Api;
-using Player.Api.Models;
 
 namespace Alloy.Api.Services
 {
