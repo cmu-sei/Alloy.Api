@@ -90,10 +90,23 @@ namespace Alloy.Api.Services
 
             var item = await _context.EventTemplates
                 .SingleOrDefaultAsync(o => o.Id == id, ct);
+
             if (!item.IsPublished &&
-                !((await _authorizationService.AuthorizeAsync(_user, null, new ContentDeveloperRightsRequirement())).Succeeded ||
+                !(
+                    (await _authorizationService.AuthorizeAsync(_user, null, new ContentDeveloperRightsRequirement())).Succeeded ||
                     (await _authorizationService.AuthorizeAsync(_user, null, new SystemAdminRightsRequirement())).Succeeded))
-                throw new ForbiddenException();
+            {
+                if (!await _context.EventUsers.AnyAsync(x =>
+                    x.UserId == _user.GetId() &&
+                    x.Event.EventTemplateId == id &&
+                    x.Event.Status != EventStatus.Ended &&
+                    x.Event.Status != EventStatus.Failed &&
+                    x.Event.Status != EventStatus.Expired, ct))
+                {
+                    throw new ForbiddenException();
+                }
+            }
+
 
             return _mapper.Map<EventTemplate>(item);
         }
