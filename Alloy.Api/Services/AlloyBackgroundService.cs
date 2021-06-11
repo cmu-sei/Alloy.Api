@@ -251,14 +251,22 @@ namespace Alloy.Api.Services
                                                             playerApiClient = RefreshClient(playerApiClient, tokenResponse, ct);
                                                             varsFileContent = await CasterApiExtensions.GetCasterVarsFileContentAsync(eventEntity, playerApiClient, ct);
                                                         }
-                                                        casterApiClient = RefreshClient(casterApiClient, tokenResponse, ct);
-                                                        var workspaceId = await CasterApiExtensions.CreateCasterWorkspaceAsync(casterApiClient, eventEntity, (Guid)eventTemplateEntity.DirectoryId, varsFileContent, eventTemplateEntity.UseDynamicHost, ct);
-                                                        if (workspaceId != null)
+
+                                                        if (!string.IsNullOrEmpty(varsFileContent))
                                                         {
-                                                            eventEntity.WorkspaceId = workspaceId;
-                                                            eventEntity.InternalStatus = InternalEventStatus.PlanningLaunch;
-                                                            eventEntity.Status = EventStatus.Planning;
-                                                            updateTheEntity = true;
+                                                            casterApiClient = RefreshClient(casterApiClient, tokenResponse, ct);
+                                                            var workspaceId = await CasterApiExtensions.CreateCasterWorkspaceAsync(casterApiClient, eventEntity, (Guid)eventTemplateEntity.DirectoryId, varsFileContent, eventTemplateEntity.UseDynamicHost, ct);
+                                                            if (workspaceId != null)
+                                                            {
+                                                                eventEntity.WorkspaceId = workspaceId;
+                                                                eventEntity.InternalStatus = InternalEventStatus.PlanningLaunch;
+                                                                eventEntity.Status = EventStatus.Planning;
+                                                                updateTheEntity = true;
+                                                            }
+                                                            else
+                                                            {
+                                                                retryCount++;
+                                                            }
                                                         }
                                                         else
                                                         {
