@@ -33,7 +33,7 @@ namespace Alloy.Api.Services
     {
         Task<IEnumerable<Event>> GetAsync(CancellationToken ct);
         Task<IEnumerable<Event>> GetEventTemplateEventsAsync(Guid eventTemplateId, CancellationToken ct);
-        Task<IEnumerable<Event>> GetMyEventTemplateEventsAsync(Guid eventTemplateId, CancellationToken ct);
+        Task<IEnumerable<Event>> GetMyEventTemplateEventsAsync(Guid eventTemplateId, bool includeInvites, CancellationToken ct);
         Task<IEnumerable<Event>> GetMyViewEventsAsync(Guid viewId, CancellationToken ct);
         Task<IEnumerable<Event>> GetMyEventsAsync(CancellationToken ct);
         Task<Event> GetAsync(Guid id, CancellationToken ct);
@@ -135,14 +135,24 @@ namespace Alloy.Api.Services
             return _mapper.Map<IEnumerable<Event>>(items);
         }
 
-        public async Task<IEnumerable<Event>> GetMyEventTemplateEventsAsync(Guid eventTemplateId, CancellationToken ct)
+        public async Task<IEnumerable<Event>> GetMyEventTemplateEventsAsync(Guid eventTemplateId, bool includeInvites, CancellationToken ct)
         {
             if (!(await _authorizationService.AuthorizeAsync(_user, null, new BasicRightsRequirement())).Succeeded)
                 throw new ForbiddenException();
 
-            var items = await _context.Events
-                .Where(x => x.UserId == _user.GetId() && x.EventTemplateId == eventTemplateId)
-                .ToListAsync(ct);
+            var query = _context.Events
+                .Where(x => x.EventTemplateId == eventTemplateId);
+
+            if (includeInvites)
+            {
+                query = query.Where(x => x.UserId == _user.GetId() || x.EventUsers.Any(y => y.UserId == _user.GetId()));
+            }
+            else
+            {
+                query = query.Where(x => x.UserId == _user.GetId());
+            }
+
+            var items = await query.ToListAsync(ct);
 
             return _mapper.Map<IEnumerable<Event>>(items);
         }
