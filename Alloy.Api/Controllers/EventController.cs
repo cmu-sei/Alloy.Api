@@ -71,9 +71,9 @@ namespace Alloy.Api.Controllers
         [HttpGet("eventTemplates/{eventTemplateId}/events/mine")]
         [ProducesResponseType(typeof(IEnumerable<Event>), (int)HttpStatusCode.OK)]
         [SwaggerOperation(OperationId = "getMyEventTemplateEvents")]
-        public async Task<IActionResult> GetMyEventTemplateEvents(string eventTemplateId, CancellationToken ct)
+        public async Task<IActionResult> GetMyEventTemplateEvents(string eventTemplateId, bool includeInvites, CancellationToken ct)
         {
-            var list = await _eventService.GetMyEventTemplateEventsAsync(Guid.Parse(eventTemplateId), ct);
+            var list = await _eventService.GetMyEventTemplateEventsAsync(Guid.Parse(eventTemplateId), includeInvites, ct);
             return Ok(list);
         }
 
