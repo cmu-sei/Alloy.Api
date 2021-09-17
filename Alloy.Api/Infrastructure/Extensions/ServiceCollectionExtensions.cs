@@ -12,7 +12,7 @@ using Alloy.Api.Infrastructure.OperationFilters;
 using Alloy.Api.Infrastructure.Options;
 using Alloy.Api.Options;
 using Alloy.Api.Services;
-using Caster.Api;
+using Caster.Api.Client;
 using Microsoft.AspNetCore.Http;
 using Microsoft.CodeAnalysis;
 using Microsoft.Extensions.DependencyInjection;
@@ -124,9 +124,7 @@ namespace Alloy.Api.Infrastructure.Extensions
                 httpClient.BaseAddress = casterUri;
                 httpClient.DefaultRequestHeaders.Add("Authorization", authHeader);
 
-                var apiClient = new CasterApiClient(httpClient, true);
-                apiClient.BaseUri = casterUri;
-
+                var apiClient = new CasterApiClient(httpClient);
                 return apiClient;
             });
         }

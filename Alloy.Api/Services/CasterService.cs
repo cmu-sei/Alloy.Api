@@ -4,8 +4,7 @@
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Rest;
-using Caster.Api;
-using Caster.Api.Models;
+using Caster.Api.Client;
 using Alloy.Api.Extensions;
 using Alloy.Api.Infrastructure.Options;
 using System;
@@ -21,6 +20,9 @@ namespace Alloy.Api.Services
     {
         // Task<IEnumerable<View>> GetViewsAsync(CancellationToken ct);
         Task<IEnumerable<Directory>> GetDirectoriesAsync(CancellationToken ct);
+        Task<IEnumerable<Resource>> GetWorkspaceResourcesAsync(Guid workspaceId, CancellationToken ct);
+        Task<object> GetWorkspaceOutputsAsync(Guid workspaceId, CancellationToken ct);
+        Task<Resource> RefreshResourceAsync(Guid workspaceId, Resource resource, CancellationToken ct);
         // Task<IEnumerable<Workspace>> GetWorkspacesAsync(CancellationToken ct);
         // Task<Workspace> CreateWorkspaceInDirectoryAsync(Guid directoryId, string varsFileContent, CancellationToken ct);
     }
@@ -36,7 +38,7 @@ namespace Alloy.Api.Services
             _userId = httpContextAccessor.HttpContext.User.GetId();
             _userName = httpContextAccessor.HttpContext.User.Claims.First(c => c.Type.ToLower() == "name").Value;
             _casterApiClient = casterApiClient;
-        }       
+        }
 
         // public async Task<IEnumerable<View>> GetViewsAsync(CancellationToken ct)
         // {
@@ -52,6 +54,21 @@ namespace Alloy.Api.Services
             return directories;
         }
 
+        public async Task<IEnumerable<Resource>> GetWorkspaceResourcesAsync(Guid workspaceId, CancellationToken ct)
+        {
+            return await _casterApiClient.GetResourcesByWorkspaceAsync(workspaceId, ct);
+        }
+
+        public async Task<object> GetWorkspaceOutputsAsync(Guid workspaceId, CancellationToken ct)
+        {
+            return (await _casterApiClient.GetWorkspaceOutputsAsync(workspaceId, ct)).Outputs;
+        }
+
+        public async Task<Resource> RefreshResourceAsync(Guid workspaceId, Resource resource, CancellationToken ct)
+        {
+            return await _casterApiClient.GetResourceAsync(workspaceId, resource.Id, resource.Type, ct);
+        }
+
         // public async Task<IEnumerable<Workspace>> GetWorkspacesAsync(CancellationToken ct)
         // {
         //     var directories = await _casterApiClient.GetWorkspacesAsync(ct);
@@ -64,7 +81,7 @@ namespace Alloy.Api.Services
         //     // remove special characters from the user name
         //     var userName = Regex.Replace(_userName, @"[^\w\.-]", "", RegexOptions.None);
         //     // create the new workspace
-        //     var workspaceCommand = new CreateWorkspaceCommand() 
+        //     var workspaceCommand = new CreateWorkspaceCommand()
         //     {
         //         Name = $"x-{userName}-{_userId.ToString()}",
         //         DirectoryId = directoryId
@@ -85,4 +102,3 @@ namespace Alloy.Api.Services
 
     }
 }
-

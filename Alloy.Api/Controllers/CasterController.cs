@@ -14,7 +14,7 @@ using Alloy.Api.Services;
 using Alloy.Api.ViewModels;
 using Alloy.Api.Infrastructure.Authorization;
 using Swashbuckle.AspNetCore.Annotations;
-using Caster.Api.Models;
+using Caster.Api.Client;
 
 namespace Alloy.Api.Controllers
 {
@@ -34,7 +34,7 @@ namespace Alloy.Api.Controllers
         /// </summary>
         /// <remarks>
         /// Returns a list of all of the Directories.
-        /// </remarks>       
+        /// </remarks>
         /// <returns></returns>
         [HttpGet("directories")]
         [ProducesResponseType(typeof(IEnumerable<Directory>), (int)HttpStatusCode.OK)]
@@ -50,7 +50,7 @@ namespace Alloy.Api.Controllers
         // /// </summary>
         // /// <remarks>
         // /// Returns a list of all of Workspaces.
-        // /// </remarks>       
+        // /// </remarks>
         // /// <returns></returns>
         // [HttpGet("workspaces")]
         // [ProducesResponseType(typeof(IEnumerable<Workspace>), (int)HttpStatusCode.OK)]
@@ -64,4 +64,3 @@ namespace Alloy.Api.Controllers
     }
 
 }
-

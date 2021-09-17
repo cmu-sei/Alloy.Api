@@ -12,11 +12,11 @@ using System;
 using System.Linq;
 using System.Net.Http;
 using System.Threading;
-using Caster.Api;
 using IdentityModel.Client;
 using Player.Api;
 using Steamfitter.Api.Client;
 using Task = System.Threading.Tasks.Task;
+using Caster.Api.Client;
 
 namespace Alloy.Api.Services
 {

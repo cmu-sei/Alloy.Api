@@ -92,6 +92,7 @@ namespace Alloy.Api.Controllers
             var list = await _eventService.GetMyViewEventsAsync(Guid.Parse(viewId), ct);
             return Ok(list);
         }
+
         /// <summary>
         /// Gets all events for a user
         /// </summary>
@@ -157,13 +158,14 @@ namespace Alloy.Api.Controllers
         /// Creates a new Event from the specified eventTemplate
         /// </remarks>
         /// <param name="eventTemplateId">The ID of the EventTemplate to use to create the Event</param>
+        /// <param name="userId"></param>
         /// <param name="ct"></param>
         [HttpPost("eventTemplates/{eventTemplateId}/events")]
         [ProducesResponseType(typeof(Event), (int)HttpStatusCode.Created)]
         [SwaggerOperation(OperationId = "createEventFromEventTemplate")]
-        public async Task<IActionResult> CreateEventFromEventTemplate(string eventTemplateId, CancellationToken ct)
+        public async Task<IActionResult> CreateEventFromEventTemplate(string eventTemplateId, Guid? userId, string username, CancellationToken ct)
         {
-            var createdEvent = await _eventService.LaunchEventFromEventTemplateAsync(Guid.Parse(eventTemplateId), ct);
+            var createdEvent = await _eventService.LaunchEventFromEventTemplateAsync(Guid.Parse(eventTemplateId), userId, username, ct);
             return CreatedAtAction(nameof(this.Get), new { id = createdEvent.Id }, createdEvent);
         }
 
@@ -243,6 +245,7 @@ namespace Alloy.Api.Controllers
             await _eventService.RedeployAsync(id, ct);
             return NoContent();
         }
+
         /// <summary>
         /// Generate an invitation code for an event
         /// </summary>
@@ -257,6 +260,7 @@ namespace Alloy.Api.Controllers
             var state = await _eventService.CreateInviteAsync(id, ct);
             return CreatedAtAction(nameof(this.Get), state);
         }
+
         [HttpPost("events/enlist/{code}")]
         [ProducesResponseType(typeof(EventUser), (int)HttpStatusCode.Created)]
         [SwaggerOperation(OperationId = "enlist")]
@@ -265,6 +269,51 @@ namespace Alloy.Api.Controllers
             var enlistedUser = await _eventService.EnlistAsync(code, ct);
 
             return CreatedAtAction(nameof(this.Get), enlistedUser);
+        }
+
+        /// <summary>
+        /// Gets all virtual machines for an event
+        /// </summary>
+        /// <returns>
+        /// Returns a list of virtual machines for an event
+        /// </returns>
+        [HttpGet("events/{id}/virtual-machines")]
+        [ProducesResponseType(typeof(IEnumerable<VirtualMachine>), (int)HttpStatusCode.OK)]
+        [SwaggerOperation(OperationId = "GetEventVirtualMachines")]
+        public async Task<IActionResult> GetEventVirtualMachinesAsync(Guid id, CancellationToken ct)
+        {
+            var list = await _eventService.GetEventVirtualMachinesAsync(id, ct);
+            return Ok(list);
+        }
+
+        /// <summary>
+        /// Gets all questions for an event
+        /// </summary>
+        /// <returns>
+        /// Returns a list of questions for an event
+        /// </returns>
+        [HttpGet("events/{id}/questions")]
+        [ProducesResponseType(typeof(IEnumerable<QuestionView>), (int)HttpStatusCode.OK)]
+        [SwaggerOperation(OperationId = "GetEventQuestions")]
+        public async Task<IActionResult> GetEventQuestionsAsync(Guid id, CancellationToken ct)
+        {
+            var list = await _eventService.GetEventQuestionsAsync(id, ct);
+            return Ok(list);
+        }
+
+        /// <summary>
+        /// Grade an event
+        /// </summary>
+        /// <returns>
+        /// Returns a score for an event
+        /// </returns>
+        [HttpPost("events/{id}/qrade")]
+        [ProducesResponseType(typeof(IEnumerable<QuestionView>), (int)HttpStatusCode.OK)]
+        [SwaggerOperation(OperationId = "GradeEvent")]
+        public async Task<IActionResult> GradeEventAsync(Guid id, [FromBody] IEnumerable<string> answers, CancellationToken ct)
+        {
+            var list = await _eventService.GradeEventAsync(id, answers, ct);
+            return Ok(list);
         }
     }
 }
