@@ -529,7 +529,7 @@ namespace Alloy.Api.Services
                     {
                         Id = r.Id,
                         Name = r.Name,
-                        Url = ((JObject)r.Attributes)["url"].ToString()
+                        Url = ((JsonElement)r.Attributes).GetProperty("url").ToString()
                     });
                 }
             }
