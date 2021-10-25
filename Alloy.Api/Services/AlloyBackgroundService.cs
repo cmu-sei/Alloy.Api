@@ -423,10 +423,10 @@ namespace Alloy.Api.Services
                                                         switch (eventEntity.InternalStatus)
                                                         {
                                                             case InternalEventStatus.AppliedLaunch:
-                                                                eventEntity.InternalStatus = InternalEventStatus.ApplyingLaunch;
+                                                                eventEntity.InternalStatus = InternalEventStatus.PlanningLaunch;
                                                                 break;
                                                             case InternalEventStatus.AppliedRedeploy:
-                                                                eventEntity.InternalStatus = InternalEventStatus.ApplyingRedeploy;
+                                                                eventEntity.InternalStatus = InternalEventStatus.PlanningRedeploy;
                                                                 break;
                                                         }
 
