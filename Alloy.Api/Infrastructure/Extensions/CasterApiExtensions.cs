@@ -122,12 +122,12 @@ namespace Alloy.Api.Infrastructure.Extensions
             var endTime = DateTime.UtcNow.AddMinutes(maxWaitMinutes);
             var status = RunStatus.Planning;
 
-            while (status == RunStatus.Planning && DateTime.UtcNow < endTime)
+            while ((status == RunStatus.Queued || status == RunStatus.Planning) && DateTime.UtcNow < endTime)
             {
                 var casterRun = await casterApiClient.GetRunAsync((Guid)eventEntity.RunId, false, false);
                 status = casterRun.Status;
                 // if not there yet, pause before the next check
-                if (status == RunStatus.Planning)
+                if (status == RunStatus.Planning || status == RunStatus.Queued)
                 {
                     Thread.Sleep(TimeSpan.FromSeconds(loopIntervalSeconds));
                 }
