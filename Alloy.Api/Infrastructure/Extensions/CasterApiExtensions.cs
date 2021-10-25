@@ -170,7 +170,7 @@ namespace Alloy.Api.Infrastructure.Extensions
             }
             catch (ApiException ex)
             {
-                if (ex.StatusCode == (int)HttpStatusCode.NotFound)
+                if (ex.StatusCode == (int)HttpStatusCode.NotFound || ex.StatusCode == (int)HttpStatusCode.NoContent)
                 {
                     return true;
                 }
@@ -236,5 +236,32 @@ namespace Alloy.Api.Infrastructure.Extensions
             }
         }
 
+        public static async Task<bool> IsWorkspaceEmpty(
+            EventEntity eventEntity,
+            CasterApiClient casterApiClient,
+            ILogger logger,
+            CancellationToken ct)
+        {
+            var isEmpty = true;
+
+            if (eventEntity.WorkspaceId.HasValue)
+            {
+                try
+                {
+                    var resources = await casterApiClient.GetResourcesByWorkspaceAsync(eventEntity.WorkspaceId.Value);
+                    if (resources.Count > 0)
+                    {
+                        isEmpty = false;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    isEmpty = false;
+                    logger.LogError(ex, $"Error checking Resources for Workspace {eventEntity.WorkspaceId} in Event {eventEntity.Id}");
+                }
+            }
+
+            return isEmpty;
+        }
     }
 }
