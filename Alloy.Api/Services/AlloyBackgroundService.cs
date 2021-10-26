@@ -353,6 +353,7 @@ namespace Alloy.Api.Services
                                                                 break;
                                                         }
 
+                                                        eventEntity.Status = EventStatus.Planning;
                                                         updateTheEntity = true;
                                                         retry = true;
                                                         resetRetries = false;
