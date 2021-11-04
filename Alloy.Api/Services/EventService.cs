@@ -272,7 +272,7 @@ namespace Alloy.Api.Services
             try
             {
                 var eventEntity = await GetTheEventAsync(eventId, true, false, ct);
-                if (eventEntity.EndDate != null)
+                if (eventEntity.Status != EventStatus.Failed && eventEntity.EndDate != null)
                 {
                     var msg = $"Event {eventEntity.Id} has already been ended";
                     _logger.LogError(msg);

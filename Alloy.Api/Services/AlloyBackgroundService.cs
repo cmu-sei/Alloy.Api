@@ -337,8 +337,6 @@ namespace Alloy.Api.Services
                                                                 eventEntity.InternalStatus = InternalEventStatus.ApplyingRedeploy;
                                                                 break;
                                                         }
-
-                                                        resetRetries = true;
                                                     }
                                                     else
                                                     {
@@ -523,7 +521,6 @@ namespace Alloy.Api.Services
                                                     if (updateTheEntity)
                                                     {
                                                         eventEntity.InternalStatus = InternalEventStatus.ApplyingDestroy;
-                                                        resetRetries = true;
                                                     }
                                                     else
                                                     {
@@ -562,6 +559,7 @@ namespace Alloy.Api.Services
                                                     {
                                                         // resources deleted, so continue to delete the workspace
                                                         eventEntity.InternalStatus = InternalEventStatus.DeletingWorkspace;
+                                                        resetRetries = true;
                                                     }
                                                     else
                                                     {
@@ -587,8 +585,9 @@ namespace Alloy.Api.Services
                                                                 eventEntity.InternalStatus = InternalEventStatus.FailedDestroy;
                                                                 eventEntity.Status = EventStatus.Failed;
                                                             }
-
                                                         }
+
+                                                        resourceCount = count;
                                                     }
                                                     break;
                                                 }
