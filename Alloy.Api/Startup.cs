@@ -290,7 +290,7 @@ namespace Alloy.Api
             app.UseSwaggerUI(c =>
             {
                 c.RoutePrefix = _routePrefix;
-                c.SwaggerEndpoint("/swagger/v1/swagger.json", "Alloy v1");
+                c.SwaggerEndpoint($"{_pathbase}/swagger/v1/swagger.json", "Alloy v1");
                 c.OAuthClientId(_authOptions.ClientId);
                 c.OAuthClientSecret(_authOptions.ClientSecret);
                 c.OAuthAppName(_authOptions.ClientName);
