@@ -1,7 +1,7 @@
 #
 #multi-stage target: dev
 #
-FROM mcr.microsoft.com/dotnet/core/sdk:3.1 AS dev
+FROM mcr.microsoft.com/dotnet/sdk:6.0 AS dev
 
 ENV ASPNETCORE_URLS=http://0.0.0.0:4402 \
     ASPNETCORE_ENVIRONMENT=DEVELOPMENT
@@ -16,7 +16,7 @@ CMD ["dotnet", "run"]
 #
 #multi-stage target: prod
 #
-FROM mcr.microsoft.com/dotnet/core/aspnet:3.1 AS prod
+FROM mcr.microsoft.com/dotnet/aspnet:6.0 AS prod
 COPY --from=dev /app/dist /app
 COPY --from=dev /app/entry.d /app/entry.d
 
@@ -27,4 +27,4 @@ EXPOSE 80
 CMD ["dotnet", "Alloy.Api.dll"]
 
 RUN apt-get update && \
-	apt-get install -y jq
+    apt-get install -y jq

@@ -306,7 +306,7 @@ namespace Alloy.Api.Services
                     throw new Exception(msg);
                 }
 
-                var tokenResponse = await ApiClientsExtensions.RequestTokenAsync(_resourceOwnerAuthorizationOptions);
+                var tokenResponse = await ApiClientsExtensions.RequestTokenAsync(_resourceOwnerAuthorizationOptions, _httpClientFactory.CreateClient());
                 var casterApiClient = CasterApiExtensions.GetCasterApiClient(_httpClientFactory, _clientOptions.urls.casterApi, tokenResponse);
 
                 var result = await casterApiClient.TaintResourcesAsync(

@@ -2,15 +2,13 @@
 // Released under a MIT (SEI)-style license. See LICENSE.md in the project root for license information.
 
 using System;
-using System.Collections.Generic;
 using System.Linq;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
 using Alloy.Api.Data.Models;
 using IdentityModel.Client;
-using Player.Api;
-using Player.Api.Models;
+using Player.Api.Client;
 
 namespace Alloy.Api.Infrastructure.Extensions
 {
@@ -19,10 +17,7 @@ namespace Alloy.Api.Infrastructure.Extensions
         public static PlayerApiClient GetPlayerApiClient(IHttpClientFactory httpClientFactory, string apiUrl, TokenResponse tokenResponse)
         {
             var client = ApiClientsExtensions.GetHttpClient(httpClientFactory, apiUrl, tokenResponse);
-            var apiClient = new PlayerApiClient(client, true)
-            {
-                BaseUri = client.BaseAddress
-            };
+            var apiClient = new PlayerApiClient(client);
             return apiClient;
         }
 
@@ -49,7 +44,7 @@ namespace Alloy.Api.Infrastructure.Extensions
                             continue;
                     }
 
-                    await playerApiClient.AddUserToTeamAsync(team.Id.Value, eventEntity.UserId, ct);
+                    await playerApiClient.AddUserToTeamAsync(team.Id, eventEntity.UserId, ct);
                 }
                 return view.Id;
             }
@@ -99,7 +94,7 @@ namespace Alloy.Api.Infrastructure.Extensions
                             continue;
                     }
 
-                    await playerApiClient.AddUserToTeamAsync(team.Id.Value, userId, ct);
+                    await playerApiClient.AddUserToTeamAsync(team.Id, userId, ct);
                 }
 
                 return true;

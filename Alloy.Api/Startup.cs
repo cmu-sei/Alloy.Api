@@ -155,8 +155,7 @@ namespace Alloy.Api
                 options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter());
                 options.JsonSerializerOptions.Converters.Add(new JsonDateTimeConverter());
 
-            })
-            .SetCompatibilityVersion(CompatibilityVersion.Latest);
+            });
 
             services.AddSwagger(_authOptions);
 

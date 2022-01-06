@@ -51,7 +51,7 @@ namespace Alloy.Api.Data
             {
                 ((BaseEntity)entry.Entity).DateModified = DateTime.UtcNow;
                 ((BaseEntity)entry.Entity).CreatedBy = (Guid)entry.OriginalValues["CreatedBy"];
-                ((BaseEntity)entry.Entity).DateCreated = (DateTime)entry.OriginalValues["DateCreated"];
+                ((BaseEntity)entry.Entity).DateCreated = DateTime.SpecifyKind((DateTime)entry.OriginalValues["DateCreated"], DateTimeKind.Utc);
             }
             return await base.SaveChangesAsync(ct);
         }
