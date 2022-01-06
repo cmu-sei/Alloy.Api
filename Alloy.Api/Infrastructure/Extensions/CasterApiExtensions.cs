@@ -9,11 +9,12 @@ using System.Threading;
 using System.Threading.Tasks;
 using IdentityModel.Client;
 using Caster.Api;
-using Caster.Api.Models;
+using Caster.Api.Client;
 using Player.Api;
 using Player.Api.Models;
 using Alloy.Api.Data.Models;
 using Microsoft.Extensions.Logging;
+using System.Net;
 
 namespace Alloy.Api.Infrastructure.Extensions
 {
@@ -22,8 +23,7 @@ namespace Alloy.Api.Infrastructure.Extensions
         public static CasterApiClient GetCasterApiClient(IHttpClientFactory httpClientFactory, string apiUrl, TokenResponse tokenResponse)
         {
             var client = ApiClientsExtensions.GetHttpClient(httpClientFactory, apiUrl, tokenResponse);
-            var apiClient = new CasterApiClient(client, true);
-            apiClient.BaseUri = client.BaseAddress;
+            var apiClient = new CasterApiClient(client);
             return apiClient;
         }
 
@@ -92,7 +92,7 @@ namespace Alloy.Api.Infrastructure.Extensions
         {
             var runCommand = new CreateRunCommand()
             {
-                WorkspaceId = eventEntity.WorkspaceId,
+                WorkspaceId = eventEntity.WorkspaceId.Value,
                 IsDestroy = isDestroy
             };
             try
@@ -122,12 +122,12 @@ namespace Alloy.Api.Infrastructure.Extensions
             var endTime = DateTime.UtcNow.AddMinutes(maxWaitMinutes);
             var status = RunStatus.Planning;
 
-            while (status == RunStatus.Planning && DateTime.UtcNow < endTime)
+            while ((status == RunStatus.Queued || status == RunStatus.Planning) && DateTime.UtcNow < endTime)
             {
-                var casterRun = await casterApiClient.GetRunAsync((Guid)eventEntity.RunId);
+                var casterRun = await casterApiClient.GetRunAsync((Guid)eventEntity.RunId, false, false);
                 status = casterRun.Status;
                 // if not there yet, pause before the next check
-                if (status == RunStatus.Planning)
+                if (status == RunStatus.Planning || status == RunStatus.Queued)
                 {
                     Thread.Sleep(TimeSpan.FromSeconds(loopIntervalSeconds));
                 }
@@ -168,7 +168,18 @@ namespace Alloy.Api.Infrastructure.Extensions
                 await casterApiClient.DeleteWorkspaceAsync((Guid)eventEntity.WorkspaceId, ct);
                 return true;
             }
-            catch (Exception ex)
+            catch (ApiException ex)
+            {
+                if (ex.StatusCode == (int)HttpStatusCode.NotFound || ex.StatusCode == (int)HttpStatusCode.NoContent)
+                {
+                    return true;
+                }
+                else
+                {
+                    return false;
+                }
+            }
+            catch (Exception)
             {
                 return false;
             }
@@ -192,24 +203,24 @@ namespace Alloy.Api.Infrastructure.Extensions
             while ((status == RunStatus.Applying ||
                     status == RunStatus.Planned ||
                     status == RunStatus.Queued ||
-                    status == RunStatus.AppliedStateError ||
-                    status == RunStatus.FailedStateError)
+                    status == RunStatus.Applied__State_Error ||
+                    status == RunStatus.Failed__State_Error)
                     && DateTime.UtcNow < endTime)
             {
-                var casterRun = await casterApiClient.GetRunAsync((Guid)eventEntity.RunId);
+                var casterRun = await casterApiClient.GetRunAsync((Guid)eventEntity.RunId, false, false);
                 status = casterRun.Status;
 
                 // if not there yet, pause before the next check
                 if (status == RunStatus.Applying ||
                     status == RunStatus.Planned ||
                     status == RunStatus.Queued ||
-                    status == RunStatus.AppliedStateError ||
-                    status == RunStatus.FailedStateError)
+                    status == RunStatus.Applied__State_Error ||
+                    status == RunStatus.Failed__State_Error)
                 {
                     Thread.Sleep(TimeSpan.FromSeconds(loopIntervalSeconds));
 
-                    if (status == RunStatus.AppliedStateError ||
-                        status == RunStatus.FailedStateError)
+                    if (status == RunStatus.Applied__State_Error ||
+                        status == RunStatus.Failed__State_Error)
                     {
                         await casterApiClient.SaveStateAsync(eventEntity.RunId.Value);
                     }
@@ -225,5 +236,32 @@ namespace Alloy.Api.Infrastructure.Extensions
             }
         }
 
+        public static async Task<bool> IsWorkspaceEmpty(
+            EventEntity eventEntity,
+            CasterApiClient casterApiClient,
+            ILogger logger,
+            CancellationToken ct)
+        {
+            var isEmpty = true;
+
+            if (eventEntity.WorkspaceId.HasValue)
+            {
+                try
+                {
+                    var resources = await casterApiClient.GetResourcesByWorkspaceAsync(eventEntity.WorkspaceId.Value);
+                    if (resources.Count > 0)
+                    {
+                        isEmpty = false;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    isEmpty = false;
+                    logger.LogError(ex, $"Error checking Resources for Workspace {eventEntity.WorkspaceId} in Event {eventEntity.Id}");
+                }
+            }
+
+            return isEmpty;
+        }
     }
 }

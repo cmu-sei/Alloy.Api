@@ -8,6 +8,7 @@ using System.Net.Http;
 using System.Security.Claims;
 using System.Security.Cryptography.X509Certificates;
 using System.Security.Principal;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Alloy.Api.Data;
@@ -26,6 +27,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Newtonsoft.Json.Linq;
 
 namespace Alloy.Api.Services
 {
@@ -38,13 +40,16 @@ namespace Alloy.Api.Services
         Task<IEnumerable<Event>> GetMyEventsAsync(CancellationToken ct);
         Task<Event> GetAsync(Guid id, CancellationToken ct);
         Task<Event> CreateAsync(Event eventx, CancellationToken ct);
-        Task<Event> LaunchEventFromEventTemplateAsync(Guid eventTemplateId, CancellationToken ct);
+        Task<Event> LaunchEventFromEventTemplateAsync(Guid eventTemplateId, Guid? userId, string username, CancellationToken ct);
         Task<Event> UpdateAsync(Guid id, Event eventx, CancellationToken ct);
         Task<bool> DeleteAsync(Guid id, CancellationToken ct);
         Task<Event> EndAsync(Guid eventId, CancellationToken ct);
         Task<Event> RedeployAsync(Guid eventId, CancellationToken ct);
         Task<Event> CreateInviteAsync(Guid eventId, CancellationToken ct);
         Task<Event> EnlistAsync(string code, CancellationToken ct);
+        Task<IEnumerable<VirtualMachine>> GetEventVirtualMachinesAsync(Guid eventId, CancellationToken ct);
+        Task<IEnumerable<QuestionView>> GetEventQuestionsAsync(Guid eventId, CancellationToken ct);
+        Task<IEnumerable<QuestionView>> GradeEventAsync(Guid eventId, IEnumerable<string> answers, CancellationToken ct);
     }
 
     public class EventService : IEventService
@@ -206,12 +211,24 @@ namespace Alloy.Api.Services
             return _mapper.Map<Event>(eventEntity);
         }
 
-        public async Task<Event> LaunchEventFromEventTemplateAsync(Guid eventTemplateId, CancellationToken ct)
+        public async Task<Event> LaunchEventFromEventTemplateAsync(Guid eventTemplateId, Guid? userId, string username, CancellationToken ct)
         {
+            // Only an admin can start an Event for a different user than themselves
+            if (userId.HasValue &&
+                !(await _authorizationService.AuthorizeAsync(_user, null, new SystemAdminRightsRequirement())).Succeeded)
+            {
+                throw new ForbiddenException();
+            }
+
+            if (!userId.HasValue)
+            {
+                userId = _user.GetId();
+            }
+
             if (!(await _authorizationService.AuthorizeAsync(_user, null, new BasicRightsRequirement())).Succeeded)
                 throw new ForbiddenException();
             // check for resource limitations
-            if (!(await ResourcesAreAvailableAsync(eventTemplateId, ct)))
+            if (!(await ResourcesAreAvailableAsync(eventTemplateId, userId.Value, ct)))
             {
                 throw new Exception($"The appropriate resources are not available to create an event from the EventTemplate {eventTemplateId}.");
             }
@@ -223,7 +240,7 @@ namespace Alloy.Api.Services
                 throw new ForbiddenException();
 
             // create the event from the eventTemplate
-            var eventEntity = await CreateEventEntityAsync(eventTemplateId, ct);
+            var eventEntity = await CreateEventEntityAsync(eventTemplateId, userId.Value, username, ct);
             // add the event to the event queue for AlloyBackgrounsService to process.
             _alloyEventQueue.Add(eventEntity);
             return _mapper.Map<Event>(eventEntity);
@@ -255,7 +272,7 @@ namespace Alloy.Api.Services
             try
             {
                 var eventEntity = await GetTheEventAsync(eventId, true, false, ct);
-                if (eventEntity.EndDate != null)
+                if (eventEntity.Status != EventStatus.Failed && eventEntity.EndDate != null)
                 {
                     var msg = $"Event {eventEntity.Id} has already been ended";
                     _logger.LogError(msg);
@@ -292,12 +309,12 @@ namespace Alloy.Api.Services
                 var tokenResponse = await ApiClientsExtensions.RequestTokenAsync(_resourceOwnerAuthorizationOptions);
                 var casterApiClient = CasterApiExtensions.GetCasterApiClient(_httpClientFactory, _clientOptions.urls.casterApi, tokenResponse);
 
-                var resources = await casterApiClient.TaintResourcesAsync(
+                var result = await casterApiClient.TaintResourcesAsync(
                     eventEntity.WorkspaceId.Value,
-                    new Caster.Api.Models.TaintResourcesCommand { SelectAll = true },
+                    new Caster.Api.Client.TaintResourcesCommand { SelectAll = true },
                     ct);
 
-                if (resources.Any(r => r.Tainted == false))
+                if (result.Resources.Any(r => r.Tainted == false))
                 {
                     var msg = $"Taint failed";
                     _logger.LogError(msg);
@@ -319,11 +336,15 @@ namespace Alloy.Api.Services
             return await GetAsync(eventId, ct);
         }
 
-        private async Task<EventEntity> CreateEventEntityAsync(Guid eventTemplateId, CancellationToken ct)
+        private async Task<EventEntity> CreateEventEntityAsync(Guid eventTemplateId, Guid userId, string username, CancellationToken ct)
         {
             _logger.LogInformation($"For EventTemplate {eventTemplateId}, Create Event.");
-            var userId = _user.GetId();
-            var username = _user.Claims.First(c => c.Type.ToLower() == "name").Value;
+
+            if (string.IsNullOrEmpty(username))
+            {
+                username = _user.Claims.First(c => c.Type.ToLower() == "name").Value;
+            }
+
             var eventEntity = new EventEntity()
             {
                 CreatedBy = userId,
@@ -341,7 +362,7 @@ namespace Alloy.Api.Services
             return eventEntity;
         }
 
-        private async Task<bool> ResourcesAreAvailableAsync(Guid eventTemplateId, CancellationToken ct)
+        private async Task<bool> ResourcesAreAvailableAsync(Guid eventTemplateId, Guid userId, CancellationToken ct)
         {
             var resourcesAvailable = true;
             // check to see if this user already has this EventTemplate Implemented
@@ -349,18 +370,18 @@ namespace Alloy.Api.Services
                 EventStatus.Failed, EventStatus.Ended,
                 EventStatus.Expired};
             var items = await _context.Events
-                .Where(x => x.UserId == _user.GetId() && x.EventTemplateId == eventTemplateId && !notActiveStatuses.Contains(x.Status))
+                .Where(x => x.UserId == userId && x.EventTemplateId == eventTemplateId && !notActiveStatuses.Contains(x.Status))
                 .ToListAsync(ct);
             resourcesAvailable = !items.Any();
             if (!resourcesAvailable)
             {
-                _logger.LogError($"User {_user.GetId()} already has an active Event for EventTemplate {eventTemplateId}.");
-                throw new Exception($"User {_user.GetId()} already has an active Event for EventTemplate {eventTemplateId}.");
+                _logger.LogError($"User {userId} already has an active Event for EventTemplate {eventTemplateId}.");
+                throw new Exception($"User {userId} already has an active Event for EventTemplate {eventTemplateId}.");
             }
             {
                 // check to see if this user has too many Events started
                 items = await _context.Events
-                    .Where(x => x.UserId == _user.GetId() && !notActiveStatuses.Contains(x.Status))
+                    .Where(x => x.UserId == userId && !notActiveStatuses.Contains(x.Status))
                     .ToListAsync(ct);
                 if (!(await _authorizationService.AuthorizeAsync(_user, null, new SystemAdminRightsRequirement())).Succeeded)
                 {
@@ -368,8 +389,8 @@ namespace Alloy.Api.Services
                     resourcesAvailable = items.Count() < upperLimit;
                     if (!resourcesAvailable)
                     {
-                        _logger.LogError($"User {_user.GetId()} already has {upperLimit} Events active.");
-                        throw new Exception($"User {_user.GetId()} already has {upperLimit} Events active.");
+                        _logger.LogError($"User {userId} already has {upperLimit} Events active.");
+                        throw new Exception($"User {userId} already has {upperLimit} Events active.");
                     }
                 }
             }
@@ -489,6 +510,108 @@ namespace Alloy.Api.Services
                 }
             }
             throw new InviteException($"Invite Failed, Event Status: {Enum.GetName(typeof(EventStatus), alloyEvent.Status)}");
+        }
+
+        public async Task<IEnumerable<VirtualMachine>> GetEventVirtualMachinesAsync(Guid eventId, CancellationToken ct)
+        {
+            var list = new List<VirtualMachine>();
+
+            var evt = await _context.Events.FindAsync(eventId);
+
+            if (evt != null && evt.WorkspaceId.HasValue)
+            {
+                var resources = await _casterService.GetWorkspaceResourcesAsync(evt.WorkspaceId.Value, ct);
+
+                foreach (var resource in resources.Where(x => x.Type == "crucible_player_virtual_machine"))
+                {
+                    var r = await _casterService.RefreshResourceAsync(evt.WorkspaceId.Value, resource, ct);
+                    list.Add(new VirtualMachine
+                    {
+                        Id = r.Id,
+                        Name = r.Name,
+                        Url = ((JsonElement)r.Attributes).GetProperty("url").ToString()
+                    });
+                }
+            }
+
+            return list;
+        }
+
+        public async Task<IEnumerable<QuestionView>> GetEventQuestionsAsync(Guid eventId, CancellationToken ct)
+        {
+            var list = new List<QuestionView>();
+
+            var evt = await _context.Events.FindAsync(eventId);
+
+            if (evt != null && evt.WorkspaceId.HasValue)
+            {
+                try
+                {
+                    var outputsObj = await _casterService.GetWorkspaceOutputsAsync(evt.WorkspaceId.Value, ct);
+                    var json = JsonSerializer.Serialize(outputsObj);
+                    var root = JsonSerializer.Deserialize<Root>(json, new JsonSerializerOptions
+                    {
+                        PropertyNameCaseInsensitive = true
+                    });
+
+                    foreach (var question in root.Questions.Value)
+                    {
+                        list.Add(new QuestionView(question));
+                    }
+                }
+                catch (Exception ex)
+                {
+
+                }
+            }
+
+            return list;
+        }
+
+        public async Task<IEnumerable<QuestionView>> GradeEventAsync(Guid eventId, IEnumerable<string> answers, CancellationToken ct)
+        {
+            var questionViews = new List<QuestionView>();
+
+            var evt = await _context.Events.FindAsync(eventId);
+
+            if (evt != null && evt.WorkspaceId.HasValue)
+            {
+                try
+                {
+                    var outputsObj = await _casterService.GetWorkspaceOutputsAsync(evt.WorkspaceId.Value, ct);
+                    var json = JsonSerializer.Serialize(outputsObj);
+                    var root = JsonSerializer.Deserialize<Root>(json, new JsonSerializerOptions
+                    {
+                        PropertyNameCaseInsensitive = true
+                    });
+
+                    for (var i = 0; i < root.Questions.Value.Count(); i++)
+                    {
+                        var question = root.Questions.Value[i];
+                        var questionView = new QuestionView(question);
+                        var answer = answers.ElementAt(i);
+
+                        if (question.Answer == answer)
+                        {
+                            questionView.IsCorrect = true;
+                        }
+
+                        if (!string.IsNullOrEmpty(answer))
+                        {
+                            questionView.Answer = answer;
+                            questionView.IsGraded = true;
+                        }
+
+                        questionViews.Add(questionView);
+                    }
+                }
+                catch (Exception ex)
+                {
+
+                }
+            }
+
+            return questionViews;
         }
     }
 }

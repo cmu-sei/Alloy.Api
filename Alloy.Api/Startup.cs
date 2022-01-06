@@ -151,7 +151,7 @@ namespace Alloy.Api
             .AddJsonOptions(options =>
             {
                 options.JsonSerializerOptions.Converters.Add(new JsonNullableGuidConverter());
-                options.JsonSerializerOptions.Converters.Add(new JsonIntegerConverter());
+                // options.JsonSerializerOptions.Converters.Add(new JsonIntegerConverter());
                 options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter());
                 options.JsonSerializerOptions.Converters.Add(new JsonDateTimeConverter());
 

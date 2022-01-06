@@ -12,11 +12,11 @@ using System;
 using System.Linq;
 using System.Net.Http;
 using System.Threading;
-using Caster.Api;
 using IdentityModel.Client;
 using Player.Api;
 using Steamfitter.Api.Client;
 using Task = System.Threading.Tasks.Task;
+using Caster.Api.Client;
 
 namespace Alloy.Api.Services
 {
@@ -147,6 +147,7 @@ namespace Alloy.Api.Services
                         var retryCount = 0;
                         var resourceCount = int.MaxValue;
                         var resourceRetryCount = 0;
+                        var resetRetries = true;
                         // get the alloy context entities required
                         eventEntity = alloyContext.Events.First(x => x.Id == eventEntity.Id);
                         var eventTemplateEntity = alloyContext.EventTemplates.First(x => x.Id == eventEntity.EventTemplateId);
@@ -163,6 +164,8 @@ namespace Alloy.Api.Services
                         {
                             // the updateTheEntity flag is used to indicate if the event entity state should be updated at the end of this loop
                             var updateTheEntity = false;
+                            var retry = false;
+
                             // each time through the loop, one state (case) is handled based on Status and InternalStatus.  This allows for retries of a failed state.
                             switch (eventEntity.Status)
                             {
@@ -194,13 +197,13 @@ namespace Alloy.Api.Services
                                                             }
                                                             else
                                                             {
-                                                                retryCount++;
+                                                                retry = true;
                                                             }
                                                         }
                                                         catch (Exception ex)
                                                         {
                                                             _logger.LogError($"Error creating the player view for Event {eventEntity.Id}.", ex);
-                                                            retryCount++;
+                                                            retry = true;
                                                         }
                                                     }
                                                     break;
@@ -224,7 +227,7 @@ namespace Alloy.Api.Services
                                                         }
                                                         else
                                                         {
-                                                            retryCount++;
+                                                            retry = true;
                                                         }
                                                     }
                                                     break;
@@ -265,12 +268,12 @@ namespace Alloy.Api.Services
                                                             }
                                                             else
                                                             {
-                                                                retryCount++;
+                                                                retry = true;
                                                             }
                                                         }
                                                         else
                                                         {
-                                                            retryCount++;
+                                                            retry = true;
                                                         }
                                                     }
                                                     break;
@@ -312,7 +315,7 @@ namespace Alloy.Api.Services
                                                     }
                                                     else
                                                     {
-                                                        retryCount++;
+                                                        retry = true;
                                                     }
                                                     break;
                                                 }
@@ -337,7 +340,20 @@ namespace Alloy.Api.Services
                                                     }
                                                     else
                                                     {
-                                                        retryCount++;
+                                                        // Plan failed, retry
+                                                        switch (eventEntity.InternalStatus)
+                                                        {
+                                                            case InternalEventStatus.PlannedLaunch:
+                                                                eventEntity.InternalStatus = InternalEventStatus.PlanningLaunch;
+                                                                break;
+                                                            case InternalEventStatus.PlannedRedeploy:
+                                                                eventEntity.InternalStatus = InternalEventStatus.PlanningRedeploy;
+                                                                break;
+                                                        }
+
+                                                        updateTheEntity = true;
+                                                        retry = true;
+                                                        resetRetries = false;
                                                     }
                                                     break;
                                                 }
@@ -375,7 +391,7 @@ namespace Alloy.Api.Services
                                                     }
                                                     else
                                                     {
-                                                        retryCount++;
+                                                        retry = true;
                                                     }
                                                     break;
                                                 }
@@ -396,10 +412,26 @@ namespace Alloy.Api.Services
                                                                 eventEntity.InternalStatus = InternalEventStatus.Launched;
                                                                 break;
                                                         }
+
+                                                        resetRetries = true;
                                                     }
                                                     else
                                                     {
-                                                        retryCount++;
+                                                        // Apply failed, retry
+                                                        switch (eventEntity.InternalStatus)
+                                                        {
+                                                            case InternalEventStatus.AppliedLaunch:
+                                                                eventEntity.InternalStatus = InternalEventStatus.PlanningLaunch;
+                                                                break;
+                                                            case InternalEventStatus.AppliedRedeploy:
+                                                                eventEntity.InternalStatus = InternalEventStatus.PlanningRedeploy;
+                                                                break;
+                                                        }
+
+                                                        eventEntity.Status = EventStatus.Planning;
+                                                        updateTheEntity = true;
+                                                        retry = true;
+                                                        resetRetries = false;
                                                     }
                                                     break;
                                                 }
@@ -428,7 +460,7 @@ namespace Alloy.Api.Services
                                                     }
                                                     else
                                                     {
-                                                        retryCount++;
+                                                        retry = true;
                                                     }
                                                     break;
                                                 }
@@ -453,16 +485,26 @@ namespace Alloy.Api.Services
                                                     if (eventEntity.WorkspaceId != null)
                                                     {
                                                         casterApiClient = RefreshClient(casterApiClient, tokenResponse, ct);
-                                                        var runId = await CasterApiExtensions.CreateRunAsync(eventEntity, casterApiClient, true, _logger, ct);
-                                                        if (runId != null)
+
+                                                        // if no resources, skip to deleting workspace
+                                                        if (await CasterApiExtensions.IsWorkspaceEmpty(eventEntity, casterApiClient, _logger, ct))
                                                         {
-                                                            eventEntity.RunId = runId;
-                                                            eventEntity.InternalStatus = InternalEventStatus.PlannedDestroy;
+                                                            eventEntity.InternalStatus = InternalEventStatus.DeletingWorkspace;
                                                             updateTheEntity = true;
                                                         }
                                                         else
                                                         {
-                                                            retryCount++;
+                                                            var runId = await CasterApiExtensions.CreateRunAsync(eventEntity, casterApiClient, true, _logger, ct);
+                                                            if (runId != null)
+                                                            {
+                                                                eventEntity.RunId = runId;
+                                                                eventEntity.InternalStatus = InternalEventStatus.PlannedDestroy;
+                                                                updateTheEntity = true;
+                                                            }
+                                                            else
+                                                            {
+                                                                retry = true;
+                                                            }
                                                         }
                                                     }
                                                     else
@@ -474,24 +516,19 @@ namespace Alloy.Api.Services
                                                 }
                                             case InternalEventStatus.PlannedDestroy:
                                                 {
-                                                    if (eventEntity.LastLaunchInternalStatus == InternalEventStatus.PlannedLaunch)
+                                                    casterApiClient = RefreshClient(casterApiClient, tokenResponse, ct);
+                                                    updateTheEntity = await CasterApiExtensions.WaitForRunToBePlannedAsync(eventEntity, casterApiClient, _clientOptions.CurrentValue.CasterCheckIntervalSeconds, _clientOptions.CurrentValue.CasterPlanningMaxWaitMinutes, _logger, ct);
+                                                    if (updateTheEntity)
                                                     {
-                                                        // This is an edge case.  The previous plan during a launch failed therefore there is nothing
-                                                        // to destroy however the Workspace needs deleted.
-                                                        eventEntity.InternalStatus = InternalEventStatus.DeletingWorkspace;
+                                                        eventEntity.InternalStatus = InternalEventStatus.ApplyingDestroy;
                                                     }
                                                     else
                                                     {
-                                                        casterApiClient = RefreshClient(casterApiClient, tokenResponse, ct);
-                                                        updateTheEntity = await CasterApiExtensions.WaitForRunToBePlannedAsync(eventEntity, casterApiClient, _clientOptions.CurrentValue.CasterCheckIntervalSeconds, _clientOptions.CurrentValue.CasterPlanningMaxWaitMinutes, _logger, ct);
-                                                        if (updateTheEntity)
-                                                        {
-                                                            eventEntity.InternalStatus = InternalEventStatus.ApplyingDestroy;
-                                                        }
-                                                        else
-                                                        {
-                                                            retryCount++;
-                                                        }
+                                                        // Destroy failed, retry
+                                                        eventEntity.InternalStatus = InternalEventStatus.PlanningDestroy;
+                                                        updateTheEntity = true;
+                                                        retry = true;
+                                                        resetRetries = false;
                                                     }
                                                     break;
                                                 }
@@ -505,7 +542,7 @@ namespace Alloy.Api.Services
                                                     }
                                                     else
                                                     {
-                                                        retryCount++;
+                                                        retry = true;
                                                     }
                                                     break;
                                                 }
@@ -522,6 +559,7 @@ namespace Alloy.Api.Services
                                                     {
                                                         // resources deleted, so continue to delete the workspace
                                                         eventEntity.InternalStatus = InternalEventStatus.DeletingWorkspace;
+                                                        resetRetries = true;
                                                     }
                                                     else
                                                     {
@@ -547,8 +585,9 @@ namespace Alloy.Api.Services
                                                                 eventEntity.InternalStatus = InternalEventStatus.FailedDestroy;
                                                                 eventEntity.Status = EventStatus.Failed;
                                                             }
-
                                                         }
+
+                                                        resourceCount = count;
                                                     }
                                                     break;
                                                 }
@@ -563,7 +602,7 @@ namespace Alloy.Api.Services
                                                     }
                                                     else
                                                     {
-                                                        retryCount++;
+                                                        retry = true;
                                                     }
                                                     break;
                                                 }
@@ -604,7 +643,7 @@ namespace Alloy.Api.Services
                                                     }
                                                     else
                                                     {
-                                                        retryCount++;
+                                                        retry = true;
                                                     }
                                                     break;
                                                 }
@@ -621,8 +660,9 @@ namespace Alloy.Api.Services
                                     }
                             }
                             // check for exceeding the max number of retries
-                            if (!updateTheEntity)
+                            if (retry)
                             {
+                                retryCount++;
                                 if ((eventEntity.Status == EventStatus.Creating ||
                                      eventEntity.Status == EventStatus.Planning ||
                                      eventEntity.Status == EventStatus.Applying) &&
@@ -636,6 +676,7 @@ namespace Alloy.Api.Services
                                     eventEntity.Status = EventStatus.Ending;
                                     eventEntity.InternalStatus = InternalEventStatus.EndQueued;
                                     updateTheEntity = true;
+                                    retryCount = 0;
                                 }
                                 else if (eventEntity.Status == EventStatus.Ending &&
                                     retryCount >= _clientOptions.CurrentValue.ApiClientEndFailureMaxRetries &&
@@ -647,6 +688,7 @@ namespace Alloy.Api.Services
                                     eventEntity.FailureCount++;
                                     eventEntity.Status = EventStatus.Failed;
                                     updateTheEntity = true;
+                                    retryCount = 0;
                                 }
                                 else
                                 {
@@ -654,10 +696,14 @@ namespace Alloy.Api.Services
                                 }
 
                             }
+                            else if (resetRetries)
+                            {
+                                retryCount = 0;
+                            }
+
                             // update the entity in the context, if we are moving on
                             if (updateTheEntity)
                             {
-                                retryCount = 0;
                                 eventEntity.StatusDate = DateTime.UtcNow;
                                 await alloyContext.SaveChangesAsync(ct);
                             }
