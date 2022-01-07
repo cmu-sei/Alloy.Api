@@ -39,13 +39,13 @@ jobs:
 
       - name: Run NSwag
         run: |
-          cd src/${{ steps.package_name.outputs.name }}
+          cd ${{ steps.package_name.outputs.name }}
           npm install
           ./node_modules/.bin/nswag run /runtime:Net60
 
       - name: Create NuGet Package
         run: |
-          cd src/${{ steps.package_name.outputs.name }}
+          cd ${{ steps.package_name.outputs.name }}
           dotnet pack -c Release /p:version=${{ github.event.inputs.clientVersion }}  \
           /p:authors="Carnegie Mellon University/Software Engineering Institute"      \
           /p:description="NSwag generated client for Crucible's ${{ steps.package_name.outputs.dll_name }}"   \
@@ -65,7 +65,7 @@ jobs:
 
       - name: Publish to Nuget.org as Unlisted
         run: |
-          dotnet nuget push src/${{ steps.package_name.outputs.name }}/bin/Release/${{ steps.package_name.outputs.name }}.${{ github.event.inputs.clientVersion }}.nupkg -k ${{ secrets.NUGET_APIKEY }} -s https://api.nuget.org/v3/index.json
+          dotnet nuget push ${{ steps.package_name.outputs.name }}/bin/Release/${{ steps.package_name.outputs.name }}.${{ github.event.inputs.clientVersion }}.nupkg -k ${{ secrets.NUGET_APIKEY }} -s https://api.nuget.org/v3/index.json
           dotnet nuget delete ${{ steps.package_name.outputs.name }} ${{ github.event.inputs.clientVersion }} --non-interactive -k ${{ secrets.NUGET_APIKEY_UNLIST }} -s https://api.nuget.org/v3/index.json
 
       - name: Create Release
@@ -86,6 +86,6 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: src/${{ steps.package_name.outputs.name }}/bin/Release/${{ steps.package_name.outputs.name }}.${{ github.event.inputs.clientVersion }}.nupkg
+          asset_path: ${{ steps.package_name.outputs.name }}/bin/Release/${{ steps.package_name.outputs.name }}.${{ github.event.inputs.clientVersion }}.nupkg
           asset_name: ${{ steps.package_name.outputs.name }}.${{ github.event.inputs.clientVersion }}.nupkg
           asset_content_type: application/zip
