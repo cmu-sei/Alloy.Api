@@ -27,27 +27,37 @@ namespace Alloy.Api.Infrastructure.Extensions
         public static async Task<TokenResponse> GetToken(IServiceProvider serviceProvider)
         {
             var resourceOwnerAuthorizationOptions = serviceProvider.GetRequiredService<ResourceOwnerAuthorizationOptions>();
-            var tokenResponse = await RequestTokenAsync(resourceOwnerAuthorizationOptions);
+            var tokenResponse = await RequestTokenAsync(resourceOwnerAuthorizationOptions, serviceProvider.GetRequiredService<IHttpClientFactory>().CreateClient());
             return tokenResponse;
         }
 
-        public static async Task<TokenResponse> RequestTokenAsync(ResourceOwnerAuthorizationOptions authorizationOptions)
+        public static async Task<TokenResponse> RequestTokenAsync(ResourceOwnerAuthorizationOptions authorizationOptions, HttpClient httpClient)
         {
-            var disco = await DiscoveryClient.GetAsync(authorizationOptions.Authority);
+            var disco = await httpClient.GetDiscoveryDocumentAsync(
+                new DiscoveryDocumentRequest
+                {
+                    Address = authorizationOptions.Authority,
+                    Policy =
+                    {
+                        ValidateIssuerName = authorizationOptions.ValidateDiscoveryDocument,
+                        ValidateEndpoints = authorizationOptions.ValidateDiscoveryDocument,
+                    },
+                }
+            );
+
             if (disco.IsError) throw new Exception(disco.Error);
 
-            TokenClient client = null;
-
-            if (string.IsNullOrEmpty(authorizationOptions.ClientSecret))
+            PasswordTokenRequest request = new PasswordTokenRequest
             {
-                client = new TokenClient(disco.TokenEndpoint, authorizationOptions.ClientId);
-            }
-            else
-            {
-                client = new TokenClient(disco.TokenEndpoint, authorizationOptions.ClientId, authorizationOptions.ClientSecret);
-            }
+                Address = disco.TokenEndpoint,
+                ClientId = authorizationOptions.ClientId,
+                ClientSecret = string.IsNullOrEmpty(authorizationOptions.ClientSecret) ? null : authorizationOptions.ClientSecret,
+                Password = authorizationOptions.Password,
+                Scope = authorizationOptions.Scope,
+                UserName = authorizationOptions.UserName
+            };
 
-            return await client.RequestResourceOwnerPasswordAsync(authorizationOptions.UserName, authorizationOptions.Password, authorizationOptions.Scope);
+            return await httpClient.RequestPasswordTokenAsync(request);
         }
 
     }

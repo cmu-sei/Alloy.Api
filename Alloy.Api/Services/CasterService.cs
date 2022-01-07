@@ -1,9 +1,7 @@
 // Copyright 2021 Carnegie Mellon University. All Rights Reserved.
 // Released under a MIT (SEI)-style license. See LICENSE.md in the project root for license information.
 
-using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Http;
-using Microsoft.Rest;
 using Caster.Api.Client;
 using Alloy.Api.Extensions;
 using Alloy.Api.Infrastructure.Options;
@@ -12,7 +10,6 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Text.RegularExpressions;
 
 namespace Alloy.Api.Services
 {

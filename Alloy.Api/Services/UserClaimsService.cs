@@ -12,6 +12,7 @@ using Alloy.Api.Data;
 using Alloy.Api.Extensions;
 using Alloy.Api.Options;
 using Player.Api;
+using Player.Api.Client;
 
 namespace Alloy.Api.Services
 {

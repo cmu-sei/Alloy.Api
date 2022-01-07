@@ -17,7 +17,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.CodeAnalysis;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.OpenApi.Models;
-using Player.Api;
+using Player.Api.Client;
 using Steamfitter.Api.Client;
 
 namespace Alloy.Api.Infrastructure.Extensions
@@ -98,12 +98,7 @@ namespace Alloy.Api.Infrastructure.Extensions
                 httpClient.BaseAddress = playerUri;
                 httpClient.DefaultRequestHeaders.Add("Authorization", authHeader);
 
-
-                var apiClient = new PlayerApiClient(httpClient, true)
-                {
-                    BaseUri = playerUri
-                };
-
+                var apiClient = new PlayerApiClient(httpClient);
                 return apiClient;
             });
         }

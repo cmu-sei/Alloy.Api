@@ -2,19 +2,16 @@
 // Released under a MIT (SEI)-style license. See LICENSE.md in the project root for license information.
 
 using System;
-using System.Collections.Generic;
 using System.Net.Http;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using IdentityModel.Client;
-using Caster.Api;
-using Caster.Api.Client;
-using Player.Api;
-using Player.Api.Models;
 using Alloy.Api.Data.Models;
 using Microsoft.Extensions.Logging;
 using System.Net;
+using Caster.Api.Client;
+using Player.Api.Client;
 
 namespace Alloy.Api.Infrastructure.Extensions
 {
@@ -168,7 +165,7 @@ namespace Alloy.Api.Infrastructure.Extensions
                 await casterApiClient.DeleteWorkspaceAsync((Guid)eventEntity.WorkspaceId, ct);
                 return true;
             }
-            catch (ApiException ex)
+            catch (Caster.Api.Client.ApiException ex)
             {
                 if (ex.StatusCode == (int)HttpStatusCode.NotFound || ex.StatusCode == (int)HttpStatusCode.NoContent)
                 {

@@ -4,9 +4,6 @@ Copyright 2021 Carnegie Mellon University. All Rights Reserved.
 */
 
 using System;
-using System.Collections.Generic;
-using System.Security.Claims;
-using Player.Api.Models;
 
 namespace Alloy.Api.ViewModels
 {

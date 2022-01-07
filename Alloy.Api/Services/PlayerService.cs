@@ -3,18 +3,15 @@
 
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Security.Claims;
 using System.Security.Principal;
 using System.Threading;
 using System.Threading.Tasks;
 using Alloy.Api.Extensions;
 using Alloy.Api.Infrastructure.Authorization;
-using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
-using Player.Api;
-using Player.Api.Models;
+using Player.Api.Client;
 
 namespace Alloy.Api.Services
 {
