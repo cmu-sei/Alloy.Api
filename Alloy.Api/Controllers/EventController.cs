@@ -152,20 +152,22 @@ namespace Alloy.Api.Controllers
         }
 
         /// <summary>
-        /// Creates a new Event from a eventTemplate
+        /// Creates a new Event from an Event Template
         /// </summary>
         /// <remarks>
-        /// Creates a new Event from the specified eventTemplate
+        /// Creates a new Event from the specified Event Template
         /// </remarks>
         /// <param name="eventTemplateId">The ID of the EventTemplate to use to create the Event</param>
-        /// <param name="userId"></param>
+        /// <param name="userId">Id of the User that will be the owner of this Event</param>
+        /// <param name="username"></param>
+        /// <param name="additionalUserIds">List of Ids of additional Users to add to this Event</param>
         /// <param name="ct"></param>
         [HttpPost("eventTemplates/{eventTemplateId}/events")]
         [ProducesResponseType(typeof(Event), (int)HttpStatusCode.Created)]
         [SwaggerOperation(OperationId = "createEventFromEventTemplate")]
-        public async Task<IActionResult> CreateEventFromEventTemplate(string eventTemplateId, Guid? userId, string username, CancellationToken ct)
+        public async Task<IActionResult> CreateEventFromEventTemplate(string eventTemplateId, Guid? userId, string username, List<Guid> additionalUserIds, CancellationToken ct)
         {
-            var createdEvent = await _eventService.LaunchEventFromEventTemplateAsync(Guid.Parse(eventTemplateId), userId, username, ct);
+            var createdEvent = await _eventService.LaunchEventFromEventTemplateAsync(Guid.Parse(eventTemplateId), userId, username, additionalUserIds, ct);
             return CreatedAtAction(nameof(this.Get), new { id = createdEvent.Id }, createdEvent);
         }
 

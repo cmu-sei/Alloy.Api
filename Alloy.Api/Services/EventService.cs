@@ -40,7 +40,7 @@ namespace Alloy.Api.Services
         Task<IEnumerable<Event>> GetMyEventsAsync(CancellationToken ct);
         Task<Event> GetAsync(Guid id, CancellationToken ct);
         Task<Event> CreateAsync(Event eventx, CancellationToken ct);
-        Task<Event> LaunchEventFromEventTemplateAsync(Guid eventTemplateId, Guid? userId, string username, CancellationToken ct);
+        Task<Event> LaunchEventFromEventTemplateAsync(Guid eventTemplateId, Guid? userId, string username, List<Guid> additionalUserIds, CancellationToken ct);
         Task<Event> UpdateAsync(Guid id, Event eventx, CancellationToken ct);
         Task<bool> DeleteAsync(Guid id, CancellationToken ct);
         Task<Event> EndAsync(Guid eventId, CancellationToken ct);
@@ -211,7 +211,7 @@ namespace Alloy.Api.Services
             return _mapper.Map<Event>(eventEntity);
         }
 
-        public async Task<Event> LaunchEventFromEventTemplateAsync(Guid eventTemplateId, Guid? userId, string username, CancellationToken ct)
+        public async Task<Event> LaunchEventFromEventTemplateAsync(Guid eventTemplateId, Guid? userId, string username, List<Guid> additionalUserIds, CancellationToken ct)
         {
             // Only an admin can start an Event for a different user than themselves
             if (userId.HasValue &&
@@ -240,7 +240,7 @@ namespace Alloy.Api.Services
                 throw new ForbiddenException();
 
             // create the event from the eventTemplate
-            var eventEntity = await CreateEventEntityAsync(eventTemplateId, userId.Value, username, ct);
+            var eventEntity = await CreateEventEntityAsync(eventTemplateId, userId.Value, username, additionalUserIds, ct);
             // add the event to the event queue for AlloyBackgrounsService to process.
             _alloyEventQueue.Add(eventEntity);
             return _mapper.Map<Event>(eventEntity);
@@ -336,7 +336,7 @@ namespace Alloy.Api.Services
             return await GetAsync(eventId, ct);
         }
 
-        private async Task<EventEntity> CreateEventEntityAsync(Guid eventTemplateId, Guid userId, string username, CancellationToken ct)
+        private async Task<EventEntity> CreateEventEntityAsync(Guid eventTemplateId, Guid userId, string username, List<Guid> additionalUserIds, CancellationToken ct)
         {
             _logger.LogInformation($"For EventTemplate {eventTemplateId}, Create Event.");
 
@@ -354,6 +354,19 @@ namespace Alloy.Api.Services
                 Status = EventStatus.Creating,
                 InternalStatus = InternalEventStatus.LaunchQueued
             };
+
+            if (additionalUserIds != null)
+            {
+                foreach (var additionalUserId in additionalUserIds)
+                {
+                    var eventUser = new EventUserEntity()
+                    {
+                        UserId = additionalUserId
+                    };
+
+                    eventEntity.EventUsers.Add(eventUser);
+                }
+            }
 
             _context.Events.Add(eventEntity);
             await _context.SaveChangesAsync(ct);

@@ -45,6 +45,11 @@ namespace Alloy.Api.Infrastructure.Extensions
                     }
 
                     await playerApiClient.AddUserToTeamAsync(team.Id, eventEntity.UserId, ct);
+
+                    foreach (var user in eventEntity.EventUsers)
+                    {
+                        await playerApiClient.AddUserToTeamAsync(team.Id, user.UserId, ct);
+                    }
                 }
                 return view.Id;
             }
