@@ -152,20 +152,40 @@ namespace Alloy.Api.Controllers
         }
 
         /// <summary>
-        /// Creates a new Event from a eventTemplate
+        /// Creates a new Event from an Event Template
         /// </summary>
         /// <remarks>
-        /// Creates a new Event from the specified eventTemplate
+        /// Creates a new Event from the specified Event Template
+        /// </remarks>
+        /// <param name="eventTemplateId"></param>
+        /// <param name="command"></param>
+        /// <param name="ct"></param>
+        [HttpPost("eventTemplates/{eventTemplateId}/events2")]
+        [ProducesResponseType(typeof(Event), (int)HttpStatusCode.Created)]
+        [SwaggerOperation(OperationId = "createEventFromEventTemplate2")]
+        public async Task<IActionResult> CreateEventFromEventTemplate2(Guid eventTemplateId, CreateEventCommand command, CancellationToken ct)
+        {
+            command.EventTemplateId = eventTemplateId;
+            var createdEvent = await _eventService.LaunchEventFromEventTemplateAsync(command, ct);
+            return CreatedAtAction(nameof(this.Get), new { id = createdEvent.Id }, createdEvent);
+        }
+
+        /// <summary>
+        /// Creates a new Event from an Event Template. Legacy endpoint for backwards compatibility. Use createEventFromEventTemplate2 instead.
+        /// </summary>
+        /// <remarks>
+        /// Creates a new Event from the specified Event Template
         /// </remarks>
         /// <param name="eventTemplateId">The ID of the EventTemplate to use to create the Event</param>
-        /// <param name="userId"></param>
+        /// <param name="userId">Id of the User that will be the owner of this Event</param>
+        /// <param name="username"></param>
         /// <param name="ct"></param>
         [HttpPost("eventTemplates/{eventTemplateId}/events")]
         [ProducesResponseType(typeof(Event), (int)HttpStatusCode.Created)]
         [SwaggerOperation(OperationId = "createEventFromEventTemplate")]
         public async Task<IActionResult> CreateEventFromEventTemplate(string eventTemplateId, Guid? userId, string username, CancellationToken ct)
         {
-            var createdEvent = await _eventService.LaunchEventFromEventTemplateAsync(Guid.Parse(eventTemplateId), userId, username, ct);
+            var createdEvent = await _eventService.LaunchEventFromEventTemplateAsync(Guid.Parse(eventTemplateId), userId, username, new List<Guid>(), ct);
             return CreatedAtAction(nameof(this.Get), new { id = createdEvent.Id }, createdEvent);
         }
 

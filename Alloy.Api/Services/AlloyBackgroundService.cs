@@ -17,6 +17,7 @@ using Steamfitter.Api.Client;
 using Task = System.Threading.Tasks.Task;
 using Player.Api.Client;
 using Caster.Api.Client;
+using Microsoft.EntityFrameworkCore;
 
 namespace Alloy.Api.Services
 {
@@ -148,9 +149,13 @@ namespace Alloy.Api.Services
                         var resourceCount = int.MaxValue;
                         var resourceRetryCount = 0;
                         var resetRetries = true;
+
                         // get the alloy context entities required
-                        eventEntity = alloyContext.Events.First(x => x.Id == eventEntity.Id);
+                        eventEntity = await alloyContext.Events
+                            .Include(x => x.EventUsers)
+                            .FirstAsync(x => x.Id == eventEntity.Id);
                         var eventTemplateEntity = alloyContext.EventTemplates.First(x => x.Id == eventEntity.EventTemplateId);
+
                         // get the auth token
                         var tokenResponse = await ApiClientsExtensions.GetToken(scope.ServiceProvider);
                         CasterApiClient casterApiClient = null;
