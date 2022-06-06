@@ -140,13 +140,6 @@ namespace Alloy.Api
             {
                 options.Filters.Add(typeof(ValidateModelStateFilter));
                 options.Filters.Add(typeof(JsonExceptionFilter));
-
-                // Require all scopes in authOptions
-                var policyBuilder = new AuthorizationPolicyBuilder().RequireAuthenticatedUser();
-                Array.ForEach(_authOptions.AuthorizationScope.Split(' '), x => policyBuilder.RequireScope(x));
-
-                var policy = policyBuilder.Build();
-                options.Filters.Add(new AuthorizeFilter(policy));
             })
             .AddJsonOptions(options =>
             {
@@ -167,28 +160,40 @@ namespace Alloy.Api
                 options.Authority = _authOptions.Authority;
                 options.RequireHttpsMetadata = _authOptions.RequireHttpsMetadata;
                 options.SaveToken = true;
+
+                string[] validAudiences;
+
+                if (_authOptions.ValidAudiences != null && _authOptions.ValidAudiences.Any())
+                {
+                    validAudiences = _authOptions.ValidAudiences;
+                }
+                else
+                {
+                    validAudiences = _authOptions.AuthorizationScope.Split(' ');
+                }
+
                 options.TokenValidationParameters = new Microsoft.IdentityModel.Tokens.TokenValidationParameters
                 {
-                    ValidateIssuer = true,
-                    ValidAudiences = _authOptions.AuthorizationScope.Split(' ')
+                    ValidateAudience = _authOptions.ValidateAudience,
+                    ValidAudiences = validAudiences
                 };
 
                 options.Events = new JwtBearerEvents
                 {
                     OnMessageReceived = context =>
-              {
-                  // If the request is for our hub...
-                  var path = context.HttpContext.Request.Path;
-                  var accessToken = context.Request.Query["access_token"];
+                    {
+                        // If the request is for our hub...
+                        var path = context.HttpContext.Request.Path;
+                        var accessToken = context.Request.Query["access_token"];
 
-                  if (!string.IsNullOrEmpty(accessToken) &&
-                          (path.StartsWithSegments("/hubs")))
-                  {
-                      // Read the token out of the query string
-                      context.Token = accessToken;
-                  }
-                  return Task.CompletedTask;
-              }
+                        if (!string.IsNullOrEmpty(accessToken) &&
+                                (path.StartsWithSegments("/hubs")))
+                        {
+                            // Read the token out of the query string
+                            context.Token = accessToken;
+                        }
+                        return Task.CompletedTask;
+                    }
                 };
             });
 
@@ -300,8 +305,14 @@ namespace Alloy.Api
 
         private void ApplyPolicies(IServiceCollection services)
         {
-            services.AddAuthorization();
+            services.AddAuthorization(options =>
+            {
+                // Require all scopes in authOptions
+                var policyBuilder = new AuthorizationPolicyBuilder().RequireAuthenticatedUser();
+                Array.ForEach(_authOptions.AuthorizationScope.Split(' '), x => policyBuilder.RequireClaim("scope", x));
 
+                options.DefaultPolicy = policyBuilder.Build();
+            });
 
             // TODO: Add these automatically with reflection?
             services.AddSingleton<IAuthorizationHandler, BasicRightsHandler>();
