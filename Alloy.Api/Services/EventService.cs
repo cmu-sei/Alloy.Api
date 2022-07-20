@@ -191,7 +191,7 @@ namespace Alloy.Api.Services
 
         public async Task<Event> GetAsync(Guid id, CancellationToken ct)
         {
-            var item = await GetTheEventAsync(id, true, false, ct);
+            var item = await GetTheEventAsync(id, true, false, false, ct);
 
             return _mapper.Map<Event>(item);
         }
@@ -248,7 +248,7 @@ namespace Alloy.Api.Services
 
         public async Task<Event> UpdateAsync(Guid id, Event eventx, CancellationToken ct)
         {
-            var eventEntity = await GetTheEventAsync(id, true, true, ct);
+            var eventEntity = await GetTheEventAsync(id, true, true, false, ct);
             eventx.ModifiedBy = _user.GetId();
             _mapper.Map(eventx, eventEntity);
 
@@ -260,7 +260,7 @@ namespace Alloy.Api.Services
 
         public async Task<bool> DeleteAsync(Guid id, CancellationToken ct)
         {
-            var eventEntity = await GetTheEventAsync(id, true, true, ct);
+            var eventEntity = await GetTheEventAsync(id, true, true, false, ct);
             _context.Events.Remove(eventEntity);
             await _context.SaveChangesAsync(ct);
 
@@ -271,7 +271,7 @@ namespace Alloy.Api.Services
         {
             try
             {
-                var eventEntity = await GetTheEventAsync(eventId, true, false, ct);
+                var eventEntity = await GetTheEventAsync(eventId, true, false, false, ct);
                 if (eventEntity.Status != EventStatus.Failed && eventEntity.EndDate != null)
                 {
                     var msg = $"Event {eventEntity.Id} has already been ended";
@@ -298,7 +298,7 @@ namespace Alloy.Api.Services
         {
             try
             {
-                var eventEntity = await GetTheEventAsync(eventId, true, false, ct);
+                var eventEntity = await GetTheEventAsync(eventId, true, false, false, ct);
                 if (eventEntity.Status != EventStatus.Active)
                 {
                     var msg = $"Only an Active Event can be redeployed";
@@ -411,7 +411,7 @@ namespace Alloy.Api.Services
             return resourcesAvailable;
         }
 
-        private async Task<EventEntity> GetTheEventAsync(Guid eventId, bool mustBeOwner, bool mustBeContentDeveloper, CancellationToken ct)
+        private async Task<EventEntity> GetTheEventAsync(Guid eventId, bool mustBeOwner, bool mustBeContentDeveloper, bool mustBeSystemAdmin, CancellationToken ct)
         {
             var isContentDeveloper = (await _authorizationService.AuthorizeAsync(_user, null, new ContentDeveloperRightsRequirement())).Succeeded;
             var isSystemAdmin = (await _authorizationService.AuthorizeAsync(_user, null, new SystemAdminRightsRequirement())).Succeeded;
@@ -419,6 +419,12 @@ namespace Alloy.Api.Services
             {
                 _logger.LogInformation($"User {_user.GetId()} is not a content developer.");
                 throw new ForbiddenException($"User {_user.GetId()} is not a content developer.");
+            }
+
+            if (mustBeSystemAdmin && !isSystemAdmin)
+            {
+                _logger.LogInformation($"User {_user.GetId()} is not a system admin.");
+                throw new ForbiddenException($"User {_user.GetId()} is not a system admin.");
             }
 
             var eventEntity = await _context.Events.SingleOrDefaultAsync(v => v.Id == eventId, ct);
@@ -439,7 +445,7 @@ namespace Alloy.Api.Services
 
         public async Task<Event> CreateInviteAsync(Guid eventId, CancellationToken ct)
         {
-            var eventEntity = await GetTheEventAsync(eventId, true, false, ct);
+            var eventEntity = await GetTheEventAsync(eventId, true, false, false, ct);
 
             if (eventEntity.CreatedBy != _user.GetId())
             {
@@ -529,7 +535,7 @@ namespace Alloy.Api.Services
         {
             var list = new List<VirtualMachine>();
 
-            var evt = await _context.Events.FindAsync(eventId);
+            var evt = await GetTheEventAsync(eventId, true, false, false, ct);
 
             if (evt != null && evt.WorkspaceId.HasValue)
             {
@@ -554,7 +560,7 @@ namespace Alloy.Api.Services
         {
             var list = new List<QuestionView>();
 
-            var evt = await _context.Events.FindAsync(eventId);
+            var evt = await GetTheEventAsync(eventId, true, false, false, ct);
 
             if (evt != null && evt.WorkspaceId.HasValue)
             {
@@ -585,7 +591,7 @@ namespace Alloy.Api.Services
         {
             var questionViews = new List<QuestionView>();
 
-            var evt = await _context.Events.FindAsync(eventId);
+            var evt = await GetTheEventAsync(eventId, false, false, true, ct);
 
             if (evt != null && evt.WorkspaceId.HasValue)
             {
