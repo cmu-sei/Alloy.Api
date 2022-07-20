@@ -23,14 +23,17 @@ namespace Alloy.Api.Infrastructure.Extensions
 
         public static async Task<Guid?> CreatePlayerViewAsync(PlayerApiClient playerApiClient, EventEntity eventEntity, Guid parentViewId, CancellationToken ct)
         {
+            View view = null;
+
             try
             {
-                var view = await playerApiClient.CloneViewAsync(parentViewId, ct);
+                view = await playerApiClient.CloneViewAsync(parentViewId, ct);
                 view.Name = $"{view.Name.Replace("Clone of ", "")} - {eventEntity.Username}";
                 await playerApiClient.UpdateViewAsync((Guid)view.Id, view, ct);
                 // add user to first non-admin team
                 var roles = await playerApiClient.GetRolesAsync(ct);
                 var teams = (await playerApiClient.GetViewTeamsAsync((Guid)view.Id, ct));
+
                 foreach (var team in teams)
                 {
                     if (team.Permissions.Where(p => p.Key == "ViewAdmin").Any())
@@ -44,17 +47,60 @@ namespace Alloy.Api.Infrastructure.Extensions
                             continue;
                     }
 
+                    try
+                    {
+                        var owner = await playerApiClient.GetUserAsync(eventEntity.UserId, ct);
+                    }
+                    catch (Exception)
+                    {
+                        await playerApiClient.CreateUserAsync(
+                            new User
+                            {
+                                Id = eventEntity.UserId,
+                                Name = eventEntity.Username
+                            });
+                    }
+
+
+
                     await playerApiClient.AddUserToTeamAsync(team.Id, eventEntity.UserId, ct);
 
                     foreach (var user in eventEntity.EventUsers)
                     {
+                        try
+                        {
+                            var playerUser = await playerApiClient.GetUserAsync(user.UserId, ct);
+                        }
+                        catch (Exception)
+                        {
+                            await playerApiClient.CreateUserAsync(
+                                new User
+                                {
+                                    Id = user.UserId,
+                                    Name = ""
+                                });
+                        }
+
                         await playerApiClient.AddUserToTeamAsync(team.Id, user.UserId, ct);
                     }
                 }
+
                 return view.Id;
             }
-            catch (Exception ex)
+            catch (Exception)
             {
+                try
+                {
+                    if (view != null)
+                    {
+                        await playerApiClient.DeleteViewAsync(view.Id);
+                    }
+                }
+                catch (Exception)
+                {
+                    return null;
+                }
+
                 return null;
             }
         }
