@@ -157,13 +157,15 @@ namespace Alloy.Api.Controllers
         /// <remarks>
         /// Creates a new Event from the specified Event Template
         /// </remarks>
+        /// <param name="eventTemplateId"></param>
         /// <param name="command"></param>
         /// <param name="ct"></param>
         [HttpPost("eventTemplates/{eventTemplateId}/events2")]
         [ProducesResponseType(typeof(Event), (int)HttpStatusCode.Created)]
         [SwaggerOperation(OperationId = "createEventFromEventTemplate2")]
-        public async Task<IActionResult> CreateEventFromEventTemplate2(CreateEventCommand command, CancellationToken ct)
+        public async Task<IActionResult> CreateEventFromEventTemplate2(Guid eventTemplateId, CreateEventCommand command, CancellationToken ct)
         {
+            command.EventTemplateId = eventTemplateId;
             var createdEvent = await _eventService.LaunchEventFromEventTemplateAsync(command, ct);
             return CreatedAtAction(nameof(this.Get), new { id = createdEvent.Id }, createdEvent);
         }

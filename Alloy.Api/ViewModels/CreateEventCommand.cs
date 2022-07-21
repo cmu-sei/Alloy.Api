@@ -3,6 +3,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Text.Json.Serialization;
 
 namespace Alloy.Api.ViewModels
 {
@@ -11,6 +12,7 @@ namespace Alloy.Api.ViewModels
         /// <summary>
         /// The ID of the EventTemplate to use to create the Event
         /// </summary>
+        [JsonIgnore]
         public Guid EventTemplateId { get; set; }
 
         /// <summary>
