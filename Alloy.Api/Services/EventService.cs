@@ -41,6 +41,7 @@ namespace Alloy.Api.Services
         Task<Event> GetAsync(Guid id, CancellationToken ct);
         Task<Event> CreateAsync(Event eventx, CancellationToken ct);
         Task<Event> LaunchEventFromEventTemplateAsync(Guid eventTemplateId, Guid? userId, string username, List<Guid> additionalUserIds, CancellationToken ct);
+        Task<Event> LaunchEventFromEventTemplateAsync(CreateEventCommand command, CancellationToken ct);
         Task<Event> UpdateAsync(Guid id, Event eventx, CancellationToken ct);
         Task<bool> DeleteAsync(Guid id, CancellationToken ct);
         Task<Event> EndAsync(Guid eventId, CancellationToken ct);
@@ -209,6 +210,11 @@ namespace Alloy.Api.Services
             await _context.SaveChangesAsync(ct);
 
             return _mapper.Map<Event>(eventEntity);
+        }
+
+        public async Task<Event> LaunchEventFromEventTemplateAsync(CreateEventCommand command, CancellationToken ct)
+        {
+            return await LaunchEventFromEventTemplateAsync(command.EventTemplateId, command.UserId, command.Username, command.AdditionalUserIds, ct);
         }
 
         public async Task<Event> LaunchEventFromEventTemplateAsync(Guid eventTemplateId, Guid? userId, string username, List<Guid> additionalUserIds, CancellationToken ct)
