@@ -21,18 +21,20 @@ namespace Alloy.Api.Infrastructure.Extensions
             return apiClient;
         }
 
-        public static async Task<Guid?> CreatePlayerViewAsync(PlayerApiClient playerApiClient, EventEntity eventEntity, Guid parentViewId, CancellationToken ct)
+        public static async Task<Guid?> CreatePlayerViewAsync(PlayerApiClient playerApiClient, EventEntity eventEntity, EventTemplateEntity eventTemplateEntity, CancellationToken ct)
         {
-            View view = null;
-
+            View clonedView = null;
             try
             {
-                view = await playerApiClient.CloneViewAsync(parentViewId, ct);
-                view.Name = $"{view.Name.Replace("Clone of ", "")} - {eventEntity.Username}";
-                await playerApiClient.UpdateViewAsync((Guid)view.Id, view, ct);
+                var body = new ViewCloneOverride()
+                {
+                    Name = $"{eventTemplateEntity.Name} - {eventEntity.Username}",
+                    Description = eventTemplateEntity.Description
+                };
+                clonedView = await playerApiClient.CloneViewAsync((Guid)eventTemplateEntity.ViewId, body, ct);
                 // add user to first non-admin team
                 var roles = await playerApiClient.GetRolesAsync(ct);
-                var teams = (await playerApiClient.GetViewTeamsAsync((Guid)view.Id, ct));
+                var teams = (await playerApiClient.GetViewTeamsAsync((Guid)clonedView.Id, ct));
 
                 foreach (var team in teams)
                 {
@@ -85,15 +87,15 @@ namespace Alloy.Api.Infrastructure.Extensions
                     }
                 }
 
-                return view.Id;
+                return clonedView.Id;
             }
             catch (Exception)
             {
                 try
                 {
-                    if (view != null)
+                    if (clonedView != null)
                     {
-                        await playerApiClient.DeleteViewAsync(view.Id);
+                        await playerApiClient.DeleteViewAsync(clonedView.Id);
                     }
                 }
                 catch (Exception)
