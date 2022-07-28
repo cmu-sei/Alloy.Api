@@ -193,7 +193,7 @@ namespace Alloy.Api.Services
                                                         {
                                                             playerApiClient = RefreshClient(playerApiClient, tokenResponse, ct);
                                                             eventEntity.InternalStatus = InternalEventStatus.CreatingView;
-                                                            var viewId = await PlayerApiExtensions.CreatePlayerViewAsync(playerApiClient, eventEntity, (Guid)eventTemplateEntity.ViewId, ct);
+                                                            var viewId = await PlayerApiExtensions.CreatePlayerViewAsync(playerApiClient, eventEntity, eventTemplateEntity, ct);
                                                             if (viewId != null)
                                                             {
                                                                 eventEntity.ViewId = viewId;
