@@ -718,7 +718,7 @@ namespace Alloy.Api.Services
             }
             catch (Exception ex)
             {
-                _logger.LogError($"Error processing event {eventEntity.Id}", ex);
+                _logger.LogError(ex, $"Error processing event {eventEntity.Id}");
             }
         }
 
