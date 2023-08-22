@@ -18,6 +18,7 @@ using Task = System.Threading.Tasks.Task;
 using Player.Api.Client;
 using Caster.Api.Client;
 using Microsoft.EntityFrameworkCore;
+using System.Threading.Tasks;
 
 namespace Alloy.Api.Services
 {
@@ -141,618 +142,663 @@ namespace Alloy.Api.Services
 
             try
             {
-                using (var scope = _scopeFactory.CreateScope())
+                using var scope = _scopeFactory.CreateScope();
+                using var alloyContext = scope.ServiceProvider.GetRequiredService<AlloyContext>();
+
+                var retryCount = 0;
+                var resourceCount = int.MaxValue;
+                var resourceRetryCount = 0;
+                var resetRetries = true;
+
+                // get the alloy context entities required
+                eventEntity = await alloyContext.Events
+                    .Include(x => x.EventUsers)
+                    .FirstAsync(x => x.Id == eventEntity.Id);
+                var eventTemplateEntity = alloyContext.EventTemplates.First(x => x.Id == eventEntity.EventTemplateId);
+
+                TokenResponse tokenResponse = null;
+                CasterApiClient casterApiClient = null;
+                PlayerApiClient playerApiClient = null;
+                SteamfitterApiClient steamfitterApiClient = null;
+
+                var updateTheEntity = false;
+                var retry = false;
+
+                // LOOP until this thread's process is complete
+                while (eventEntity.Status == EventStatus.Creating ||
+                    eventEntity.Status == EventStatus.Planning ||
+                    eventEntity.Status == EventStatus.Applying ||
+                    eventEntity.Status == EventStatus.Ending)
                 {
-                    using (var alloyContext = scope.ServiceProvider.GetRequiredService<AlloyContext>())
+                    try
                     {
-                        var retryCount = 0;
-                        var resourceCount = int.MaxValue;
-                        var resourceRetryCount = 0;
-                        var resetRetries = true;
+                        // the updateTheEntity flag is used to indicate if the event entity state should be updated at the end of this loop
+                        updateTheEntity = false;
+                        retry = false;
 
-                        // get the alloy context entities required
-                        eventEntity = await alloyContext.Events
-                            .Include(x => x.EventUsers)
-                            .FirstAsync(x => x.Id == eventEntity.Id);
-                        var eventTemplateEntity = alloyContext.EventTemplates.First(x => x.Id == eventEntity.EventTemplateId);
-
-                        // get the auth token
-                        var tokenResponse = await ApiClientsExtensions.GetToken(scope.ServiceProvider);
-                        CasterApiClient casterApiClient = null;
-                        PlayerApiClient playerApiClient = null;
-                        SteamfitterApiClient steamfitterApiClient = null;
-                        // LOOP until this thread's process is complete
-                        while (eventEntity.Status == EventStatus.Creating ||
-                            eventEntity.Status == EventStatus.Planning ||
-                            eventEntity.Status == EventStatus.Applying ||
-                            eventEntity.Status == EventStatus.Ending)
+                        // each time through the loop, one state (case) is handled based on Status and InternalStatus.  This allows for retries of a failed state.
+                        switch (eventEntity.Status)
                         {
-                            // the updateTheEntity flag is used to indicate if the event entity state should be updated at the end of this loop
-                            var updateTheEntity = false;
-                            var retry = false;
-
-                            // each time through the loop, one state (case) is handled based on Status and InternalStatus.  This allows for retries of a failed state.
-                            switch (eventEntity.Status)
-                            {
-                                // the "Creating" status means we are creating the initial player view, steamfitter scenario and caster workspace
-                                case EventStatus.Creating:
+                            // the "Creating" status means we are creating the initial player view, steamfitter scenario and caster workspace
+                            case EventStatus.Creating:
+                                {
+                                    switch (eventEntity.InternalStatus)
                                     {
-                                        switch (eventEntity.InternalStatus)
-                                        {
-                                            case InternalEventStatus.LaunchQueued:
-                                            case InternalEventStatus.CreatingView:
+                                        case InternalEventStatus.LaunchQueued:
+                                        case InternalEventStatus.CreatingView:
+                                            {
+                                                if (eventTemplateEntity.ViewId == null)
                                                 {
-                                                    if (eventTemplateEntity.ViewId == null)
+                                                    eventEntity.InternalStatus = InternalEventStatus.CreatingScenario;
+                                                    updateTheEntity = true;
+                                                }
+                                                else
+                                                {
+                                                    try
                                                     {
-                                                        eventEntity.InternalStatus = InternalEventStatus.CreatingScenario;
-                                                        updateTheEntity = true;
-                                                    }
-                                                    else
-                                                    {
-                                                        try
+                                                        (playerApiClient, tokenResponse) = await RefreshClient(playerApiClient, tokenResponse, scope.ServiceProvider, ct);
+                                                        eventEntity.InternalStatus = InternalEventStatus.CreatingView;
+                                                        var viewId = await PlayerApiExtensions.CreatePlayerViewAsync(playerApiClient, eventEntity, eventTemplateEntity, ct);
+                                                        if (viewId != null)
                                                         {
-                                                            playerApiClient = RefreshClient(playerApiClient, tokenResponse, ct);
-                                                            eventEntity.InternalStatus = InternalEventStatus.CreatingView;
-                                                            var viewId = await PlayerApiExtensions.CreatePlayerViewAsync(playerApiClient, eventEntity, eventTemplateEntity, ct);
-                                                            if (viewId != null)
-                                                            {
-                                                                eventEntity.ViewId = viewId;
-                                                                eventEntity.InternalStatus = InternalEventStatus.CreatingScenario;
-                                                                updateTheEntity = true;
-                                                            }
-                                                            else
-                                                            {
-                                                                retry = true;
-                                                            }
+                                                            eventEntity.ViewId = viewId;
+                                                            eventEntity.InternalStatus = InternalEventStatus.CreatingScenario;
+                                                            updateTheEntity = true;
                                                         }
-                                                        catch (Exception ex)
+                                                        else
                                                         {
-                                                            _logger.LogError($"Error creating the player view for Event {eventEntity.Id}.", ex);
+                                                            tokenResponse = null;
                                                             retry = true;
                                                         }
                                                     }
-                                                    break;
-                                                }
-                                            case InternalEventStatus.CreatingScenario:
-                                                {
-                                                    if (eventTemplateEntity.ScenarioTemplateId == null)
+                                                    catch (Exception ex)
                                                     {
+                                                        _logger.LogError($"Error creating the player view for Event {eventEntity.Id}.", ex);
+                                                        retry = true;
+                                                        tokenResponse = null;
+                                                    }
+                                                }
+                                                break;
+                                            }
+                                        case InternalEventStatus.CreatingScenario:
+                                            {
+                                                if (eventTemplateEntity.ScenarioTemplateId == null)
+                                                {
+                                                    eventEntity.InternalStatus = InternalEventStatus.CreatingWorkspace;
+                                                    updateTheEntity = true;
+                                                }
+                                                else
+                                                {
+                                                    (steamfitterApiClient, tokenResponse) = await RefreshClient(steamfitterApiClient, tokenResponse, scope.ServiceProvider, ct);
+                                                    var scenario = await SteamfitterApiExtensions.CreateSteamfitterScenarioAsync(steamfitterApiClient, eventEntity, (Guid)eventTemplateEntity.ScenarioTemplateId, ct);
+                                                    if (scenario != null)
+                                                    {
+                                                        eventEntity.ScenarioId = scenario.Id;
                                                         eventEntity.InternalStatus = InternalEventStatus.CreatingWorkspace;
                                                         updateTheEntity = true;
                                                     }
                                                     else
                                                     {
-                                                        steamfitterApiClient = RefreshClient(steamfitterApiClient, tokenResponse, ct);
-                                                        var scenario = await SteamfitterApiExtensions.CreateSteamfitterScenarioAsync(steamfitterApiClient, eventEntity, (Guid)eventTemplateEntity.ScenarioTemplateId, ct);
-                                                        if (scenario != null)
-                                                        {
-                                                            eventEntity.ScenarioId = scenario.Id;
-                                                            eventEntity.InternalStatus = InternalEventStatus.CreatingWorkspace;
-                                                            updateTheEntity = true;
-                                                        }
-                                                        else
-                                                        {
-                                                            retry = true;
-                                                        }
+                                                        retry = true;
+                                                        tokenResponse = null;
                                                     }
-                                                    break;
                                                 }
-                                            case InternalEventStatus.CreatingWorkspace:
+                                                break;
+                                            }
+                                        case InternalEventStatus.CreatingWorkspace:
+                                            {
+                                                if (eventTemplateEntity.DirectoryId == null)
                                                 {
-                                                    if (eventTemplateEntity.DirectoryId == null)
-                                                    {
-                                                        // There is no Caster directory, so start the scenario
-                                                        var launchDate = DateTime.UtcNow;
-                                                        eventEntity.Name = eventTemplateEntity.Name;
-                                                        eventEntity.Description = eventTemplateEntity.Description;
-                                                        eventEntity.LaunchDate = launchDate;
-                                                        eventEntity.ExpirationDate = launchDate.AddHours(eventTemplateEntity.DurationHours);
-                                                        eventEntity.Status = EventStatus.Applying;
-                                                        eventEntity.InternalStatus = InternalEventStatus.StartingScenario;
-                                                        updateTheEntity = true;
-                                                    }
-                                                    else
-                                                    {
-                                                        var varsFileContent = "";
-                                                        if (eventEntity.ViewId != null)
-                                                        {
-                                                            playerApiClient = RefreshClient(playerApiClient, tokenResponse, ct);
-                                                            varsFileContent = await CasterApiExtensions.GetCasterVarsFileContentAsync(eventEntity, playerApiClient, ct);
-                                                        }
-
-                                                        if (!string.IsNullOrEmpty(varsFileContent))
-                                                        {
-                                                            casterApiClient = RefreshClient(casterApiClient, tokenResponse, ct);
-                                                            var workspaceId = await CasterApiExtensions.CreateCasterWorkspaceAsync(casterApiClient, eventEntity, (Guid)eventTemplateEntity.DirectoryId, varsFileContent, eventTemplateEntity.UseDynamicHost, ct);
-                                                            if (workspaceId != null)
-                                                            {
-                                                                eventEntity.WorkspaceId = workspaceId;
-                                                                eventEntity.InternalStatus = InternalEventStatus.PlanningLaunch;
-                                                                eventEntity.Status = EventStatus.Planning;
-                                                                updateTheEntity = true;
-                                                            }
-                                                            else
-                                                            {
-                                                                retry = true;
-                                                            }
-                                                        }
-                                                        else
-                                                        {
-                                                            retry = true;
-                                                        }
-                                                    }
-                                                    break;
-                                                }
-                                            default:
-                                                {
-                                                    _logger.LogError($"Invalid status for Event {eventEntity.Id}: {eventEntity.Status} - {eventEntity.InternalStatus}");
-                                                    eventEntity.Status = EventStatus.Failed;
+                                                    // There is no Caster directory, so start the scenario
+                                                    var launchDate = DateTime.UtcNow;
+                                                    eventEntity.Name = eventTemplateEntity.Name;
+                                                    eventEntity.Description = eventTemplateEntity.Description;
+                                                    eventEntity.LaunchDate = launchDate;
+                                                    eventEntity.ExpirationDate = launchDate.AddHours(eventTemplateEntity.DurationHours);
+                                                    eventEntity.Status = EventStatus.Applying;
+                                                    eventEntity.InternalStatus = InternalEventStatus.StartingScenario;
                                                     updateTheEntity = true;
-                                                    break;
                                                 }
-                                        }
-                                        break;
-                                    }
-                                // the "Planning" state means that caster is planning a run
-                                case EventStatus.Planning:
-                                    {
-                                        switch (eventEntity.InternalStatus)
-                                        {
-                                            case InternalEventStatus.PlanningLaunch:
-                                            case InternalEventStatus.PlanningRedeploy:
+                                                else
                                                 {
-                                                    casterApiClient = RefreshClient(casterApiClient, tokenResponse, ct);
-                                                    var runId = await CasterApiExtensions.CreateRunAsync(eventEntity, casterApiClient, false, _logger, ct);
-                                                    if (runId != null)
-                                                    {
-                                                        eventEntity.RunId = runId;
-                                                        updateTheEntity = true;
-
-                                                        switch (eventEntity.InternalStatus)
-                                                        {
-                                                            case InternalEventStatus.PlanningLaunch:
-                                                                eventEntity.InternalStatus = InternalEventStatus.PlannedLaunch;
-                                                                break;
-                                                            case InternalEventStatus.PlanningRedeploy:
-                                                                eventEntity.InternalStatus = InternalEventStatus.PlannedRedeploy;
-                                                                break;
-                                                        }
-                                                    }
-                                                    else
-                                                    {
-                                                        retry = true;
-                                                    }
-                                                    break;
-                                                }
-                                            case InternalEventStatus.PlannedLaunch:
-                                            case InternalEventStatus.PlannedRedeploy:
-                                                {
-                                                    casterApiClient = RefreshClient(casterApiClient, tokenResponse, ct);
-                                                    updateTheEntity = await CasterApiExtensions.WaitForRunToBePlannedAsync(eventEntity, casterApiClient, _clientOptions.CurrentValue.CasterCheckIntervalSeconds, _clientOptions.CurrentValue.CasterPlanningMaxWaitMinutes, _logger, ct);
-                                                    if (updateTheEntity)
-                                                    {
-                                                        eventEntity.Status = EventStatus.Applying;
-
-                                                        switch (eventEntity.InternalStatus)
-                                                        {
-                                                            case InternalEventStatus.PlannedLaunch:
-                                                                eventEntity.InternalStatus = InternalEventStatus.ApplyingLaunch;
-                                                                break;
-                                                            case InternalEventStatus.PlannedRedeploy:
-                                                                eventEntity.InternalStatus = InternalEventStatus.ApplyingRedeploy;
-                                                                break;
-                                                        }
-                                                    }
-                                                    else
-                                                    {
-                                                        // Plan failed, retry
-                                                        switch (eventEntity.InternalStatus)
-                                                        {
-                                                            case InternalEventStatus.PlannedLaunch:
-                                                                eventEntity.InternalStatus = InternalEventStatus.PlanningLaunch;
-                                                                break;
-                                                            case InternalEventStatus.PlannedRedeploy:
-                                                                eventEntity.InternalStatus = InternalEventStatus.PlanningRedeploy;
-                                                                break;
-                                                        }
-
-                                                        updateTheEntity = true;
-                                                        retry = true;
-                                                        resetRetries = false;
-                                                    }
-                                                    break;
-                                                }
-                                            default:
-                                                {
-                                                    _logger.LogError($"Invalid status for Event {eventEntity.Id}: {eventEntity.Status} - {eventEntity.InternalStatus}");
-                                                    eventEntity.Status = EventStatus.Failed;
-                                                    updateTheEntity = true;
-                                                    break;
-                                                }
-                                        }
-                                        break;
-                                    }
-                                // the "Applying" state means caster is applying a run (deploying VM's, etc.)
-                                case EventStatus.Applying:
-                                    {
-                                        switch (eventEntity.InternalStatus)
-                                        {
-                                            case InternalEventStatus.ApplyingLaunch:
-                                            case InternalEventStatus.ApplyingRedeploy:
-                                                {
-                                                    casterApiClient = RefreshClient(casterApiClient, tokenResponse, ct);
-                                                    updateTheEntity = await CasterApiExtensions.ApplyRunAsync(eventEntity, casterApiClient, ct);
-                                                    if (updateTheEntity)
-                                                    {
-                                                        switch (eventEntity.InternalStatus)
-                                                        {
-                                                            case InternalEventStatus.ApplyingLaunch:
-                                                                eventEntity.InternalStatus = InternalEventStatus.AppliedLaunch;
-                                                                break;
-                                                            case InternalEventStatus.ApplyingRedeploy:
-                                                                eventEntity.InternalStatus = InternalEventStatus.AppliedRedeploy;
-                                                                break;
-                                                        }
-                                                    }
-                                                    else
-                                                    {
-                                                        retry = true;
-                                                    }
-                                                    break;
-                                                }
-                                            case InternalEventStatus.AppliedLaunch:
-                                            case InternalEventStatus.AppliedRedeploy:
-                                                {
-                                                    casterApiClient = RefreshClient(casterApiClient, tokenResponse, ct);
-                                                    updateTheEntity = await CasterApiExtensions.WaitForRunToBeAppliedAsync(eventEntity, casterApiClient, _clientOptions.CurrentValue.CasterCheckIntervalSeconds, _clientOptions.CurrentValue.CasterDeployMaxWaitMinutes, _logger, ct);
-                                                    if (updateTheEntity)
-                                                    {
-                                                        switch (eventEntity.InternalStatus)
-                                                        {
-                                                            case InternalEventStatus.AppliedLaunch:
-                                                                eventEntity.InternalStatus = InternalEventStatus.StartingScenario;
-                                                                break;
-                                                            case InternalEventStatus.AppliedRedeploy:
-                                                                eventEntity.Status = EventStatus.Active;
-                                                                eventEntity.InternalStatus = InternalEventStatus.Launched;
-                                                                break;
-                                                        }
-
-                                                        resetRetries = true;
-                                                    }
-                                                    else
-                                                    {
-                                                        // Apply failed, retry
-                                                        switch (eventEntity.InternalStatus)
-                                                        {
-                                                            case InternalEventStatus.AppliedLaunch:
-                                                                eventEntity.InternalStatus = InternalEventStatus.PlanningLaunch;
-                                                                break;
-                                                            case InternalEventStatus.AppliedRedeploy:
-                                                                eventEntity.InternalStatus = InternalEventStatus.PlanningRedeploy;
-                                                                break;
-                                                        }
-
-                                                        eventEntity.Status = EventStatus.Planning;
-                                                        updateTheEntity = true;
-                                                        retry = true;
-                                                        resetRetries = false;
-                                                    }
-                                                    break;
-                                                }
-                                            case InternalEventStatus.StartingScenario:
-                                                {
-                                                    // start the steamfitter scenario, if there is one
-                                                    if (eventEntity.ScenarioId != null)
-                                                    {
-                                                        steamfitterApiClient = RefreshClient(steamfitterApiClient, tokenResponse, ct);
-                                                        updateTheEntity = await SteamfitterApiExtensions.StartSteamfitterScenarioAsync(steamfitterApiClient, (Guid)eventEntity.ScenarioId, ct);
-                                                    }
-                                                    else
-                                                    {
-                                                        updateTheEntity = true;
-                                                    }
-                                                    // moving on means that Launch is now complete
-                                                    if (updateTheEntity)
-                                                    {
-                                                        var launchDate = DateTime.UtcNow;
-                                                        eventEntity.Name = eventTemplateEntity.Name;
-                                                        eventEntity.Description = eventTemplateEntity.Description;
-                                                        eventEntity.LaunchDate = launchDate;
-                                                        eventEntity.ExpirationDate = launchDate.AddHours(eventTemplateEntity.DurationHours);
-                                                        eventEntity.Status = EventStatus.Active;
-                                                        eventEntity.InternalStatus = InternalEventStatus.Launched;
-                                                    }
-                                                    else
-                                                    {
-                                                        retry = true;
-                                                    }
-                                                    break;
-                                                }
-                                            default:
-                                                {
-                                                    _logger.LogError($"Invalid status for Event {eventEntity.Id}: {eventEntity.Status} - {eventEntity.InternalStatus}");
-                                                    eventEntity.Status = EventStatus.Failed;
-                                                    updateTheEntity = true;
-                                                    break;
-                                                }
-                                        }
-                                        break;
-                                    }
-                                // the "Ending" state means all entities are being torn down
-                                case EventStatus.Ending:
-                                    {
-                                        switch (eventEntity.InternalStatus)
-                                        {
-                                            case InternalEventStatus.EndQueued:
-                                            case InternalEventStatus.PlanningDestroy:
-                                                {
-                                                    if (eventEntity.WorkspaceId != null)
-                                                    {
-                                                        casterApiClient = RefreshClient(casterApiClient, tokenResponse, ct);
-
-                                                        // if no resources, skip to deleting workspace
-                                                        if (await CasterApiExtensions.IsWorkspaceEmpty(eventEntity, casterApiClient, _logger, ct))
-                                                        {
-                                                            eventEntity.InternalStatus = InternalEventStatus.DeletingWorkspace;
-                                                            updateTheEntity = true;
-                                                        }
-                                                        else
-                                                        {
-                                                            var runId = await CasterApiExtensions.CreateRunAsync(eventEntity, casterApiClient, true, _logger, ct);
-                                                            if (runId != null)
-                                                            {
-                                                                eventEntity.RunId = runId;
-                                                                eventEntity.InternalStatus = InternalEventStatus.PlannedDestroy;
-                                                                updateTheEntity = true;
-                                                            }
-                                                            else
-                                                            {
-                                                                retry = true;
-                                                            }
-                                                        }
-                                                    }
-                                                    else
-                                                    {
-                                                        eventEntity.InternalStatus = InternalEventStatus.DeletingView;
-                                                        updateTheEntity = true;
-                                                    }
-                                                    break;
-                                                }
-                                            case InternalEventStatus.PlannedDestroy:
-                                                {
-                                                    casterApiClient = RefreshClient(casterApiClient, tokenResponse, ct);
-                                                    updateTheEntity = await CasterApiExtensions.WaitForRunToBePlannedAsync(eventEntity, casterApiClient, _clientOptions.CurrentValue.CasterCheckIntervalSeconds, _clientOptions.CurrentValue.CasterPlanningMaxWaitMinutes, _logger, ct);
-                                                    if (updateTheEntity)
-                                                    {
-                                                        eventEntity.InternalStatus = InternalEventStatus.ApplyingDestroy;
-                                                    }
-                                                    else
-                                                    {
-                                                        // Destroy failed, retry
-                                                        eventEntity.InternalStatus = InternalEventStatus.PlanningDestroy;
-                                                        updateTheEntity = true;
-                                                        retry = true;
-                                                        resetRetries = false;
-                                                    }
-                                                    break;
-                                                }
-                                            case InternalEventStatus.ApplyingDestroy:
-                                                {
-                                                    casterApiClient = RefreshClient(casterApiClient, tokenResponse, ct);
-                                                    updateTheEntity = await CasterApiExtensions.ApplyRunAsync(eventEntity, casterApiClient, ct);
-                                                    if (updateTheEntity)
-                                                    {
-                                                        eventEntity.InternalStatus = InternalEventStatus.AppliedDestroy;
-                                                    }
-                                                    else
-                                                    {
-                                                        retry = true;
-                                                    }
-                                                    break;
-                                                }
-                                            case InternalEventStatus.AppliedDestroy:
-                                                {
-                                                    casterApiClient = RefreshClient(casterApiClient, tokenResponse, ct);
-                                                    await CasterApiExtensions.WaitForRunToBeAppliedAsync(eventEntity, casterApiClient, _clientOptions.CurrentValue.CasterCheckIntervalSeconds, _clientOptions.CurrentValue.CasterDestroyMaxWaitMinutes, _logger, ct);
-                                                    // all conditions in this case require an event entity update
-                                                    updateTheEntity = true;
-                                                    // make sure that the run successfully deleted the resources
-                                                    var count = (await casterApiClient.GetResourcesByWorkspaceAsync((Guid)eventEntity.WorkspaceId, ct)).Count();
-                                                    eventEntity.RunId = null;
-                                                    if (count == 0)
-                                                    {
-                                                        // resources deleted, so continue to delete the workspace
-                                                        eventEntity.InternalStatus = InternalEventStatus.DeletingWorkspace;
-                                                        resetRetries = true;
-                                                    }
-                                                    else
-                                                    {
-                                                        if (count < resourceCount)
-                                                        {
-                                                            // still some resources, but making progress, try the whole process again
-                                                            eventEntity.InternalStatus = InternalEventStatus.PlanningDestroy;
-                                                            resourceRetryCount = 0;
-                                                        }
-                                                        else
-                                                        {
-                                                            // still some resources and not making progress. Check max retries.
-                                                            if (resourceRetryCount < _clientOptions.CurrentValue.ApiClientEndFailureMaxRetries)
-                                                            {
-                                                                // try the whole process again after a wait
-                                                                eventEntity.InternalStatus = InternalEventStatus.PlanningDestroy;
-                                                                resourceRetryCount++;
-                                                                Thread.Sleep(TimeSpan.FromMinutes(_clientOptions.CurrentValue.CasterDestroyRetryDelayMinutes));
-                                                            }
-                                                            else
-                                                            {
-                                                                // the caster workspace resources could not be destroyed
-                                                                eventEntity.InternalStatus = InternalEventStatus.FailedDestroy;
-                                                                eventEntity.Status = EventStatus.Failed;
-                                                            }
-                                                        }
-
-                                                        resourceCount = count;
-                                                    }
-                                                    break;
-                                                }
-                                            case InternalEventStatus.DeletingWorkspace:
-                                                {
-                                                    casterApiClient = RefreshClient(casterApiClient, tokenResponse, ct);
-                                                    updateTheEntity = await CasterApiExtensions.DeleteCasterWorkspaceAsync(eventEntity, casterApiClient, tokenResponse, ct);
-                                                    if (updateTheEntity)
-                                                    {
-                                                        eventEntity.WorkspaceId = null;
-                                                        eventEntity.InternalStatus = InternalEventStatus.DeletingView;
-                                                    }
-                                                    else
-                                                    {
-                                                        retry = true;
-                                                    }
-                                                    break;
-                                                }
-                                            case InternalEventStatus.DeletingView:
-                                                {
+                                                    var varsFileContent = "";
                                                     if (eventEntity.ViewId != null)
                                                     {
-                                                        playerApiClient = RefreshClient(playerApiClient, tokenResponse, ct);
-                                                        updateTheEntity = await PlayerApiExtensions.DeletePlayerViewAsync(_clientOptions.CurrentValue.urls.playerApi, eventEntity.ViewId, playerApiClient, ct);
+                                                        (playerApiClient, tokenResponse) = await RefreshClient(playerApiClient, tokenResponse, scope.ServiceProvider, ct);
+                                                        varsFileContent = await CasterApiExtensions.GetCasterVarsFileContentAsync(eventEntity, playerApiClient, ct);
                                                     }
-                                                    else
+
+                                                    if (!string.IsNullOrEmpty(varsFileContent))
                                                     {
-                                                        updateTheEntity = true;
-                                                    }
-                                                    if (updateTheEntity)
-                                                    {
-                                                        eventEntity.ViewId = null;
-                                                        eventEntity.InternalStatus = InternalEventStatus.DeletingScenario;
-                                                    }
-                                                    break;
-                                                }
-                                            case InternalEventStatus.DeletingScenario:
-                                                {
-                                                    if (eventEntity.ScenarioId != null)
-                                                    {
-                                                        steamfitterApiClient = RefreshClient(steamfitterApiClient, tokenResponse, ct);
-                                                        updateTheEntity = await SteamfitterApiExtensions.EndSteamfitterScenarioAsync(_clientOptions.CurrentValue.urls.steamfitterApi, eventEntity.ScenarioId, steamfitterApiClient, ct);
-                                                    }
-                                                    else
-                                                    {
-                                                        updateTheEntity = true;
-                                                    }
-                                                    if (updateTheEntity)
-                                                    {
-                                                        eventEntity.ScenarioId = null;
-                                                        eventEntity.Status = EventStatus.Ended;
-                                                        eventEntity.InternalStatus = InternalEventStatus.Ended;
+                                                        (casterApiClient, tokenResponse) = await RefreshClient(casterApiClient, tokenResponse, scope.ServiceProvider, ct);
+                                                        var workspaceId = await CasterApiExtensions.CreateCasterWorkspaceAsync(casterApiClient, eventEntity, (Guid)eventTemplateEntity.DirectoryId, varsFileContent, eventTemplateEntity.UseDynamicHost, ct);
+                                                        if (workspaceId != null)
+                                                        {
+                                                            eventEntity.WorkspaceId = workspaceId;
+                                                            eventEntity.InternalStatus = InternalEventStatus.PlanningLaunch;
+                                                            eventEntity.Status = EventStatus.Planning;
+                                                            updateTheEntity = true;
+                                                        }
+                                                        else
+                                                        {
+                                                            retry = true;
+                                                            tokenResponse = null;
+                                                        }
                                                     }
                                                     else
                                                     {
                                                         retry = true;
+                                                        tokenResponse = null;
                                                     }
-                                                    break;
                                                 }
-
-                                            default:
-                                                {
-                                                    _logger.LogError($"Invalid status for Event {eventEntity.Id}: {eventEntity.Status} - {eventEntity.InternalStatus}");
-                                                    eventEntity.Status = EventStatus.Failed;
-                                                    updateTheEntity = true;
-                                                    break;
-                                                }
-                                        }
-                                        break;
+                                                break;
+                                            }
+                                        default:
+                                            {
+                                                _logger.LogError($"Invalid status for Event {eventEntity.Id}: {eventEntity.Status} - {eventEntity.InternalStatus}");
+                                                eventEntity.Status = EventStatus.Failed;
+                                                updateTheEntity = true;
+                                                break;
+                                            }
                                     }
-                            }
-                            // check for exceeding the max number of retries
-                            if (retry)
-                            {
-                                retryCount++;
-                                if ((eventEntity.Status == EventStatus.Creating ||
-                                     eventEntity.Status == EventStatus.Planning ||
-                                     eventEntity.Status == EventStatus.Applying) &&
-                                    retryCount >= _clientOptions.CurrentValue.ApiClientLaunchFailureMaxRetries &&
-                                    _clientOptions.CurrentValue.ApiClientLaunchFailureMaxRetries > 0)
-                                {
-                                    _logger.LogError($"While launching the retry count exceeded for Event {eventEntity.Id}, with status of {eventEntity.Status} - {eventEntity.InternalStatus}");
-                                    eventEntity.LastLaunchStatus = eventEntity.Status;
-                                    eventEntity.LastLaunchInternalStatus = eventEntity.InternalStatus;
-                                    eventEntity.FailureCount++;
-                                    eventEntity.Status = EventStatus.Ending;
-                                    eventEntity.InternalStatus = InternalEventStatus.EndQueued;
-                                    updateTheEntity = true;
-                                    retryCount = 0;
+                                    break;
                                 }
-                                else if (eventEntity.Status == EventStatus.Ending &&
-                                    retryCount >= _clientOptions.CurrentValue.ApiClientEndFailureMaxRetries &&
-                                    _clientOptions.CurrentValue.ApiClientEndFailureMaxRetries > 0)
+                            // the "Planning" state means that caster is planning a run
+                            case EventStatus.Planning:
                                 {
-                                    _logger.LogError($"While ending the retry count exceeded for Event {eventEntity.Id}, with status of {eventEntity.Status} - {eventEntity.InternalStatus}");
-                                    eventEntity.LastEndStatus = eventEntity.Status;
-                                    eventEntity.LastEndInternalStatus = eventEntity.InternalStatus;
-                                    eventEntity.FailureCount++;
-                                    eventEntity.Status = EventStatus.Failed;
-                                    updateTheEntity = true;
-                                    retryCount = 0;
-                                }
-                                else
-                                {
-                                    Thread.Sleep(TimeSpan.FromSeconds(_clientOptions.CurrentValue.ApiClientRetryIntervalSeconds));
-                                }
+                                    switch (eventEntity.InternalStatus)
+                                    {
+                                        case InternalEventStatus.PlanningLaunch:
+                                        case InternalEventStatus.PlanningRedeploy:
+                                            {
+                                                (casterApiClient, tokenResponse) = await RefreshClient(casterApiClient, tokenResponse, scope.ServiceProvider, ct);
+                                                var runId = await CasterApiExtensions.CreateRunAsync(eventEntity, casterApiClient, false, _logger, ct);
+                                                if (runId != null)
+                                                {
+                                                    eventEntity.RunId = runId;
+                                                    updateTheEntity = true;
 
-                            }
-                            else if (resetRetries)
+                                                    switch (eventEntity.InternalStatus)
+                                                    {
+                                                        case InternalEventStatus.PlanningLaunch:
+                                                            eventEntity.InternalStatus = InternalEventStatus.PlannedLaunch;
+                                                            break;
+                                                        case InternalEventStatus.PlanningRedeploy:
+                                                            eventEntity.InternalStatus = InternalEventStatus.PlannedRedeploy;
+                                                            break;
+                                                    }
+                                                }
+                                                else
+                                                {
+                                                    retry = true;
+                                                    tokenResponse = null;
+                                                }
+                                                break;
+                                            }
+                                        case InternalEventStatus.PlannedLaunch:
+                                        case InternalEventStatus.PlannedRedeploy:
+                                            {
+                                                (casterApiClient, tokenResponse) = await RefreshClient(casterApiClient, tokenResponse, scope.ServiceProvider, ct);
+                                                updateTheEntity = await CasterApiExtensions.WaitForRunToBePlannedAsync(eventEntity, casterApiClient, _clientOptions.CurrentValue.CasterCheckIntervalSeconds, _clientOptions.CurrentValue.CasterPlanningMaxWaitMinutes, _logger, ct);
+                                                if (updateTheEntity)
+                                                {
+                                                    eventEntity.Status = EventStatus.Applying;
+
+                                                    switch (eventEntity.InternalStatus)
+                                                    {
+                                                        case InternalEventStatus.PlannedLaunch:
+                                                            eventEntity.InternalStatus = InternalEventStatus.ApplyingLaunch;
+                                                            break;
+                                                        case InternalEventStatus.PlannedRedeploy:
+                                                            eventEntity.InternalStatus = InternalEventStatus.ApplyingRedeploy;
+                                                            break;
+                                                    }
+                                                }
+                                                else
+                                                {
+                                                    // Plan failed, retry
+                                                    switch (eventEntity.InternalStatus)
+                                                    {
+                                                        case InternalEventStatus.PlannedLaunch:
+                                                            eventEntity.InternalStatus = InternalEventStatus.PlanningLaunch;
+                                                            break;
+                                                        case InternalEventStatus.PlannedRedeploy:
+                                                            eventEntity.InternalStatus = InternalEventStatus.PlanningRedeploy;
+                                                            break;
+                                                    }
+
+                                                    updateTheEntity = true;
+                                                    retry = true;
+                                                    resetRetries = false;
+                                                }
+                                                break;
+                                            }
+                                        default:
+                                            {
+                                                _logger.LogError($"Invalid status for Event {eventEntity.Id}: {eventEntity.Status} - {eventEntity.InternalStatus}");
+                                                eventEntity.Status = EventStatus.Failed;
+                                                updateTheEntity = true;
+                                                break;
+                                            }
+                                    }
+                                    break;
+                                }
+                            // the "Applying" state means caster is applying a run (deploying VM's, etc.)
+                            case EventStatus.Applying:
+                                {
+                                    switch (eventEntity.InternalStatus)
+                                    {
+                                        case InternalEventStatus.ApplyingLaunch:
+                                        case InternalEventStatus.ApplyingRedeploy:
+                                            {
+                                                (casterApiClient, tokenResponse) = await RefreshClient(casterApiClient, tokenResponse, scope.ServiceProvider, ct);
+                                                updateTheEntity = await CasterApiExtensions.ApplyRunAsync(eventEntity, casterApiClient, ct);
+                                                if (updateTheEntity)
+                                                {
+                                                    switch (eventEntity.InternalStatus)
+                                                    {
+                                                        case InternalEventStatus.ApplyingLaunch:
+                                                            eventEntity.InternalStatus = InternalEventStatus.AppliedLaunch;
+                                                            break;
+                                                        case InternalEventStatus.ApplyingRedeploy:
+                                                            eventEntity.InternalStatus = InternalEventStatus.AppliedRedeploy;
+                                                            break;
+                                                    }
+                                                }
+                                                else
+                                                {
+                                                    retry = true;
+                                                    tokenResponse = null;
+                                                }
+                                                break;
+                                            }
+                                        case InternalEventStatus.AppliedLaunch:
+                                        case InternalEventStatus.AppliedRedeploy:
+                                            {
+                                                (casterApiClient, tokenResponse) = await RefreshClient(casterApiClient, tokenResponse, scope.ServiceProvider, ct);
+                                                updateTheEntity = await CasterApiExtensions.WaitForRunToBeAppliedAsync(eventEntity, casterApiClient, _clientOptions.CurrentValue.CasterCheckIntervalSeconds, _clientOptions.CurrentValue.CasterDeployMaxWaitMinutes, _logger, ct);
+                                                if (updateTheEntity)
+                                                {
+                                                    switch (eventEntity.InternalStatus)
+                                                    {
+                                                        case InternalEventStatus.AppliedLaunch:
+                                                            eventEntity.InternalStatus = InternalEventStatus.StartingScenario;
+                                                            break;
+                                                        case InternalEventStatus.AppliedRedeploy:
+                                                            eventEntity.Status = EventStatus.Active;
+                                                            eventEntity.InternalStatus = InternalEventStatus.Launched;
+                                                            break;
+                                                    }
+
+                                                    resetRetries = true;
+                                                }
+                                                else
+                                                {
+                                                    // Apply failed, retry
+                                                    switch (eventEntity.InternalStatus)
+                                                    {
+                                                        case InternalEventStatus.AppliedLaunch:
+                                                            eventEntity.InternalStatus = InternalEventStatus.PlanningLaunch;
+                                                            break;
+                                                        case InternalEventStatus.AppliedRedeploy:
+                                                            eventEntity.InternalStatus = InternalEventStatus.PlanningRedeploy;
+                                                            break;
+                                                    }
+
+                                                    eventEntity.Status = EventStatus.Planning;
+                                                    updateTheEntity = true;
+                                                    retry = true;
+                                                    resetRetries = false;
+                                                }
+                                                break;
+                                            }
+                                        case InternalEventStatus.StartingScenario:
+                                            {
+                                                // start the steamfitter scenario, if there is one
+                                                if (eventEntity.ScenarioId != null)
+                                                {
+                                                    (steamfitterApiClient, tokenResponse) = await RefreshClient(steamfitterApiClient, tokenResponse, scope.ServiceProvider, ct);
+                                                    updateTheEntity = await SteamfitterApiExtensions.StartSteamfitterScenarioAsync(steamfitterApiClient, (Guid)eventEntity.ScenarioId, ct);
+                                                }
+                                                else
+                                                {
+                                                    updateTheEntity = true;
+                                                }
+                                                // moving on means that Launch is now complete
+                                                if (updateTheEntity)
+                                                {
+                                                    var launchDate = DateTime.UtcNow;
+                                                    eventEntity.Name = eventTemplateEntity.Name;
+                                                    eventEntity.Description = eventTemplateEntity.Description;
+                                                    eventEntity.LaunchDate = launchDate;
+                                                    eventEntity.ExpirationDate = launchDate.AddHours(eventTemplateEntity.DurationHours);
+                                                    eventEntity.Status = EventStatus.Active;
+                                                    eventEntity.InternalStatus = InternalEventStatus.Launched;
+                                                }
+                                                else
+                                                {
+                                                    retry = true;
+                                                    tokenResponse = null;
+                                                }
+                                                break;
+                                            }
+                                        default:
+                                            {
+                                                _logger.LogError($"Invalid status for Event {eventEntity.Id}: {eventEntity.Status} - {eventEntity.InternalStatus}");
+                                                eventEntity.Status = EventStatus.Failed;
+                                                updateTheEntity = true;
+                                                break;
+                                            }
+                                    }
+                                    break;
+                                }
+                            // the "Ending" state means all entities are being torn down
+                            case EventStatus.Ending:
+                                {
+                                    switch (eventEntity.InternalStatus)
+                                    {
+                                        case InternalEventStatus.EndQueued:
+                                        case InternalEventStatus.PlanningDestroy:
+                                            {
+                                                if (eventEntity.WorkspaceId != null)
+                                                {
+                                                    (casterApiClient, tokenResponse) = await RefreshClient(casterApiClient, tokenResponse, scope.ServiceProvider, ct);
+
+                                                    // if no resources, skip to deleting workspace
+                                                    if (await CasterApiExtensions.IsWorkspaceEmpty(eventEntity, casterApiClient, _logger, ct))
+                                                    {
+                                                        eventEntity.InternalStatus = InternalEventStatus.DeletingWorkspace;
+                                                        updateTheEntity = true;
+                                                    }
+                                                    else
+                                                    {
+                                                        var runId = await CasterApiExtensions.CreateRunAsync(eventEntity, casterApiClient, true, _logger, ct);
+                                                        if (runId != null)
+                                                        {
+                                                            eventEntity.RunId = runId;
+                                                            eventEntity.InternalStatus = InternalEventStatus.PlannedDestroy;
+                                                            updateTheEntity = true;
+                                                        }
+                                                        else
+                                                        {
+                                                            retry = true;
+                                                            tokenResponse = null;
+                                                        }
+                                                    }
+                                                }
+                                                else
+                                                {
+                                                    eventEntity.InternalStatus = InternalEventStatus.DeletingView;
+                                                    updateTheEntity = true;
+                                                }
+                                                break;
+                                            }
+                                        case InternalEventStatus.PlannedDestroy:
+                                            {
+                                                (casterApiClient, tokenResponse) = await RefreshClient(casterApiClient, tokenResponse, scope.ServiceProvider, ct);
+                                                updateTheEntity = await CasterApiExtensions.WaitForRunToBePlannedAsync(eventEntity, casterApiClient, _clientOptions.CurrentValue.CasterCheckIntervalSeconds, _clientOptions.CurrentValue.CasterPlanningMaxWaitMinutes, _logger, ct);
+                                                if (updateTheEntity)
+                                                {
+                                                    eventEntity.InternalStatus = InternalEventStatus.ApplyingDestroy;
+                                                }
+                                                else
+                                                {
+                                                    // Destroy failed, retry
+                                                    eventEntity.InternalStatus = InternalEventStatus.PlanningDestroy;
+                                                    updateTheEntity = true;
+                                                    retry = true;
+                                                    resetRetries = false;
+                                                }
+                                                break;
+                                            }
+                                        case InternalEventStatus.ApplyingDestroy:
+                                            {
+                                                (casterApiClient, tokenResponse) = await RefreshClient(casterApiClient, tokenResponse, scope.ServiceProvider, ct);
+                                                updateTheEntity = await CasterApiExtensions.ApplyRunAsync(eventEntity, casterApiClient, ct);
+                                                if (updateTheEntity)
+                                                {
+                                                    eventEntity.InternalStatus = InternalEventStatus.AppliedDestroy;
+                                                }
+                                                else
+                                                {
+                                                    retry = true;
+                                                    tokenResponse = null;
+                                                }
+                                                break;
+                                            }
+                                        case InternalEventStatus.AppliedDestroy:
+                                            {
+                                                (casterApiClient, tokenResponse) = await RefreshClient(casterApiClient, tokenResponse, scope.ServiceProvider, ct);
+                                                await CasterApiExtensions.WaitForRunToBeAppliedAsync(eventEntity, casterApiClient, _clientOptions.CurrentValue.CasterCheckIntervalSeconds, _clientOptions.CurrentValue.CasterDestroyMaxWaitMinutes, _logger, ct);
+                                                // all conditions in this case require an event entity update
+                                                updateTheEntity = true;
+                                                // make sure that the run successfully deleted the resources
+                                                var count = (await casterApiClient.GetResourcesByWorkspaceAsync((Guid)eventEntity.WorkspaceId, ct)).Count();
+                                                eventEntity.RunId = null;
+                                                if (count == 0)
+                                                {
+                                                    // resources deleted, so continue to delete the workspace
+                                                    eventEntity.InternalStatus = InternalEventStatus.DeletingWorkspace;
+                                                    resetRetries = true;
+                                                }
+                                                else
+                                                {
+                                                    if (count < resourceCount)
+                                                    {
+                                                        // still some resources, but making progress, try the whole process again
+                                                        eventEntity.InternalStatus = InternalEventStatus.PlanningDestroy;
+                                                        resourceRetryCount = 0;
+                                                    }
+                                                    else
+                                                    {
+                                                        // still some resources and not making progress. Check max retries.
+                                                        if (resourceRetryCount < _clientOptions.CurrentValue.ApiClientEndFailureMaxRetries)
+                                                        {
+                                                            // try the whole process again after a wait
+                                                            eventEntity.InternalStatus = InternalEventStatus.PlanningDestroy;
+                                                            resourceRetryCount++;
+                                                            Thread.Sleep(TimeSpan.FromMinutes(_clientOptions.CurrentValue.CasterDestroyRetryDelayMinutes));
+                                                        }
+                                                        else
+                                                        {
+                                                            // the caster workspace resources could not be destroyed
+                                                            eventEntity.InternalStatus = InternalEventStatus.FailedDestroy;
+                                                            eventEntity.Status = EventStatus.Failed;
+                                                        }
+                                                    }
+
+                                                    resourceCount = count;
+                                                }
+                                                break;
+                                            }
+                                        case InternalEventStatus.DeletingWorkspace:
+                                            {
+                                                (casterApiClient, tokenResponse) = await RefreshClient(casterApiClient, tokenResponse, scope.ServiceProvider, ct);
+                                                updateTheEntity = await CasterApiExtensions.DeleteCasterWorkspaceAsync(eventEntity, casterApiClient, tokenResponse, ct);
+                                                if (updateTheEntity)
+                                                {
+                                                    eventEntity.WorkspaceId = null;
+                                                    eventEntity.InternalStatus = InternalEventStatus.DeletingView;
+                                                }
+                                                else
+                                                {
+                                                    retry = true;
+                                                    tokenResponse = null;
+                                                }
+                                                break;
+                                            }
+                                        case InternalEventStatus.DeletingView:
+                                            {
+                                                if (eventEntity.ViewId != null)
+                                                {
+                                                    (playerApiClient, tokenResponse) = await RefreshClient(playerApiClient, tokenResponse, scope.ServiceProvider, ct);
+                                                    updateTheEntity = await PlayerApiExtensions.DeletePlayerViewAsync(_clientOptions.CurrentValue.urls.playerApi, eventEntity.ViewId, playerApiClient, ct);
+                                                }
+                                                else
+                                                {
+                                                    updateTheEntity = true;
+                                                }
+                                                if (updateTheEntity)
+                                                {
+                                                    eventEntity.ViewId = null;
+                                                    eventEntity.InternalStatus = InternalEventStatus.DeletingScenario;
+                                                }
+                                                else
+                                                {
+                                                    retry = true;
+                                                    tokenResponse = null;
+                                                }
+                                                break;
+                                            }
+                                        case InternalEventStatus.DeletingScenario:
+                                            {
+                                                if (eventEntity.ScenarioId != null)
+                                                {
+                                                    (steamfitterApiClient, tokenResponse) = await RefreshClient(steamfitterApiClient, tokenResponse, scope.ServiceProvider, ct);
+                                                    updateTheEntity = await SteamfitterApiExtensions.EndSteamfitterScenarioAsync(_clientOptions.CurrentValue.urls.steamfitterApi, eventEntity.ScenarioId, steamfitterApiClient, ct);
+                                                }
+                                                else
+                                                {
+                                                    updateTheEntity = true;
+                                                }
+                                                if (updateTheEntity)
+                                                {
+                                                    eventEntity.ScenarioId = null;
+                                                    eventEntity.Status = EventStatus.Ended;
+                                                    eventEntity.InternalStatus = InternalEventStatus.Ended;
+                                                }
+                                                else
+                                                {
+                                                    retry = true;
+                                                    tokenResponse = null;
+                                                }
+                                                break;
+                                            }
+
+                                        default:
+                                            {
+                                                _logger.LogError($"Invalid status for Event {eventEntity.Id}: {eventEntity.Status} - {eventEntity.InternalStatus}");
+                                                eventEntity.Status = EventStatus.Failed;
+                                                updateTheEntity = true;
+                                                break;
+                                            }
+                                    }
+                                    break;
+                                }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, $"Error processing event {eventEntity.Id}");
+                        tokenResponse = null;
+                        retry = true;
+                    }
+                    finally
+                    {
+                        // check for exceeding the max number of retries
+                        if (retry)
+                        {
+                            retryCount++;
+
+                            if ((eventEntity.Status == EventStatus.Creating ||
+                                    eventEntity.Status == EventStatus.Planning ||
+                                    eventEntity.Status == EventStatus.Applying) &&
+                                retryCount >= _clientOptions.CurrentValue.ApiClientLaunchFailureMaxRetries &&
+                                _clientOptions.CurrentValue.ApiClientLaunchFailureMaxRetries > 0)
                             {
+                                _logger.LogError($"While launching the retry count exceeded for Event {eventEntity.Id}, with status of {eventEntity.Status} - {eventEntity.InternalStatus}");
+                                eventEntity.LastLaunchStatus = eventEntity.Status;
+                                eventEntity.LastLaunchInternalStatus = eventEntity.InternalStatus;
+                                eventEntity.FailureCount++;
+                                eventEntity.Status = EventStatus.Ending;
+                                eventEntity.InternalStatus = InternalEventStatus.EndQueued;
+                                updateTheEntity = true;
                                 retryCount = 0;
                             }
-
-                            // update the entity in the context, if we are moving on
-                            if (updateTheEntity)
+                            else if (eventEntity.Status == EventStatus.Ending &&
+                                retryCount >= _clientOptions.CurrentValue.ApiClientEndFailureMaxRetries &&
+                                _clientOptions.CurrentValue.ApiClientEndFailureMaxRetries > 0)
                             {
-                                eventEntity.StatusDate = DateTime.UtcNow;
-                                await alloyContext.SaveChangesAsync(ct);
+                                _logger.LogError($"While ending the retry count exceeded for Event {eventEntity.Id}, with status of {eventEntity.Status} - {eventEntity.InternalStatus}");
+                                eventEntity.LastEndStatus = eventEntity.Status;
+                                eventEntity.LastEndInternalStatus = eventEntity.InternalStatus;
+                                eventEntity.FailureCount++;
+                                eventEntity.Status = EventStatus.Failed;
+                                updateTheEntity = true;
+                                retryCount = 0;
                             }
+                            else
+                            {
+                                Thread.Sleep(TimeSpan.FromSeconds(_clientOptions.CurrentValue.ApiClientRetryIntervalSeconds));
+                            }
+
+                        }
+                        else if (resetRetries)
+                        {
+                            retryCount = 0;
+                        }
+
+                        // update the entity in the context, if we are moving on
+                        if (updateTheEntity)
+                        {
+                            eventEntity.StatusDate = DateTime.UtcNow;
+                            await alloyContext.SaveChangesAsync(ct);
                         }
                     }
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, $"Error processing event {eventEntity.Id}");
+                _logger.LogError(ex, $"Error processing event {eventEntity.Id}. Terminating");
             }
         }
 
-        private PlayerApiClient RefreshClient(PlayerApiClient clientObject, TokenResponse tokenResponse, CancellationToken ct)
+        private async Task<(PlayerApiClient, TokenResponse)> RefreshClient(PlayerApiClient clientObject, TokenResponse tokenResponse, IServiceProvider serviceProvider, CancellationToken ct)
         {
             // TODO: check for token expiration also
-            if (clientObject == null)
+            if (clientObject == null || tokenResponse == null)
             {
+                if (tokenResponse == null)
+                {
+                    tokenResponse = await ApiClientsExtensions.GetToken(serviceProvider);
+                }
+
                 clientObject = PlayerApiExtensions.GetPlayerApiClient(_httpClientFactory, _clientOptions.CurrentValue.urls.playerApi, tokenResponse);
             }
 
-            return clientObject;
+            return (clientObject, tokenResponse);
         }
 
-        private SteamfitterApiClient RefreshClient(SteamfitterApiClient clientObject, TokenResponse tokenResponse, CancellationToken ct)
+        private async Task<(SteamfitterApiClient, TokenResponse)> RefreshClient(SteamfitterApiClient clientObject, TokenResponse tokenResponse, IServiceProvider serviceProvider, CancellationToken ct)
         {
             // TODO: check for token expiration also
-            if (clientObject == null)
+            if (clientObject == null || tokenResponse == null)
             {
+                if (tokenResponse == null)
+                {
+                    tokenResponse = await ApiClientsExtensions.GetToken(serviceProvider);
+                }
+
                 clientObject = SteamfitterApiExtensions.GetSteamfitterApiClient(_httpClientFactory, _clientOptions.CurrentValue.urls.steamfitterApi, tokenResponse);
             }
 
-            return clientObject;
+            return (clientObject, tokenResponse);
         }
 
-        private CasterApiClient RefreshClient(CasterApiClient clientObject, TokenResponse tokenResponse, CancellationToken ct)
+        private async Task<(CasterApiClient, TokenResponse)> RefreshClient(CasterApiClient clientObject, TokenResponse tokenResponse, IServiceProvider serviceProvider, CancellationToken ct)
         {
             // TODO: check for token expiration also
-            if (clientObject == null)
+            if (clientObject == null || tokenResponse == null)
             {
+                if (tokenResponse == null)
+                {
+                    tokenResponse = await ApiClientsExtensions.GetToken(serviceProvider);
+                }
+
                 clientObject = CasterApiExtensions.GetCasterApiClient(_httpClientFactory, _clientOptions.CurrentValue.urls.casterApi, tokenResponse);
             }
 
-            return clientObject;
+            return (clientObject, tokenResponse);
         }
 
     }
