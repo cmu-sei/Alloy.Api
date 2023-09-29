@@ -213,7 +213,7 @@ namespace Alloy.Api.Services
                                                     }
                                                     catch (Exception ex)
                                                     {
-                                                        _logger.LogError($"Error creating the player view for Event {eventEntity.Id}.", ex);
+                                                        _logger.LogError(ex, $"Error creating the player view for Event {eventEntity.Id}.");
                                                         retry = true;
                                                         tokenResponse = null;
                                                     }
