@@ -13,12 +13,10 @@ namespace Alloy.Api.Data
 {
     public class AlloyContext : DbContext
     {
-        private DbContextOptions<AlloyContext> _options;
+        // Needed for EventInterceptor
+        public IServiceProvider ServiceProvider;
 
-        public AlloyContext(DbContextOptions<AlloyContext> options) : base(options)
-        {
-            _options = options;
-        }
+        public AlloyContext(DbContextOptions<AlloyContext> options) : base(options) { }
 
         public DbSet<EventTemplateEntity> EventTemplates { get; set; }
         public DbSet<EventEntity> Events { get; set; }

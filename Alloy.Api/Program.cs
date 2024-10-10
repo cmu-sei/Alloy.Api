@@ -6,6 +6,7 @@ using Microsoft.AspNetCore;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.Configuration;
 using Alloy.Api.Extensions;
+using Microsoft.Extensions.Hosting;
 
 namespace Alloy.Api
 {
@@ -27,13 +28,13 @@ namespace Alloy.Api
             }
         }
 
-        public static IWebHostBuilder CreateWebHostBuilder(string[] args)
+        public static IHostBuilder CreateWebHostBuilder(string[] args)
         {
-            var configuration = new ConfigurationBuilder().AddCommandLine(args).Build();
-
-            return WebHost.CreateDefaultBuilder(args)
-                .UseConfiguration(configuration)
-                .UseStartup<Startup>();
+            return Host.CreateDefaultBuilder(args)
+            .ConfigureWebHostDefaults(webBuilder =>
+            {
+                webBuilder.UseStartup<Startup>();
+            });
         }
     }
 }

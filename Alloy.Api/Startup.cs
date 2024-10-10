@@ -2,16 +2,13 @@
 // Released under a MIT (SEI)-style license. See LICENSE.md in the project root for license information.
 
 using System;
-using System.IdentityModel.Tokens.Jwt;
 using System.Linq;
-using System.Reflection;
 using System.Security.Principal;
 using System.Text.Json.Serialization;
 using System.Threading.Tasks;
 using Alloy.Api.Data;
 using Alloy.Api.Extensions;
 using Alloy.Api.Hubs;
-using Alloy.Api.Infrastructure;
 using Alloy.Api.Infrastructure.Authorization;
 using Alloy.Api.Infrastructure.ClaimsTransformers;
 using Alloy.Api.Infrastructure.DbInterceptors;
@@ -22,8 +19,7 @@ using Alloy.Api.Infrastructure.Mappings;
 using Alloy.Api.Infrastructure.Options;
 using Alloy.Api.Options;
 using Alloy.Api.Services;
-using AutoMapper;
-using MediatR;
+using AutoMapper.Internal;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
@@ -31,14 +27,13 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
-using Microsoft.AspNetCore.Mvc;
-using Microsoft.AspNetCore.Mvc.Authorization;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
+using Microsoft.IdentityModel.JsonWebTokens;
 
 namespace Alloy.Api
 {
@@ -64,18 +59,21 @@ namespace Alloy.Api
             switch (provider)
             {
                 case "InMemory":
-                    services.AddDbContextPool<AlloyContext>((ServiceProvider, builder) => builder
-                    .AddInterceptors(ServiceProvider.GetRequiredService<EventTransactionInterceptor>())
-                    .UseInMemoryDatabase("api"));
+                    services.AddPooledDbContextFactory<AlloyContext>((ServiceProvider, builder) => builder
+                        .AddInterceptors(ServiceProvider.GetRequiredService<EventInterceptor>())
+                        .UseInMemoryDatabase("api"));
                     break;
                 case "Sqlite":
                 case "SqlServer":
                 case "PostgreSQL":
-                    services.AddDbContextPool<AlloyContext>((serviceProvider, builder) => builder
-                    .AddInterceptors(serviceProvider.GetRequiredService<EventTransactionInterceptor>())
-                    .UseConfiguredDatabase(Configuration));
+                    services.AddPooledDbContextFactory<AlloyContext>((serviceProvider, builder) => builder
+                        .AddInterceptors(serviceProvider.GetRequiredService<EventInterceptor>())
+                        .UseConfiguredDatabase(Configuration));
                     break;
             }
+
+            services.AddScoped<AlloyContextFactory>();
+            services.AddScoped(sp => sp.GetRequiredService<AlloyContextFactory>().CreateDbContext());
 
             services.AddSingleton<StartupHealthCheck>();
             services.AddSingleton<HostedServiceHealthCheck>();
@@ -152,7 +150,7 @@ namespace Alloy.Api
 
             services.AddSwagger(_authOptions);
 
-            JwtSecurityTokenHandler.DefaultInboundClaimTypeMap.Clear();
+            JsonWebTokenHandler.DefaultInboundClaimTypeMap.Clear();
 
             services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             .AddJwtBearer(options =>
@@ -210,7 +208,7 @@ namespace Alloy.Api
             services.AddScoped<IPlayerService, PlayerService>();
             services.AddScoped<ISteamfitterService, SteamfitterService>();
             services.AddScoped<IUserClaimsService, UserClaimsService>();
-            services.AddTransient<EventTransactionInterceptor>();
+            services.AddTransient<EventInterceptor>();
 
             // add the other API clients
             services.AddPlayerApiClient();
@@ -229,14 +227,14 @@ namespace Alloy.Api
 
             services.AddAutoMapper(cfg =>
             {
-                cfg.ForAllPropertyMaps(
+                cfg.Internal().ForAllPropertyMaps(
                     pm => pm.SourceType != null && Nullable.GetUnderlyingType(pm.SourceType) == pm.DestinationType,
                     (pm, c) => c.MapFrom<object, object, object, object>(new IgnoreNullSourceValues(), pm.SourceMember.Name));
 
 
             }, typeof(Startup));
 
-            services.AddMediatR(typeof(Startup).GetTypeInfo().Assembly);
+            services.AddMediatR(cfg => cfg.RegisterServicesFromAssemblyContaining<Startup>());
             services.AddScoped<IClaimsTransformation, AuthorizationClaimsTransformer>();
         }
 
@@ -265,7 +263,7 @@ namespace Alloy.Api
                         .SingleOrDefault(x => x.StartsWith("bearer="))?.Split('=')[1];
 
                     if (!String.IsNullOrWhiteSpace(token))
-                        context.Request.Headers.Add("Authorization", new[] { $"Bearer {token}" });
+                        context.Request.Headers.Append("Authorization", new[] { $"Bearer {token}" });
                 }
 
                 await next.Invoke();

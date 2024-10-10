@@ -100,9 +100,9 @@ namespace Alloy.Api.Services
                     bootstrapComplete = true;
                     _startupHealthCheck.StartupTaskCompleted = true;
                 }
-                catch (System.Exception ex)
+                catch (Exception ex)
                 {
-                    _logger.LogError("Exception encountered in AlloyBackgroundService Bootstrap.", ex);
+                    _logger.LogError(ex, "Exception encountered in AlloyBackgroundService Bootstrap.");
                     await Task.Delay(new TimeSpan(0, 0, _clientOptions.CurrentValue.BackgroundTimerIntervalSeconds));
                 }
             }
@@ -128,7 +128,7 @@ namespace Alloy.Api.Services
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogError("Exception encountered in AlloyBackgroundService Run loop.", ex);
+                        _logger.LogError(ex, "Exception encountered in AlloyBackgroundService Run loop.");
                     }
                 }
             });

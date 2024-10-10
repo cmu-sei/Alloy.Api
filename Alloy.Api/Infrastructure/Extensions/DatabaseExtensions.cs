@@ -11,12 +11,13 @@ using System.Reflection;
 using Microsoft.AspNetCore.Hosting;
 using Alloy.Api.Options;
 using Alloy.Api.Data;
+using Microsoft.Extensions.Hosting;
 
 namespace Alloy.Api.Extensions
 {
     public static class DatabaseExtensions
     {
-        public static IWebHost InitializeDatabase(this IWebHost webHost)
+        public static IHost InitializeDatabase(this IHost webHost)
         {
             using (var scope = webHost.Services.CreateScope())
             {
@@ -61,7 +62,7 @@ namespace Alloy.Api.Extensions
                 catch (Exception ex)
                 {
                     var logger = services.GetRequiredService<ILogger<Program>>();
-                    logger.LogError("An error occurred while initializing the database.", ex);
+                    logger.LogError(ex, "An error occurred while initializing the database.");
 
                     // exit on database connection error on startup so app can be restarted to try again
                     throw;

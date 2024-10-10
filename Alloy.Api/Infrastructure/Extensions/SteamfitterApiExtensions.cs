@@ -35,7 +35,7 @@ namespace Alloy.Api.Infrastructure.Extensions
                 var scenario = await steamfitterApiClient.CreateScenarioFromScenarioTemplateAsync(scenarioTemplateId, options, ct);
                 return scenario;
             }
-            catch (Exception ex)
+            catch (Exception)
             {
                 return null;
             }
@@ -48,7 +48,7 @@ namespace Alloy.Api.Infrastructure.Extensions
                 await steamfitterApiClient.StartScenarioAsync(scenarioId, ct);
                 return true;
             }
-            catch (Exception ex)
+            catch (Exception)
             {
                 return false;
             }
@@ -66,7 +66,7 @@ namespace Alloy.Api.Infrastructure.Extensions
                 await steamfitterApiClient.EndScenarioAsync((Guid)scenarioId, ct);
                 return true;
             }
-            catch (Exception ex)
+            catch (Exception)
             {
                 return false;
             }

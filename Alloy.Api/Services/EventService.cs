@@ -584,7 +584,7 @@ namespace Alloy.Api.Services
                         list.Add(new QuestionView(question));
                     }
                 }
-                catch (Exception ex)
+                catch (Exception)
                 {
 
                 }
@@ -630,7 +630,7 @@ namespace Alloy.Api.Services
                         questionViews.Add(questionView);
                     }
                 }
-                catch (Exception ex)
+                catch (Exception)
                 {
 
                 }

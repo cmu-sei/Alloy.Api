@@ -120,7 +120,7 @@ namespace Alloy.Api.Infrastructure.Extensions
                 await playerApiClient.DeleteViewAsync((Guid)viewId, ct);
                 return true;
             }
-            catch (Exception ex)
+            catch (Exception)
             {
                 return false;
             }
@@ -152,7 +152,7 @@ namespace Alloy.Api.Infrastructure.Extensions
 
                 return true;
             }
-            catch (Exception ex)
+            catch (Exception)
             {
                 return false;
             }

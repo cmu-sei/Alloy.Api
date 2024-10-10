@@ -36,7 +36,7 @@ namespace Alloy.Api.Data.Extensions
         /// If using PostgreSQL, add uuid generation extension and set all Guid Identity properties to use it
         /// Without this, the client has to provide the UUID, which doesn't matter too much for EF, but can be annoying when making manual changes to the db.
         /// </summary>
-        /// <param name="builder">The ModelBuilder</param>        
+        /// <param name="builder">The ModelBuilder</param>
         public static void AddPostgresUUIDGeneration(this ModelBuilder builder)
         {
             builder.HasPostgresExtension("uuid-ossp");
@@ -45,8 +45,8 @@ namespace Alloy.Api.Data.Extensions
                 .GetEntityTypes()
                     .SelectMany(t => t.GetProperties())
                         .Where(p => p.ClrType == typeof(Guid))
-                            .Select(p => builder.Entity(p.DeclaringEntityType.ClrType).Property(p.Name))
-                                .Where(p => p.Metadata.ValueGenerated == Microsoft.EntityFrameworkCore.Metadata.ValueGenerated.OnAdd &&
+                            .Select(p => builder.Entity(p.DeclaringType.ClrType).Property(p.Name))
+                                .Where(p => p.Metadata.ValueGenerated == ValueGenerated.OnAdd &&
                                             p.Metadata.IsPrimaryKey())
             )
             {
