@@ -88,9 +88,9 @@ namespace Alloy.Api.Features.Events.EventHandlers
         }
     }
 
-    public class VmDeletedSignalRHandler : EventBaseSignlRHandler, INotificationHandler<EntityDeleted<EventEntity>>
+    public class EventDeletedSignalRHandler : EventBaseSignlRHandler, INotificationHandler<EntityDeleted<EventEntity>>
     {
-        public VmDeletedSignalRHandler(
+        public EventDeletedSignalRHandler(
             AlloyContext context,
             IMapper mapper,
             IHubContext<EventHub> eventHub)

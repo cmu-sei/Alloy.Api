@@ -3,13 +3,11 @@
 
 using System;
 using System.Net;
-using System.Text.RegularExpressions;
 
 namespace Alloy.Api.Infrastructure.Exceptions
 {
     public class InviteException : Exception, IApiException
     {
-        Guid _eventId;
         public InviteException()
             : base("Invite Failed")
         {

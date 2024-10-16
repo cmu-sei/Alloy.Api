@@ -49,7 +49,7 @@ namespace Alloy.Api.Infrastructure.Extensions
                 await casterApiClient.CreateFileAsync(createFileCommand, ct);
                 return workspaceId;
             }
-            catch (Exception ex)
+            catch (Exception)
             {
                 return null;
             }
@@ -74,7 +74,7 @@ namespace Alloy.Api.Infrastructure.Extensions
 
                 return varsFileContent;
             }
-            catch (Exception ex)
+            catch (Exception)
             {
                 return "";
             }
@@ -151,7 +151,7 @@ namespace Alloy.Api.Infrastructure.Extensions
                 await casterApiClient.ApplyRunAsync((Guid)eventEntity.RunId, ct);
                 return true;
             }
-            catch (Exception ex)
+            catch (Exception)
             {
                 return false;
             }
