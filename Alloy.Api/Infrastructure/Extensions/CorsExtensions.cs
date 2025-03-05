@@ -4,7 +4,7 @@
 using Microsoft.AspNetCore.Cors.Infrastructure;
 using Microsoft.Extensions.Configuration;
 
-namespace Alloy.Api.Extensions
+namespace Alloy.Api.Infrastructure.Extensions
 {
     public static class CorsPolicyExtensions
     {
@@ -56,4 +56,3 @@ namespace Alloy.Api.Extensions
         }
     }
 }
-

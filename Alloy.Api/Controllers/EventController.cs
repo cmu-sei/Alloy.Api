@@ -3,14 +3,14 @@
 
 using System;
 using System.Collections.Generic;
-using System.Data;
 using System.Net;
 using System.Threading;
 using System.Threading.Tasks;
+using Alloy.Api.Data;
+using Alloy.Api.Infrastructure.Authorization;
 using Alloy.Api.Infrastructure.Exceptions;
 using Alloy.Api.Services;
 using Alloy.Api.ViewModels;
-using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Swashbuckle.AspNetCore.Annotations;
 
@@ -19,9 +19,9 @@ namespace Alloy.Api.Controllers
     public class EventController : BaseController
     {
         private readonly IEventService _eventService;
-        private readonly IAuthorizationService _authorizationService;
+        private readonly IAlloyAuthorizationService _authorizationService;
 
-        public EventController(IEventService eventService, IAuthorizationService authorizationService)
+        public EventController(IEventService eventService, IAlloyAuthorizationService authorizationService)
         {
             _eventService = eventService;
             _authorizationService = authorizationService;
@@ -41,7 +41,12 @@ namespace Alloy.Api.Controllers
         [SwaggerOperation(OperationId = "getEvents")]
         public async Task<IActionResult> Get(CancellationToken ct)
         {
-            var list = await _eventService.GetAsync(ct);
+            IEnumerable<Event> list = new List<Event>();
+            if (await _authorizationService.AuthorizeAsync([SystemPermission.ViewEvents], ct))
+            {
+                list = await _eventService.GetAsync(ct);
+            }
+
             return Ok(list);
         }
 

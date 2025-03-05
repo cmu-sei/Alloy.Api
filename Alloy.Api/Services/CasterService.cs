@@ -3,7 +3,7 @@
 
 using Microsoft.AspNetCore.Http;
 using Caster.Api.Client;
-using Alloy.Api.Extensions;
+using Alloy.Api.Infrastructure.Extensions;
 using Alloy.Api.Infrastructure.Options;
 using System;
 using System.Collections.Generic;

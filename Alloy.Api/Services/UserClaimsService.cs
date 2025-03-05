@@ -9,7 +9,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Caching.Memory;
 using Alloy.Api.Data;
-using Alloy.Api.Extensions;
+using Alloy.Api.Infrastructure.Extensions;
 using Alloy.Api.Options;
 using Player.Api;
 using Player.Api.Client;

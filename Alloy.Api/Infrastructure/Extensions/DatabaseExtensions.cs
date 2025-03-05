@@ -13,7 +13,7 @@ using Alloy.Api.Options;
 using Alloy.Api.Data;
 using Microsoft.Extensions.Hosting;
 
-namespace Alloy.Api.Extensions
+namespace Alloy.Api.Infrastructure.Extensions
 {
     public static class DatabaseExtensions
     {

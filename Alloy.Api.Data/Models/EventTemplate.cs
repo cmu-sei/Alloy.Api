@@ -2,6 +2,7 @@
 // Released under a MIT (SEI)-style license. See LICENSE.md in the project root for license information.
 
 using System;
+using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 
@@ -20,5 +21,6 @@ namespace Alloy.Api.Data.Models
         public int DurationHours { get; set; }
         public bool UseDynamicHost { get; set; }
         public bool IsPublished { get; set; }
+        public virtual ICollection<EventTemplateMembershipEntity> Memberships { get; set; } = new List<EventTemplateMembershipEntity>();
     }
 }

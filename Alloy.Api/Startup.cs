@@ -7,12 +7,10 @@ using System.Security.Principal;
 using System.Text.Json.Serialization;
 using System.Threading.Tasks;
 using Alloy.Api.Data;
-using Alloy.Api.Extensions;
+using Alloy.Api.Infrastructure.Extensions;
 using Alloy.Api.Hubs;
 using Alloy.Api.Infrastructure.Authorization;
-using Alloy.Api.Infrastructure.ClaimsTransformers;
 using Alloy.Api.Infrastructure.DbInterceptors;
-using Alloy.Api.Infrastructure.Extensions;
 using Alloy.Api.Infrastructure.Filters;
 using Alloy.Api.Infrastructure.JsonConverters;
 using Alloy.Api.Infrastructure.Mappings;
@@ -311,11 +309,6 @@ namespace Alloy.Api
 
                 options.DefaultPolicy = policyBuilder.Build();
             });
-
-            // TODO: Add these automatically with reflection?
-            services.AddSingleton<IAuthorizationHandler, BasicRightsHandler>();
-            services.AddSingleton<IAuthorizationHandler, ContentDeveloperRightsHandler>();
-            services.AddSingleton<IAuthorizationHandler, SystemAdminRightsHandler>();
         }
     }
 }

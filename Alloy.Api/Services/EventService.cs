@@ -13,7 +13,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Alloy.Api.Data;
 using Alloy.Api.Data.Models;
-using Alloy.Api.Extensions;
+using Alloy.Api.Infrastructure.Extensions;
 using Alloy.Api.Infrastructure.Authorization;
 using Alloy.Api.Infrastructure.Exceptions;
 using Alloy.Api.Infrastructure.Extensions;
@@ -108,19 +108,7 @@ namespace Alloy.Api.Services
 
         public async Task<IEnumerable<Event>> GetAsync(CancellationToken ct)
         {
-            if (!(await _authorizationService.AuthorizeAsync(_user, null, new SystemAdminRightsRequirement())).Succeeded &&
-                !(await _authorizationService.AuthorizeAsync(_user, null, new ContentDeveloperRightsRequirement())).Succeeded)
-                throw new ForbiddenException();
-
-            IEnumerable<EventEntity> items = null;
-            if ((await _authorizationService.AuthorizeAsync(_user, null, new SystemAdminRightsRequirement())).Succeeded)
-            {
-                items = await _context.Events.ToListAsync(ct);
-            }
-            else
-            {
-                items = await _context.Events.Where(x => x.CreatedBy == _user.GetId()).ToListAsync(ct);
-            }
+            var items = await _context.Events.ToListAsync(ct);
 
             return _mapper.Map<IEnumerable<Event>>(items);
         }

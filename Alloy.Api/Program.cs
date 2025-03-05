@@ -5,7 +5,7 @@ using System;
 using Microsoft.AspNetCore;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.Configuration;
-using Alloy.Api.Extensions;
+using Alloy.Api.Infrastructure.Extensions;
 using Microsoft.Extensions.Hosting;
 
 namespace Alloy.Api
@@ -38,4 +38,3 @@ namespace Alloy.Api
         }
     }
 }
-
