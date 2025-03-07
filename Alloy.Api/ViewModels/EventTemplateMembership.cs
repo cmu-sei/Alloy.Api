@@ -6,7 +6,7 @@ using Alloy.Api.Data;
 
 namespace Alloy.Api.ViewModels
 {
-    public class EventTemplateMembership
+    public class EventTemplateMembership : IAuthorizationType
     {
         public Guid Id { get; set; }
 

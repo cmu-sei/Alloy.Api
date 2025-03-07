@@ -33,13 +33,13 @@ using Microsoft.Extensions.Options;
 namespace Alloy.Api.Hubs
 {
     [Authorize(AuthenticationSchemes = "Bearer")]
-    public class EventHub : Hub
+    public class EngineHub : Hub
     {
         private readonly AlloyContext _context;
         private readonly IAuthorizationService _authorizationService;
         private readonly ClaimsPrincipal _user;
 
-        public EventHub(AlloyContext context, IAuthorizationService authorizationService, IPrincipal user)
+        public EngineHub(AlloyContext context, IAuthorizationService authorizationService, IPrincipal user)
         {
             _context = context;
             _authorizationService = authorizationService;
@@ -49,9 +49,6 @@ namespace Alloy.Api.Hubs
 
         public async Task JoinEvent(Guid eventId)
         {
-            if (!(await _authorizationService.AuthorizeAsync(_user, null, new BasicRightsRequirement())).Succeeded)
-                throw new ForbiddenException();
-
             var evt = await _context.Events
                 .Include(x => x.EventUsers)
                 .SingleOrDefaultAsync(x => x.Id == eventId);
@@ -63,28 +60,27 @@ namespace Alloy.Api.Hubs
         }
         public async Task LeaveEvent(Guid eventId)
         {
-            if (!(await _authorizationService.AuthorizeAsync(_user, null, new BasicRightsRequirement())).Succeeded)
-                throw new ForbiddenException();
-
             await Groups.RemoveFromGroupAsync(Context.ConnectionId, eventId.ToString());
         }
         public async Task JoinAdmin()
         {
-            if (!(await _authorizationService.AuthorizeAsync(_user, null, new SystemAdminRightsRequirement())).Succeeded)
-                throw new ForbiddenException();
+            //TODO:  replace these commented lines
+            // if (!(await _authorizationService.AuthorizeAsync(_user, null, new SystemAdminRightsRequirement())).Succeeded)
+            //     throw new ForbiddenException();
 
             await Groups.AddToGroupAsync(Context.ConnectionId, "admin");
         }
         public async Task LeaveAdmin()
         {
-            if (!(await _authorizationService.AuthorizeAsync(_user, null, new SystemAdminRightsRequirement())).Succeeded)
-                throw new ForbiddenException();
+            //TODO:  replace these commented lines
+            // if (!(await _authorizationService.AuthorizeAsync(_user, null, new SystemAdminRightsRequirement())).Succeeded)
+            //     throw new ForbiddenException();
 
             await Groups.AddToGroupAsync(Context.ConnectionId, "admin");
         }
     }
 
-    public static class EventHubMethods
+    public static class EngineHubMethods
     {
         public const string EventCreated = "EventCreated";
         public const string EventUpdated = "EventUpdated";
@@ -95,5 +91,15 @@ namespace Alloy.Api.Hubs
         public const string EventUserCreated = "EventUserCreated";
         public const string EventUserUpdated = "EventUserUpdated";
         public const string EventUserDeleted = "EventUserDeleted";
+        public const string GroupMembershipCreated = "GroupMembershipCreated";
+        public const string GroupMembershipUpdated = "GroupMembershipUpdated";
+        public const string GroupMembershipDeleted = "GroupMembershipDeleted";
+        public const string EventTemplateMembershipCreated = "EventTemplateMembershipCreated";
+        public const string EventTemplateMembershipUpdated = "EventTemplateMembershipUpdated";
+        public const string EventTemplateMembershipDeleted = "EventTemplateMembershipDeleted";
+        public const string EventMembershipCreated = "EventMembershipCreated";
+        public const string EventMembershipUpdated = "EventMembershipUpdated";
+        public const string EventMembershipDeleted = "EventMembershipDeleted";
     }
+
 }

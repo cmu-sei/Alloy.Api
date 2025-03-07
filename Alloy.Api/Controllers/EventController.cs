@@ -28,7 +28,7 @@ namespace Alloy.Api.Controllers
         }
 
         /// <summary>
-        /// Gets all Event in the system
+        /// Gets all Events in the system
         /// </summary>
         /// <remarks>
         /// Returns a list of all of the Events in the system.
@@ -41,11 +41,10 @@ namespace Alloy.Api.Controllers
         [SwaggerOperation(OperationId = "getEvents")]
         public async Task<IActionResult> Get(CancellationToken ct)
         {
-            IEnumerable<Event> list = new List<Event>();
-            if (await _authorizationService.AuthorizeAsync([SystemPermission.ViewEvents], ct))
-            {
-                list = await _eventService.GetAsync(ct);
-            }
+            if (!await _authorizationService.AuthorizeAsync([SystemPermission.ViewEvents], ct))
+                throw new ForbiddenException();
+
+            var list = await _eventService.GetAsync(ct);
 
             return Ok(list);
         }
@@ -60,9 +59,12 @@ namespace Alloy.Api.Controllers
         [HttpGet("eventTemplates/{eventTemplateId}/events")]
         [ProducesResponseType(typeof(IEnumerable<Event>), (int)HttpStatusCode.OK)]
         [SwaggerOperation(OperationId = "getEventTemplateEvents")]
-        public async Task<IActionResult> GetEventTemplateEvents(string eventTemplateId, CancellationToken ct)
+        public async Task<IActionResult> GetEventTemplateEvents(Guid eventTemplateId, CancellationToken ct)
         {
-            var list = await _eventService.GetEventTemplateEventsAsync(Guid.Parse(eventTemplateId), ct);
+            if (!await _authorizationService.AuthorizeAsync<EventTemplate>(eventTemplateId, [SystemPermission.ViewEvents], [EventTemplatePermission.ManageEventTemplate], ct))
+                throw new ForbiddenException();
+
+            var list = await _eventService.GetEventTemplateEventsAsync(eventTemplateId, ct);
             return Ok(list);
         }
 
@@ -76,9 +78,9 @@ namespace Alloy.Api.Controllers
         [HttpGet("eventTemplates/{eventTemplateId}/events/mine")]
         [ProducesResponseType(typeof(IEnumerable<Event>), (int)HttpStatusCode.OK)]
         [SwaggerOperation(OperationId = "getMyEventTemplateEvents")]
-        public async Task<IActionResult> GetMyEventTemplateEvents(string eventTemplateId, bool includeInvites, CancellationToken ct)
+        public async Task<IActionResult> GetMyEventTemplateEvents(Guid eventTemplateId, bool includeInvites, CancellationToken ct)
         {
-            var list = await _eventService.GetMyEventTemplateEventsAsync(Guid.Parse(eventTemplateId), includeInvites, ct);
+            var list = await _eventService.GetMyEventTemplateEventsAsync(eventTemplateId, includeInvites, ct);
             return Ok(list);
         }
 
@@ -92,9 +94,9 @@ namespace Alloy.Api.Controllers
         [HttpGet("views/{viewId}/events/mine")]
         [ProducesResponseType(typeof(IEnumerable<Event>), (int)HttpStatusCode.OK)]
         [SwaggerOperation(OperationId = "getMyViewEvents")]
-        public async Task<IActionResult> GetMyViewEvents(string viewId, CancellationToken ct)
+        public async Task<IActionResult> GetMyViewEvents(Guid playerViewId, CancellationToken ct)
         {
-            var list = await _eventService.GetMyViewEventsAsync(Guid.Parse(viewId), ct);
+            var list = await _eventService.GetMyViewEventsAsync(playerViewId, ct);
             return Ok(list);
         }
 
@@ -129,6 +131,9 @@ namespace Alloy.Api.Controllers
         [SwaggerOperation(OperationId = "getEvent")]
         public async Task<IActionResult> Get(Guid id, CancellationToken ct)
         {
+            if (!await _authorizationService.AuthorizeAsync<Event>(id, [SystemPermission.ViewEvents], [EventPermission.ViewEvent], ct))
+                throw new ForbiddenException();
+
             var eventx = await _eventService.GetAsync(id, ct);
 
             if (eventx == null)
@@ -152,6 +157,9 @@ namespace Alloy.Api.Controllers
         [SwaggerOperation(OperationId = "createEvent")]
         public async Task<IActionResult> Create([FromBody] Event eventx, CancellationToken ct)
         {
+            if (!await _authorizationService.AuthorizeAsync([SystemPermission.CreateEvents], ct))
+                throw new ForbiddenException();
+
             var createdEvent = await _eventService.CreateAsync(eventx, ct);
             return CreatedAtAction(nameof(this.Get), new { id = createdEvent.Id }, createdEvent);
         }
@@ -170,6 +178,16 @@ namespace Alloy.Api.Controllers
         [SwaggerOperation(OperationId = "createEventFromEventTemplate2")]
         public async Task<IActionResult> CreateEventFromEventTemplate2(Guid eventTemplateId, CreateEventCommand command, CancellationToken ct)
         {
+            // must be able to view the event template in order to launch an event
+            if (!await _authorizationService.AuthorizeAsync<EventTemplate>(eventTemplateId, [SystemPermission.ViewEventTemplates], [EventTemplatePermission.ViewEventTemplate], ct))
+                throw new ForbiddenException();
+            if (command.UserId.HasValue)
+            {
+                // must also be able to manage events to launch an event for another user
+                if (!await _authorizationService.AuthorizeAsync<EventTemplate>(eventTemplateId, [SystemPermission.ManageEventTemplates], [EventTemplatePermission.ManageEventTemplate], ct))
+                    throw new ForbiddenException();
+            }
+
             command.EventTemplateId = eventTemplateId;
             var createdEvent = await _eventService.LaunchEventFromEventTemplateAsync(command, ct);
             return CreatedAtAction(nameof(this.Get), new { id = createdEvent.Id }, createdEvent);
@@ -188,9 +206,19 @@ namespace Alloy.Api.Controllers
         [HttpPost("eventTemplates/{eventTemplateId}/events")]
         [ProducesResponseType(typeof(Event), (int)HttpStatusCode.Created)]
         [SwaggerOperation(OperationId = "createEventFromEventTemplate")]
-        public async Task<IActionResult> CreateEventFromEventTemplate(string eventTemplateId, Guid? userId, string username, CancellationToken ct)
+        public async Task<IActionResult> CreateEventFromEventTemplate(Guid eventTemplateId, Guid? userId, string username, CancellationToken ct)
         {
-            var createdEvent = await _eventService.LaunchEventFromEventTemplateAsync(Guid.Parse(eventTemplateId), userId, username, new List<Guid>(), ct);
+            // must be able to view the event template in order to launch an event
+            if (!await _authorizationService.AuthorizeAsync<EventTemplate>(eventTemplateId, [SystemPermission.ViewEventTemplates], [EventTemplatePermission.ViewEventTemplate], ct))
+                throw new ForbiddenException();
+            if (userId.HasValue)
+            {
+                // must also be able to manage events to launch an event for another user
+                if (!await _authorizationService.AuthorizeAsync<EventTemplate>(eventTemplateId, [SystemPermission.ManageEventTemplates], [EventTemplatePermission.ManageEventTemplate], ct))
+                    throw new ForbiddenException();
+            }
+
+            var createdEvent = await _eventService.LaunchEventFromEventTemplateAsync(eventTemplateId, userId, username, new List<Guid>(), ct);
             return CreatedAtAction(nameof(this.Get), new { id = createdEvent.Id }, createdEvent);
         }
 
@@ -210,6 +238,9 @@ namespace Alloy.Api.Controllers
         [SwaggerOperation(OperationId = "updateEvent")]
         public async Task<IActionResult> Update([FromRoute] Guid id, [FromBody] Event eventx, CancellationToken ct)
         {
+            if (!await _authorizationService.AuthorizeAsync<Event>(id, [SystemPermission.EditEvents], [EventPermission.EditEvent], ct))
+                throw new ForbiddenException();
+
             var updatedEvent = await _eventService.UpdateAsync(id, eventx, ct);
             return Ok(updatedEvent);
         }
@@ -229,6 +260,9 @@ namespace Alloy.Api.Controllers
         [SwaggerOperation(OperationId = "deleteEvent")]
         public async Task<IActionResult> Delete(Guid id, CancellationToken ct)
         {
+            if (!await _authorizationService.AuthorizeAsync<Event>(id, [SystemPermission.ManageEvents], [EventPermission.ManageEvent], ct))
+                throw new ForbiddenException();
+
             await _eventService.DeleteAsync(id, ct);
             return NoContent();
         }
@@ -248,6 +282,9 @@ namespace Alloy.Api.Controllers
         [SwaggerOperation(OperationId = "endEvent")]
         public async Task<IActionResult> End(Guid id, CancellationToken ct)
         {
+            if (!await _authorizationService.AuthorizeAsync<Event>(id, [SystemPermission.ManageEvents], [EventPermission.ManageEvent], ct))
+                throw new ForbiddenException();
+
             await _eventService.EndAsync(id, ct);
             return NoContent();
         }
@@ -267,6 +304,9 @@ namespace Alloy.Api.Controllers
         [SwaggerOperation(OperationId = "redeployEvent")]
         public async Task<IActionResult> Redeploy(Guid id, CancellationToken ct)
         {
+            if (!await _authorizationService.AuthorizeAsync<Event>(id, [SystemPermission.ManageEvents], [EventPermission.ManageEvent], ct))
+                throw new ForbiddenException();
+
             await _eventService.RedeployAsync(id, ct);
             return NoContent();
         }
@@ -282,6 +322,9 @@ namespace Alloy.Api.Controllers
         [SwaggerOperation(OperationId = "invite")]
         public async Task<ActionResult<EventUser>> Invite(Guid id, CancellationToken ct)
         {
+            if (!await _authorizationService.AuthorizeAsync<Event>(id, [SystemPermission.ManageEvents], [EventPermission.ManageEvent], ct))
+                throw new ForbiddenException();
+
             var state = await _eventService.CreateInviteAsync(id, ct);
             return CreatedAtAction(nameof(this.Get), state);
         }
@@ -307,6 +350,9 @@ namespace Alloy.Api.Controllers
         [SwaggerOperation(OperationId = "GetEventVirtualMachines")]
         public async Task<IActionResult> GetEventVirtualMachinesAsync(Guid id, CancellationToken ct)
         {
+            if (!await _authorizationService.AuthorizeAsync<Event>(id, [SystemPermission.ViewEvents], [EventPermission.ViewEvent], ct))
+                throw new ForbiddenException();
+
             var list = await _eventService.GetEventVirtualMachinesAsync(id, ct);
             return Ok(list);
         }
@@ -322,6 +368,9 @@ namespace Alloy.Api.Controllers
         [SwaggerOperation(OperationId = "GetEventQuestions")]
         public async Task<IActionResult> GetEventQuestionsAsync(Guid id, CancellationToken ct)
         {
+            if (!await _authorizationService.AuthorizeAsync<Event>(id, [SystemPermission.ViewEvents], [EventPermission.ViewEvent], ct))
+                throw new ForbiddenException();
+
             var list = await _eventService.GetEventQuestionsAsync(id, ct);
             return Ok(list);
         }
@@ -337,6 +386,9 @@ namespace Alloy.Api.Controllers
         [SwaggerOperation(OperationId = "GradeEvent")]
         public async Task<IActionResult> GradeEventAsync(Guid id, [FromBody] IEnumerable<string> answers, CancellationToken ct)
         {
+            if (!await _authorizationService.AuthorizeAsync<Event>(id, [SystemPermission.ManageEvents], [EventPermission.ManageEvent], ct))
+                throw new ForbiddenException();
+
             var list = await _eventService.GradeEventAsync(id, answers, ct);
             return Ok(list);
         }

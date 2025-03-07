@@ -1,0 +1,17 @@
+// Copyright 2025 Carnegie Mellon University. All Rights Reserved.
+// Released under a MIT (SEI)-style license. See LICENSE.md in the project root for license information.
+
+namespace Alloy.Api.Infrastructure.Mappings
+{
+    using Alloy.Api.Data.Models;
+    using Alloy.Api.ViewModels;
+
+    public class GroupMembershipProfile : AutoMapper.Profile
+    {
+        public GroupMembershipProfile()
+        {
+            CreateMap<GroupMembershipEntity, GroupMembership>();
+            CreateMap<GroupMembership, GroupMembershipEntity>();
+        }
+    }
+}

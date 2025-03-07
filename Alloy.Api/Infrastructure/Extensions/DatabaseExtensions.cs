@@ -9,7 +9,7 @@ using System;
 using System.Linq;
 using System.Reflection;
 using Microsoft.AspNetCore.Hosting;
-using Alloy.Api.Options;
+using Alloy.Api.Infrastructure.Options;
 using Alloy.Api.Data;
 using Microsoft.Extensions.Hosting;
 

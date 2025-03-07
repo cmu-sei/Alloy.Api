@@ -40,22 +40,6 @@ namespace Alloy.Api.Controllers
             return Ok(list);
         }
 
-        /// <summary>
-        /// Gets the user as defined in Player
-        /// </summary>
-        /// <remarks>
-        /// Returns a player User
-        /// </remarks>
-        /// <returns></returns>
-        [HttpGet("users/me")]
-        [ProducesResponseType(typeof(User), (int)HttpStatusCode.OK)]
-        [SwaggerOperation(OperationId = "getUserMe")]
-        public async Task<IActionResult> GetUserMe(CancellationToken ct)
-        {
-            var user = await _playerService.GetUserAsync(ct);
-            return Ok(user);
-        }
-
     }
 
 }

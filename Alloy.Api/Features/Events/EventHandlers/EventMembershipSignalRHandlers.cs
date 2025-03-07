@@ -1,8 +1,6 @@
-// Copyright 2021 Carnegie Mellon University. All Rights Reserved.
+// Copyright 2025 Carnegie Mellon University. All Rights Reserved.
 // Released under a MIT (SEI)-style license. See LICENSE.md in the project root for license information.
 
-using System;
-using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -14,20 +12,18 @@ using Alloy.Api.Infrastructure.Extensions;
 using Alloy.Api.Services;
 using Alloy.Api.ViewModels;
 using AutoMapper;
-using AutoMapper.QueryableExtensions;
 using MediatR;
 using Microsoft.AspNetCore.SignalR;
-using Microsoft.EntityFrameworkCore;
 
 namespace Alloy.Api.Features.Events.EventHandlers
 {
-    public class EventBaseSignlRHandler
+    public class EventMembershipBaseSignalRHandler
     {
         protected readonly AlloyContext _context;
         protected readonly IMapper _mapper;
-        protected readonly IEventService _eventService;
+        protected readonly IEventMembershipService _eventService;
         protected readonly IHubContext<EngineHub> _engineHub;
-        public EventBaseSignlRHandler(
+        public EventMembershipBaseSignalRHandler(
         AlloyContext context,
         IMapper mapper,
         IHubContext<EngineHub> engineHub)
@@ -39,66 +35,66 @@ namespace Alloy.Api.Features.Events.EventHandlers
         }
 
         protected async Task HandleCreateOrUpdate(
-          EventEntity eventEntity,
+          EventMembershipEntity eventEntity,
           string method,
           string[] modifiedProperties,
           CancellationToken ct)
         {
 
-            var alloyEvent = _mapper.Map<Event>(eventEntity);
+            var eventMembership = _mapper.Map<EventMembership>(eventEntity);
             await _engineHub.Clients
                 .Groups(eventEntity.Id.ToString(), "admin")
-                .SendAsync(method, alloyEvent, modifiedProperties, ct);
+                .SendAsync(method, eventMembership, modifiedProperties, ct);
         }
     }
 
-    public class EventCreatedSignalRHandler : EventBaseSignlRHandler, INotificationHandler<EntityCreated<EventEntity>>
+    public class EventMembershipCreatedSignalRHandler : EventMembershipBaseSignalRHandler, INotificationHandler<EntityCreated<EventMembershipEntity>>
     {
-        public EventCreatedSignalRHandler(
+        public EventMembershipCreatedSignalRHandler(
           AlloyContext context,
           IMapper mapper,
           IHubContext<EngineHub> engineHub)
            : base(context, mapper, engineHub) { }
 
-        public async Task Handle(EntityCreated<EventEntity> notification, CancellationToken ct)
+        public async Task Handle(EntityCreated<EventMembershipEntity> notification, CancellationToken ct)
         {
-            await base.HandleCreateOrUpdate(notification.Entity, EngineHubMethods.EventCreated, null, ct);
+            await base.HandleCreateOrUpdate(notification.Entity, EngineHubMethods.EventMembershipCreated, null, ct);
         }
     }
 
-    public class EventUpdatedSignalRHandler : EventBaseSignlRHandler, INotificationHandler<EntityUpdated<EventEntity>>
+    public class EventMembershipUpdatedSignalRHandler : EventMembershipBaseSignalRHandler, INotificationHandler<EntityUpdated<EventMembershipEntity>>
     {
-        public EventUpdatedSignalRHandler(
+        public EventMembershipUpdatedSignalRHandler(
           AlloyContext context,
           IMapper mapper,
           IHubContext<EngineHub> engineHub
 
         ) : base(context, mapper, engineHub) { }
 
-        public async Task Handle(EntityUpdated<EventEntity> notification, CancellationToken ct)
+        public async Task Handle(EntityUpdated<EventMembershipEntity> notification, CancellationToken ct)
         {
             await base.HandleCreateOrUpdate(
               notification.Entity,
-              EngineHubMethods.EventUpdated,
+              EngineHubMethods.EventMembershipUpdated,
               notification.ModifiedProperties.Select(e => e.TitleCaseToCamelCase()).ToArray(),
               ct);
         }
     }
 
-    public class EventDeletedSignalRHandler : EventBaseSignlRHandler, INotificationHandler<EntityDeleted<EventEntity>>
+    public class EventMembershipDeletedSignalRHandler : EventMembershipBaseSignalRHandler, INotificationHandler<EntityDeleted<EventMembershipEntity>>
     {
-        public EventDeletedSignalRHandler(
+        public EventMembershipDeletedSignalRHandler(
             AlloyContext context,
             IMapper mapper,
             IHubContext<EngineHub> engineHub)
             : base(context, mapper, engineHub)
         { }
 
-        public async Task Handle(EntityDeleted<EventEntity> notification, CancellationToken ct)
+        public async Task Handle(EntityDeleted<EventMembershipEntity> notification, CancellationToken ct)
         {
             await _engineHub.Clients
                 .Groups(notification.Entity.Id.ToString(), "admin")
-                .SendAsync(EngineHubMethods.EventDeleted, notification.Entity.Id, ct);
+                .SendAsync(EngineHubMethods.EventMembershipDeleted, notification.Entity.Id, ct);
         }
     }
 }

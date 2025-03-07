@@ -15,7 +15,6 @@ using Alloy.Api.Infrastructure.Filters;
 using Alloy.Api.Infrastructure.JsonConverters;
 using Alloy.Api.Infrastructure.Mappings;
 using Alloy.Api.Infrastructure.Options;
-using Alloy.Api.Options;
 using Alloy.Api.Services;
 using AutoMapper.Internal;
 using Microsoft.AspNetCore.Authentication;
@@ -37,7 +36,7 @@ namespace Alloy.Api
 {
     public class Startup
     {
-        public Options.AuthorizationOptions _authOptions = new Options.AuthorizationOptions();
+        public Infrastructure.Options.AuthorizationOptions _authOptions = new();
         private const string _routePrefix = "api";
         private string _pathbase;
 
@@ -283,7 +282,7 @@ namespace Alloy.Api
                 {
                     Predicate = (check) => check.Tags.Contains("live"),
                 });
-                endpoints.MapHub<EventHub>("/hubs/event");
+                endpoints.MapHub<EngineHub>("/hubs/event");
             });
 
             app.UseSwagger();

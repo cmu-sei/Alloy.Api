@@ -3,12 +3,14 @@
 
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Net;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Swashbuckle.AspNetCore.Annotations;
+using Alloy.Api.Data;
+using Alloy.Api.Infrastructure.Authorization;
 using Alloy.Api.Infrastructure.Exceptions;
 using Alloy.Api.Services;
 using Alloy.Api.ViewModels;
@@ -18,9 +20,9 @@ namespace Alloy.Api.Controllers
     public class EventTemplateController : BaseController
     {
         private readonly IEventTemplateService _eventTemplateService;
-        private readonly IAuthorizationService _authorizationService;
+        private readonly IAlloyAuthorizationService _authorizationService;
 
-        public EventTemplateController(IEventTemplateService eventTemplateService, IAuthorizationService authorizationService)
+        public EventTemplateController(IEventTemplateService eventTemplateService, IAlloyAuthorizationService authorizationService)
         {
             _eventTemplateService = eventTemplateService;
             _authorizationService = authorizationService;
@@ -33,14 +35,25 @@ namespace Alloy.Api.Controllers
         /// Returns a list of all of the EventTemplates in the system.
         /// <para />
         /// Only accessible to a SuperUser
-        /// </remarks>       
+        /// </remarks>
         /// <returns></returns>
         [HttpGet("eventTemplates")]
         [ProducesResponseType(typeof(IEnumerable<EventTemplate>), (int)HttpStatusCode.OK)]
         [SwaggerOperation(OperationId = "getEventTemplates")]
         public async Task<IActionResult> Get(CancellationToken ct)
         {
-            var list = await _eventTemplateService.GetAsync(ct);
+            IEnumerable<EventTemplate> list = new List<EventTemplate>();
+            if (await _authorizationService.AuthorizeAsync([SystemPermission.ViewEventTemplates], ct))
+            {
+                list = await _eventTemplateService.GetAsync(ct);
+            }
+            else
+            {
+                list = await _eventTemplateService.GetByUserAsync(ct);
+            }
+            // add this user's permissions for each event template
+            AddPermissions(list);
+
             return Ok(list);
         }
 
@@ -61,10 +74,16 @@ namespace Alloy.Api.Controllers
         [SwaggerOperation(OperationId = "getEventTemplate")]
         public async Task<IActionResult> Get(Guid id, CancellationToken ct)
         {
+            if (!await _authorizationService.AuthorizeAsync<EventTemplate>(id, [SystemPermission.ViewEventTemplates], [EventTemplatePermission.ViewEventTemplate], ct))
+                throw new ForbiddenException();
+
             var eventTemplate = await _eventTemplateService.GetAsync(id, ct);
 
             if (eventTemplate == null)
                 throw new EntityNotFoundException<EventTemplate>();
+
+            // add this user's permissions for the event template
+            AddPermissions(eventTemplate);
 
             return Ok(eventTemplate);
         }
@@ -76,7 +95,7 @@ namespace Alloy.Api.Controllers
         /// Creates a new EventTemplate with the attributes specified
         /// <para />
         /// Accessible only to a SuperUser or an Administrator
-        /// </remarks>    
+        /// </remarks>
         /// <param name="eventTemplate">The data to create the EventTemplate with</param>
         /// <param name="ct"></param>
         [HttpPost("eventTemplates")]
@@ -84,7 +103,12 @@ namespace Alloy.Api.Controllers
         [SwaggerOperation(OperationId = "createEventTemplate")]
         public async Task<IActionResult> Create([FromBody] EventTemplate eventTemplate, CancellationToken ct)
         {
+            if (!await _authorizationService.AuthorizeAsync([SystemPermission.CreateEventTemplates], ct))
+                throw new ForbiddenException();
+
             var createdEventTemplate = await _eventTemplateService.CreateAsync(eventTemplate, ct);
+            // add this user's permissions for the event template
+            AddPermissions(createdEventTemplate);
             return CreatedAtAction(nameof(this.Get), new { id = createdEventTemplate.Id }, createdEventTemplate);
         }
 
@@ -95,7 +119,7 @@ namespace Alloy.Api.Controllers
         /// Updates an EventTemplate with the attributes specified
         /// <para />
         /// Accessible only to a SuperUser or a User on an Admin Team within the specified EventTemplate
-        /// </remarks>  
+        /// </remarks>
         /// <param name="id">The Id of the Exericse to update</param>
         /// <param name="eventTemplate">The updated EventTemplate values</param>
         /// <param name="ct"></param>
@@ -105,7 +129,12 @@ namespace Alloy.Api.Controllers
         [SwaggerOperation(OperationId = "updateEventTemplate")]
         public async Task<IActionResult> Update([FromRoute] Guid id, [FromBody] EventTemplate eventTemplate, CancellationToken ct)
         {
+            if (!await _authorizationService.AuthorizeAsync<EventTemplate>(id, [SystemPermission.EditEventTemplates], [EventTemplatePermission.EditEventTemplate], ct))
+                throw new ForbiddenException();
+
             var updatedEventTemplate = await _eventTemplateService.UpdateAsync(id, eventTemplate, ct);
+            // add this user's permissions for the event template
+            AddPermissions(updatedEventTemplate);
             return Ok(updatedEventTemplate);
         }
 
@@ -116,7 +145,7 @@ namespace Alloy.Api.Controllers
         /// Deletes an EventTemplate with the specified id
         /// <para />
         /// Accessible only to a SuperUser or a User on an Admin Team within the specified EventTemplate
-        /// </remarks>    
+        /// </remarks>
         /// <param name="id">The id of the EventTemplate to delete</param>
         /// <param name="ct"></param>
         [HttpDelete("eventTemplates/{id}")]
@@ -125,10 +154,27 @@ namespace Alloy.Api.Controllers
         [SwaggerOperation(OperationId = "deleteEventTemplate")]
         public async Task<IActionResult> Delete(Guid id, CancellationToken ct)
         {
+            if (!await _authorizationService.AuthorizeAsync<EventTemplate>(id, [SystemPermission.ManageEventTemplates], [EventTemplatePermission.ManageEventTemplate], ct))
+                throw new ForbiddenException();
+
             await _eventTemplateService.DeleteAsync(id, ct);
             return NoContent();
         }
 
+        private void AddPermissions(IEnumerable<EventTemplate> list)
+        {
+            foreach (var item in list)
+            {
+                AddPermissions(item);
+            }
+        }
+
+        private void AddPermissions(EventTemplate item)
+        {
+            item.EventTemplatePermissions =
+            _authorizationService.GetEventTemplatePermissions(item.Id).Select((m) => m.ToString())
+            .Concat(_authorizationService.GetSystemPermissions().Select((m) => m.ToString()));
+        }
+
     }
 }
-

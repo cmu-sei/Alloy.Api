@@ -10,7 +10,7 @@ using Alloy.Api.Data.Models;
 
 namespace Alloy.Api.ViewModels
 {
-    public class Event : Base
+    public class Event : Base, IAuthorizationType
     {
         public Guid Id { get; set; }
         public Guid UserId { get; set; }

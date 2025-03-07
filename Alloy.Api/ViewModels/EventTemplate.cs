@@ -9,7 +9,7 @@ using System.ComponentModel.DataAnnotations.Schema;
 
 namespace Alloy.Api.ViewModels
 {
-    public class EventTemplate : Base
+    public class EventTemplate : Base, IAuthorizationType
     {
         public Guid Id { get; set; }
         public Guid? ViewId { get; set; }
@@ -20,5 +20,6 @@ namespace Alloy.Api.ViewModels
         public int DurationHours { get; set; }
         public bool UseDynamicHost { get; set; }
         public bool IsPublished { get; set; }
+        public IEnumerable<string> EventTemplatePermissions { get; set; }
     }
 }
