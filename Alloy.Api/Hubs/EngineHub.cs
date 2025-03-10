@@ -2,33 +2,15 @@
 // Released under a MIT (SEI)-style license. See LICENSE.md in the project root for license information.
 
 using System;
-using System.Collections.Generic;
 using System.Linq;
-using System.Net.Http;
-using System.Runtime.CompilerServices;
 using System.Security.Claims;
 using System.Security.Principal;
-using System.Threading;
 using System.Threading.Tasks;
 using Alloy.Api.Data;
-using Alloy.Api.Data.Models;
 using Alloy.Api.Infrastructure.Extensions;
-using Alloy.Api.Infrastructure.Authorization;
-using Alloy.Api.Infrastructure.Exceptions;
-using Alloy.Api.Infrastructure.Extensions;
-using Alloy.Api.Infrastructure.Mappings;
-using Alloy.Api.Infrastructure.Options;
-using Alloy.Api.Services;
-using Alloy.Api.ViewModels;
-using AutoMapper;
-using Caster.Api;
-using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Options;
 
 namespace Alloy.Api.Hubs
 {

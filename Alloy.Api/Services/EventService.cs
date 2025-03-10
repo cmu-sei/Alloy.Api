@@ -6,7 +6,6 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Net.Http;
 using System.Security.Claims;
-using System.Security.Cryptography.X509Certificates;
 using System.Security.Principal;
 using System.Text.Json;
 using System.Threading;
@@ -14,20 +13,14 @@ using System.Threading.Tasks;
 using Alloy.Api.Data;
 using Alloy.Api.Data.Models;
 using Alloy.Api.Infrastructure.Extensions;
-using Alloy.Api.Infrastructure.Authorization;
 using Alloy.Api.Infrastructure.Exceptions;
-using Alloy.Api.Infrastructure.Extensions;
-using Alloy.Api.Infrastructure.Mappings;
 using Alloy.Api.Infrastructure.Options;
 using Alloy.Api.ViewModels;
 using AutoMapper;
-using Caster.Api;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
-using Newtonsoft.Json.Linq;
 
 namespace Alloy.Api.Services
 {
