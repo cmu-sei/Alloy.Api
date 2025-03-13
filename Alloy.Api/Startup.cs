@@ -12,6 +12,7 @@ using Alloy.Api.Hubs;
 using Alloy.Api.Infrastructure.Authorization;
 using Alloy.Api.Infrastructure.DbInterceptors;
 using Alloy.Api.Infrastructure.Filters;
+using Alloy.Api.Infrastructure.Identity;
 using Alloy.Api.Infrastructure.JsonConverters;
 using Alloy.Api.Infrastructure.Mappings;
 using Alloy.Api.Infrastructure.Options;
@@ -37,6 +38,7 @@ namespace Alloy.Api
     public class Startup
     {
         public Infrastructure.Options.AuthorizationOptions _authOptions = new();
+        private readonly SignalROptions _signalROptions = new();
         private const string _routePrefix = "api";
         private string _pathbase;
 
@@ -46,6 +48,7 @@ namespace Alloy.Api
         {
             Configuration = configuration;
             Configuration.GetSection("Authorization").Bind(_authOptions);
+            Configuration.GetSection("SignalR").Bind(_signalROptions);
             _pathbase = Configuration["PathBase"] ?? "";
         }
 
@@ -123,7 +126,7 @@ namespace Alloy.Api
 
             services.AddCors(options => options.UseConfiguredCors(Configuration.GetSection("CorsPolicy")));
 
-            services.AddSignalR()
+            services.AddSignalR(o => o.StatefulReconnectBufferSize = _signalROptions.StatefulReconnectBufferSizeBytes)
             .AddJsonProtocol(options =>
             {
                 options.PayloadSerializerOptions.PropertyNameCaseInsensitive = true;
@@ -206,6 +209,10 @@ namespace Alloy.Api
             services.AddScoped<ISteamfitterService, SteamfitterService>();
             services.AddScoped<IUserClaimsService, UserClaimsService>();
             services.AddTransient<EventInterceptor>();
+            services.AddScoped<IAlloyAuthorizationService, AuthorizationService>();
+            services.AddScoped<IIdentityResolver, IdentityResolver>();
+            services.AddScoped<IGroupService, GroupService>();
+            services.AddScoped<ISystemRoleService, SystemRoleService>();
 
             // add the other API clients
             services.AddPlayerApiClient();
@@ -267,6 +274,17 @@ namespace Alloy.Api
 
             });
 
+            app.UseSwagger();
+            app.UseSwaggerUI(c =>
+            {
+                c.RoutePrefix = _routePrefix;
+                c.SwaggerEndpoint($"{_pathbase}/swagger/v1/swagger.json", "Alloy v1");
+                c.OAuthClientId(_authOptions.ClientId);
+                c.OAuthClientSecret(_authOptions.ClientSecret);
+                c.OAuthAppName(_authOptions.ClientName);
+                c.OAuthUsePkce();
+            });
+
             app.UseAuthentication();
             app.UseAuthorization();
 
@@ -282,18 +300,11 @@ namespace Alloy.Api
                 {
                     Predicate = (check) => check.Tags.Contains("live"),
                 });
-                endpoints.MapHub<EngineHub>("/hubs/event");
-            });
-
-            app.UseSwagger();
-            app.UseSwaggerUI(c =>
-            {
-                c.RoutePrefix = _routePrefix;
-                c.SwaggerEndpoint($"{_pathbase}/swagger/v1/swagger.json", "Alloy v1");
-                c.OAuthClientId(_authOptions.ClientId);
-                c.OAuthClientSecret(_authOptions.ClientSecret);
-                c.OAuthAppName(_authOptions.ClientName);
-                c.OAuthUsePkce();
+                endpoints.MapHub<EngineHub>("/hubs/engine", options =>
+                    {
+                        options.AllowStatefulReconnects = _signalROptions.EnableStatefulReconnect;
+                    }
+                );
             });
         }
 
