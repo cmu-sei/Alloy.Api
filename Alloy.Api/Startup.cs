@@ -203,11 +203,17 @@ namespace Alloy.Api
             services.AddMemoryCache();
 
             services.AddScoped<IEventTemplateService, EventTemplateService>();
+            services.AddScoped<IEventTemplateMembershipService, EventTemplateMembershipService>();
+            services.AddScoped<IEventTemplateRoleService, EventTemplateRoleService>();
             services.AddScoped<IEventService, EventService>();
+            services.AddScoped<IEventMembershipService, EventMembershipService>();
+            services.AddScoped<IEventRoleService, EventRoleService>();
             services.AddScoped<ICasterService, CasterService>();
             services.AddScoped<IPlayerService, PlayerService>();
             services.AddScoped<ISteamfitterService, SteamfitterService>();
+            services.AddScoped<IUserService, UserService>();
             services.AddScoped<IUserClaimsService, UserClaimsService>();
+            services.AddScoped<IClaimsTransformation, AuthorizationClaimsTransformer>();
             services.AddTransient<EventInterceptor>();
             services.AddScoped<IAlloyAuthorizationService, AuthorizationService>();
             services.AddScoped<IIdentityResolver, IdentityResolver>();

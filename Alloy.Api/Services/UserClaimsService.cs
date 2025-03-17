@@ -212,64 +212,64 @@ namespace Alloy.Api.Services
                 .ToListAsync();
 
             // Get Event Permissions
-            var scenarioMemberships = await _context.EventMemberships
+            var eventMemberships = await _context.EventMemberships
                 .Where(x => x.UserId == userId || (x.GroupId.HasValue && groupIds.Contains(x.GroupId.Value)))
                 .Include(x => x.Role)
                 .GroupBy(x => x.EventId)
                 .ToListAsync();
 
-            foreach (var group in scenarioMemberships)
+            foreach (var group in eventMemberships)
             {
-                var scenarioPermissions = new List<EventPermission>();
+                var eventPermissions = new List<EventPermission>();
 
                 foreach (var membership in group)
                 {
                     if (membership.Role.AllPermissions)
                     {
-                        scenarioPermissions.AddRange(Enum.GetValues<EventPermission>());
+                        eventPermissions.AddRange(Enum.GetValues<EventPermission>());
                     }
                     else
                     {
-                        scenarioPermissions.AddRange(membership.Role.Permissions);
+                        eventPermissions.AddRange(membership.Role.Permissions);
                     }
                 }
 
                 var permissionsClaim = new EventPermissionClaim
                 {
                     EventId = group.Key,
-                    Permissions = scenarioPermissions.Distinct().ToArray()
+                    Permissions = eventPermissions.Distinct().ToArray()
                 };
 
                 claims.Add(new Claim(AuthorizationConstants.EventPermissionClaimType, permissionsClaim.ToString()));
             }
 
             // Get EventTemplate Permissions
-            var scenarioTemplateMemberships = await _context.EventTemplateMemberships
+            var eventTemplateMemberships = await _context.EventTemplateMemberships
                 .Where(x => x.UserId == userId || (x.GroupId.HasValue && groupIds.Contains(x.GroupId.Value)))
                 .Include(x => x.Role)
                 .GroupBy(x => x.EventTemplateId)
                 .ToListAsync();
 
-            foreach (var group in scenarioTemplateMemberships)
+            foreach (var group in eventTemplateMemberships)
             {
-                var scenarioTemplatePermissions = new List<EventTemplatePermission>();
+                var eventTemplatePermissions = new List<EventTemplatePermission>();
 
                 foreach (var membership in group)
                 {
                     if (membership.Role.AllPermissions)
                     {
-                        scenarioTemplatePermissions.AddRange(Enum.GetValues<EventTemplatePermission>());
+                        eventTemplatePermissions.AddRange(Enum.GetValues<EventTemplatePermission>());
                     }
                     else
                     {
-                        scenarioTemplatePermissions.AddRange(membership.Role.Permissions);
+                        eventTemplatePermissions.AddRange(membership.Role.Permissions);
                     }
                 }
 
                 var permissionsClaim = new EventTemplatePermissionClaim
                 {
                     EventTemplateId = group.Key,
-                    Permissions = scenarioTemplatePermissions.Distinct().ToArray()
+                    Permissions = eventTemplatePermissions.Distinct().ToArray()
                 };
 
                 claims.Add(new Claim(AuthorizationConstants.EventTemplatePermissionClaimType, permissionsClaim.ToString()));
