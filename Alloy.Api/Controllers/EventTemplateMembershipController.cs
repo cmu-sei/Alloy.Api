@@ -33,7 +33,7 @@ public class EventTemplateMembershipsController : BaseController
     /// </summary>
     /// <param name="id">ID of a EventTemplateMembership.</param>
     /// <returns></returns>
-    [HttpGet("scenarioTemplates/memberships/{id}")]
+    [HttpGet("eventTemplates/memberships/{id}")]
     [ProducesResponseType(typeof(EventTemplateMembership), (int)HttpStatusCode.OK)]
     [SwaggerOperation(OperationId = "GetEventTemplateMembership")]
     public async Task<IActionResult> Get([FromRoute] Guid id, CancellationToken ct)
@@ -49,7 +49,7 @@ public class EventTemplateMembershipsController : BaseController
     /// Get all EventTemplateMemberships.
     /// </summary>
     /// <returns></returns>
-    [HttpGet("scenarioTemplates/{id}/memberships")]
+    [HttpGet("eventTemplates/{id}/memberships")]
     [ProducesResponseType(typeof(IEnumerable<EventTemplateMembership>), (int)HttpStatusCode.OK)]
     [SwaggerOperation(OperationId = "GetAllEventTemplateMemberships")]
     public async Task<IActionResult> GetAll(Guid id, CancellationToken ct)
@@ -61,18 +61,18 @@ public class EventTemplateMembershipsController : BaseController
     /// <summary>
     /// Create a new EventTemplate Membership.
     /// </summary>
-    /// <param name="scenarioTemplateId"></param>
+    /// <param name="eventTemplateId"></param>
     /// <param name="eventTemplateMembership"></param>
     /// <returns></returns>
-    [HttpPost("scenarioTemplates/{scenarioTemplateId}/memberships")]
+    [HttpPost("eventTemplates/{eventTemplateId}/memberships")]
     [ProducesResponseType(typeof(EventTemplateMembership), (int)HttpStatusCode.Created)]
     [SwaggerOperation(OperationId = "CreateEventTemplateMembership")]
-    public async Task<IActionResult> CreateMembership([FromRoute] Guid scenarioTemplateId, EventTemplateMembership eventTemplateMembership, CancellationToken ct)
+    public async Task<IActionResult> CreateMembership([FromRoute] Guid eventTemplateId, EventTemplateMembership eventTemplateMembership, CancellationToken ct)
     {
-        if (!await _authorizationService.AuthorizeAsync<EventTemplate>(scenarioTemplateId, [SystemPermission.ManageEventTemplates], [EventTemplatePermission.ManageEventTemplate], ct))
+        if (!await _authorizationService.AuthorizeAsync<EventTemplate>(eventTemplateId, [SystemPermission.ManageEventTemplates], [EventTemplatePermission.ManageEventTemplate], ct))
             throw new ForbiddenException();
 
-        if (eventTemplateMembership.EventTemplateId != scenarioTemplateId)
+        if (eventTemplateMembership.EventTemplateId != eventTemplateId)
             throw new DataException("The EventTemplateId of the membership must match the EventTemplateId of the URL.");
 
         var result = await _eventTemplateMembershipService.CreateAsync(eventTemplateMembership, ct);
@@ -104,7 +104,7 @@ public class EventTemplateMembershipsController : BaseController
     /// Delete a EventTemplate Membership.
     /// </summary>
     /// <returns></returns>
-    [HttpDelete("scenarioTemplates/memberships/{id}")]
+    [HttpDelete("eventTemplates/memberships/{id}")]
     [ProducesResponseType((int)HttpStatusCode.NoContent)]
     [SwaggerOperation(OperationId = "DeleteEventTemplateMembership")]
     public async Task<IActionResult> DeleteMembership([FromRoute] Guid id, CancellationToken ct)

@@ -34,7 +34,7 @@ namespace Alloy.Api.Infrastructure.Authorization
             }
             else
             {
-                EventTemplatePermissionClaim scenarioTemplatePermissionsClaim = null;
+                EventTemplatePermissionClaim eventTemplatePermissionsClaim = null;
 
                 var claims = context.User.Claims
                     .Where(x => x.Type == AuthorizationConstants.EventTemplatePermissionClaimType)
@@ -45,12 +45,12 @@ namespace Alloy.Api.Infrastructure.Authorization
                     var claimValue = EventTemplatePermissionClaim.FromString(claim.Value);
                     if (claimValue.EventTemplateId == requirement.EventId)
                     {
-                        scenarioTemplatePermissionsClaim = claimValue;
+                        eventTemplatePermissionsClaim = claimValue;
                         break;
                     }
                 }
 
-                if (scenarioTemplatePermissionsClaim == null)
+                if (eventTemplatePermissionsClaim == null)
                 {
                     context.Fail();
                 }
@@ -58,7 +58,7 @@ namespace Alloy.Api.Infrastructure.Authorization
                 {
                     context.Succeed(requirement);
                 }
-                else if (requirement.RequiredPermissions.Any(x => scenarioTemplatePermissionsClaim.Permissions.Contains(x)))
+                else if (requirement.RequiredPermissions.Any(x => eventTemplatePermissionsClaim.Permissions.Contains(x)))
                 {
                     context.Succeed(requirement);
                 }

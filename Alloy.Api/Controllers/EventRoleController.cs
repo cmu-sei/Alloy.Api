@@ -19,12 +19,12 @@ namespace Alloy.Api.Controllers;
 public class EventRolesController : BaseController
 {
     private readonly IAlloyAuthorizationService _authorizationService;
-    private readonly IEventRoleService _scenarioRoleService;
+    private readonly IEventRoleService _eventRoleService;
 
-    public EventRolesController(IAlloyAuthorizationService authorizationService, IEventRoleService scenarioRoleService)
+    public EventRolesController(IAlloyAuthorizationService authorizationService, IEventRoleService eventRoleService)
     {
         _authorizationService = authorizationService;
-        _scenarioRoleService = scenarioRoleService;
+        _eventRoleService = eventRoleService;
     }
 
     /// <summary>
@@ -32,7 +32,7 @@ public class EventRolesController : BaseController
     /// </summary>
     /// <param name="id">ID of a EventRole.</param>
     /// <returns></returns>
-    [HttpGet("scenario-roles/{id}")]
+    [HttpGet("event-roles/{id}")]
     [ProducesResponseType(typeof(EventRole), (int)HttpStatusCode.OK)]
     [SwaggerOperation(OperationId = "GetEventRole")]
     public async Task<IActionResult> Get([FromRoute] Guid id, CancellationToken ct)
@@ -40,7 +40,7 @@ public class EventRolesController : BaseController
         if (!await _authorizationService.AuthorizeAsync([SystemPermission.ViewRoles], ct))
             throw new ForbiddenException();
 
-        var result = await _scenarioRoleService.GetAsync(id, ct);
+        var result = await _eventRoleService.GetAsync(id, ct);
         return Ok(result);
     }
 
@@ -48,12 +48,12 @@ public class EventRolesController : BaseController
     /// Get all EventRoles.
     /// </summary>
     /// <returns></returns>
-    [HttpGet("scenario-roles")]
+    [HttpGet("event-roles")]
     [ProducesResponseType(typeof(IEnumerable<EventRole>), (int)HttpStatusCode.OK)]
     [SwaggerOperation(OperationId = "GetAllEventRoles")]
     public async Task<IActionResult> GetAll(CancellationToken ct)
     {
-        var result = await _scenarioRoleService.GetAsync(ct);
+        var result = await _eventRoleService.GetAsync(ct);
         return Ok(result);
     }
 }

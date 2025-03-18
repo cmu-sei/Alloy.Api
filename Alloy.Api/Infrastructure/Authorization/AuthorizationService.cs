@@ -34,8 +34,8 @@ public interface IAlloyAuthorizationService
 
     IEnumerable<Guid> GetAuthorizedEventIds();
     IEnumerable<SystemPermission> GetSystemPermissions();
-    IEnumerable<EventPermissionClaim> GetEventPermissions(Guid? scenarioId = null);
-    IEnumerable<EventTemplatePermissionClaim> GetEventTemplatePermissions(Guid? scenarioTemplateId = null);
+    IEnumerable<EventPermissionClaim> GetEventPermissions(Guid? eventId = null);
+    IEnumerable<EventTemplatePermissionClaim> GetEventTemplatePermissions(Guid? eventTemplateId = null);
 }
 
 public class AuthorizationService(
@@ -61,14 +61,14 @@ public class AuthorizationService(
 
         if (!succeeded && resourceId.HasValue)
         {
-            var scenarioId = await GetEventId<T>(resourceId.Value, cancellationToken);
+            var eventId = await GetEventId<T>(resourceId.Value, cancellationToken);
 
-            if (scenarioId != null)
+            if (eventId != null)
             {
-                var scenarioPermissionRequirement = new EventPermissionRequirement(requiredEventPermissions, scenarioId.Value);
-                var scenarioPermissionResult = await authService.AuthorizeAsync(claimsPrincipal, null, scenarioPermissionRequirement);
+                var eventPermissionRequirement = new EventPermissionRequirement(requiredEventPermissions, eventId.Value);
+                var eventPermissionResult = await authService.AuthorizeAsync(claimsPrincipal, null, eventPermissionRequirement);
 
-                succeeded = scenarioPermissionResult.Succeeded;
+                succeeded = eventPermissionResult.Succeeded;
             }
 
         }
@@ -87,14 +87,14 @@ public class AuthorizationService(
 
         if (!succeeded && resourceId.HasValue)
         {
-            var scenarioTemplateId = await GetEventTemplateId<T>(resourceId.Value, cancellationToken);
+            var eventTemplateId = await GetEventTemplateId<T>(resourceId.Value, cancellationToken);
 
-            if (scenarioTemplateId != null)
+            if (eventTemplateId != null)
             {
-                var scenarioTemplatePermissionRequirement = new EventTemplatePermissionRequirement(requiredEventTemplatePermissions, scenarioTemplateId.Value);
-                var scenarioTemplatePermissionResult = await authService.AuthorizeAsync(claimsPrincipal, null, scenarioTemplatePermissionRequirement);
+                var eventTemplatePermissionRequirement = new EventTemplatePermissionRequirement(requiredEventTemplatePermissions, eventTemplateId.Value);
+                var eventTemplatePermissionResult = await authService.AuthorizeAsync(claimsPrincipal, null, eventTemplatePermissionRequirement);
 
-                succeeded = scenarioTemplatePermissionResult.Succeeded;
+                succeeded = eventTemplatePermissionResult.Succeeded;
             }
 
         }
@@ -129,29 +129,29 @@ public class AuthorizationService(
         return permissions;
     }
 
-    public IEnumerable<EventPermissionClaim> GetEventPermissions(Guid? scenarioId = null)
+    public IEnumerable<EventPermissionClaim> GetEventPermissions(Guid? eventId = null)
     {
         var permissions = identityResolver.GetClaimsPrincipal().Claims
            .Where(x => x.Type == AuthorizationConstants.EventPermissionClaimType)
            .Select(x => EventPermissionClaim.FromString(x.Value));
 
-        if (scenarioId.HasValue)
+        if (eventId.HasValue)
         {
-            permissions = permissions.Where(x => x.EventId == scenarioId.Value);
+            permissions = permissions.Where(x => x.EventId == eventId.Value);
         }
 
         return permissions;
     }
 
-    public IEnumerable<EventTemplatePermissionClaim> GetEventTemplatePermissions(Guid? scenarioTemplateId = null)
+    public IEnumerable<EventTemplatePermissionClaim> GetEventTemplatePermissions(Guid? eventTemplateId = null)
     {
         var permissions = identityResolver.GetClaimsPrincipal().Claims
            .Where(x => x.Type == AuthorizationConstants.EventTemplatePermissionClaimType)
            .Select(x => EventTemplatePermissionClaim.FromString(x.Value));
 
-        if (scenarioTemplateId.HasValue)
+        if (eventTemplateId.HasValue)
         {
-            permissions = permissions.Where(x => x.EventTemplateId == scenarioTemplateId.Value);
+            permissions = permissions.Where(x => x.EventTemplateId == eventTemplateId.Value);
         }
 
         return permissions;

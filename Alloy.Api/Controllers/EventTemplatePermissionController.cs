@@ -24,7 +24,7 @@ public class EventTemplatePermissionsController : BaseController
     /// Get all SystemPermissions for the calling User.
     /// </summary>
     /// <returns></returns>
-    [HttpGet("scenarioTemplates/{id}/me/permissions")]
+    [HttpGet("eventTemplates/{id}/me/permissions")]
     [ProducesResponseType(typeof(IEnumerable<EventTemplatePermissionClaim>), (int)HttpStatusCode.OK)]
     [SwaggerOperation(OperationId = "GetMyEventTemplatePermissions")]
     public async Task<IActionResult> GetMine(Guid id)

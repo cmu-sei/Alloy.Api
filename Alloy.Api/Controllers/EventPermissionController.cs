@@ -24,7 +24,7 @@ public class EventPermissionsController : BaseController
     /// Get all SystemPermissions for the calling User.
     /// </summary>
     /// <returns></returns>
-    [HttpGet("scenarios/{id}/me/permissions")]
+    [HttpGet("events/{id}/me/permissions")]
     [ProducesResponseType(typeof(IEnumerable<EventPermissionClaim>), (int)HttpStatusCode.OK)]
     [SwaggerOperation(OperationId = "GetMyEventPermissions")]
     public async Task<IActionResult> GetMine(Guid id)

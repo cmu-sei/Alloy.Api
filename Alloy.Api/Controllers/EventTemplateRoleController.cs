@@ -19,12 +19,12 @@ namespace Alloy.Api.Controllers;
 public class EventTemplateRolesController : BaseController
 {
     private readonly IAlloyAuthorizationService _authorizationService;
-    private readonly IEventTemplateRoleService _scenarioRoleService;
+    private readonly IEventTemplateRoleService _eventRoleService;
 
-    public EventTemplateRolesController(IAlloyAuthorizationService authorizationService, IEventTemplateRoleService scenarioRoleService)
+    public EventTemplateRolesController(IAlloyAuthorizationService authorizationService, IEventTemplateRoleService eventRoleService)
     {
         _authorizationService = authorizationService;
-        _scenarioRoleService = scenarioRoleService;
+        _eventRoleService = eventRoleService;
     }
 
     /// <summary>
@@ -32,7 +32,7 @@ public class EventTemplateRolesController : BaseController
     /// </summary>
     /// <param name="id">ID of a EventTemplateRole.</param>
     /// <returns></returns>
-    [HttpGet("scenarioTemplate-roles/{id}")]
+    [HttpGet("eventTemplate-roles/{id}")]
     [ProducesResponseType(typeof(EventTemplateRole), (int)HttpStatusCode.OK)]
     [SwaggerOperation(OperationId = "GetEventTemplateRole")]
     public async Task<IActionResult> Get([FromRoute] Guid id, CancellationToken ct)
@@ -40,7 +40,7 @@ public class EventTemplateRolesController : BaseController
         if (!await _authorizationService.AuthorizeAsync([SystemPermission.ViewRoles], ct))
             throw new ForbiddenException();
 
-        var result = await _scenarioRoleService.GetAsync(id, ct);
+        var result = await _eventRoleService.GetAsync(id, ct);
         return Ok(result);
     }
 
@@ -48,12 +48,12 @@ public class EventTemplateRolesController : BaseController
     /// Get all EventTemplateRoles.
     /// </summary>
     /// <returns></returns>
-    [HttpGet("scenarioTemplate-roles")]
+    [HttpGet("eventTemplate-roles")]
     [ProducesResponseType(typeof(IEnumerable<EventTemplateRole>), (int)HttpStatusCode.OK)]
     [SwaggerOperation(OperationId = "GetAllEventTemplateRoles")]
     public async Task<IActionResult> GetAll(CancellationToken ct)
     {
-        var result = await _scenarioRoleService.GetAsync(ct);
+        var result = await _eventRoleService.GetAsync(ct);
         return Ok(result);
     }
 }

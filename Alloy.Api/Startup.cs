@@ -32,6 +32,7 @@ using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.JsonWebTokens;
+using Microsoft.AspNetCore.Mvc.Authorization;
 
 namespace Alloy.Api
 {
@@ -138,6 +139,13 @@ namespace Alloy.Api
             {
                 options.Filters.Add(typeof(ValidateModelStateFilter));
                 options.Filters.Add(typeof(JsonExceptionFilter));
+
+                // Require all scopes in authOptions
+                var policyBuilder = new AuthorizationPolicyBuilder().RequireAuthenticatedUser();
+                Array.ForEach(_authOptions.AuthorizationScope.Split(' '), x => policyBuilder.RequireScope(x));
+
+                var policy = policyBuilder.Build();
+                options.Filters.Add(new AuthorizeFilter(policy));
             })
             .AddJsonOptions(options =>
             {
@@ -317,14 +325,7 @@ namespace Alloy.Api
 
         private void ApplyPolicies(IServiceCollection services)
         {
-            services.AddAuthorization(options =>
-            {
-                // Require all scopes in authOptions
-                var policyBuilder = new AuthorizationPolicyBuilder().RequireAuthenticatedUser();
-                Array.ForEach(_authOptions.AuthorizationScope.Split(' '), x => policyBuilder.RequireClaim("scope", x));
-
-                options.DefaultPolicy = policyBuilder.Build();
-            });
+            services.AddAuthorizationPolicy(_authOptions);
         }
     }
 }

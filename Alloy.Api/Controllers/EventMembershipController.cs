@@ -32,7 +32,7 @@ public class EventMembershipsController : BaseController
     /// </summary>
     /// <param name="id">ID of a EventMembership.</param>
     /// <returns></returns>
-    [HttpGet("scenarios/memberships/{id}")]
+    [HttpGet("events/memberships/{id}")]
     [ProducesResponseType(typeof(EventMembership), (int)HttpStatusCode.OK)]
     [SwaggerOperation(OperationId = "GetEventMembership")]
     public async Task<IActionResult> Get([FromRoute] Guid id, CancellationToken ct)
@@ -48,7 +48,7 @@ public class EventMembershipsController : BaseController
     /// Get all EventMemberships.
     /// </summary>
     /// <returns></returns>
-    [HttpGet("scenarios/{id}/memberships")]
+    [HttpGet("events/{id}/memberships")]
     [ProducesResponseType(typeof(IEnumerable<EventMembership>), (int)HttpStatusCode.OK)]
     [SwaggerOperation(OperationId = "GetAllEventMemberships")]
     public async Task<IActionResult> GetAll(Guid id, CancellationToken ct)
@@ -60,13 +60,13 @@ public class EventMembershipsController : BaseController
     /// <summary>
     /// Create a new Event Membership.
     /// </summary>
-    /// <param name="scenarioId"></param>
+    /// <param name="eventId"></param>
     /// <param name="eventMembership"></param>
     /// <returns></returns>
-    [HttpPost("scenarios/{scenarioId}/memberships")]
+    [HttpPost("events/{eventId}/memberships")]
     [ProducesResponseType(typeof(EventMembership), (int)HttpStatusCode.Created)]
     [SwaggerOperation(OperationId = "CreateEventMembership")]
-    public async Task<IActionResult> CreateMembership([FromRoute] Guid scenarioId, EventMembership eventMembership, CancellationToken ct)
+    public async Task<IActionResult> CreateMembership([FromRoute] Guid eventId, EventMembership eventMembership, CancellationToken ct)
     {
         var result = await _eventMembershipService.CreateAsync(eventMembership, ct);
         return CreatedAtAction(nameof(Get), new { id = result.Id }, result);
@@ -97,7 +97,7 @@ public class EventMembershipsController : BaseController
     /// Delete a Event Membership.
     /// </summary>
     /// <returns></returns>
-    [HttpDelete("scenarios/memberships/{id}")]
+    [HttpDelete("events/memberships/{id}")]
     [ProducesResponseType((int)HttpStatusCode.NoContent)]
     [SwaggerOperation(OperationId = "DeleteEventMembership")]
     public async Task<IActionResult> DeleteMembership([FromRoute] Guid id, CancellationToken ct)

@@ -20,9 +20,9 @@ namespace Alloy.Api.Services
     public interface IEventTemplateMembershipService
     {
         STT.Task<EventTemplateMembership> GetAsync(Guid id, CancellationToken ct);
-        STT.Task<IEnumerable<EventTemplateMembership>> GetByEventTemplateAsync(Guid scenarioTemplateId, CancellationToken ct);
-        STT.Task<EventTemplateMembership> CreateAsync(EventTemplateMembership scenarioTemplateMembership, CancellationToken ct);
-        STT.Task<EventTemplateMembership> UpdateAsync(Guid id, EventTemplateMembership scenarioTemplateMembership, CancellationToken ct);
+        STT.Task<IEnumerable<EventTemplateMembership>> GetByEventTemplateAsync(Guid eventTemplateId, CancellationToken ct);
+        STT.Task<EventTemplateMembership> CreateAsync(EventTemplateMembership eventTemplateMembership, CancellationToken ct);
+        STT.Task<EventTemplateMembership> UpdateAsync(Guid id, EventTemplateMembership eventTemplateMembership, CancellationToken ct);
         STT.Task DeleteAsync(Guid id, CancellationToken ct);
     }
 
@@ -50,46 +50,46 @@ namespace Alloy.Api.Services
             return _mapper.Map<EventTemplateMembership>(item);
         }
 
-        public async STT.Task<IEnumerable<EventTemplateMembership>> GetByEventTemplateAsync(Guid scenarioTemplateId, CancellationToken ct)
+        public async STT.Task<IEnumerable<EventTemplateMembership>> GetByEventTemplateAsync(Guid eventTemplateId, CancellationToken ct)
         {
             var items = await _context.EventTemplateMemberships
-                .Where(m => m.EventTemplateId == scenarioTemplateId)
+                .Where(m => m.EventTemplateId == eventTemplateId)
                 .ToListAsync(ct);
 
             return _mapper.Map<IEnumerable<EventTemplateMembership>>(items);
         }
 
-        public async STT.Task<EventTemplateMembership> CreateAsync(EventTemplateMembership scenarioTemplateMembership, CancellationToken ct)
+        public async STT.Task<EventTemplateMembership> CreateAsync(EventTemplateMembership eventTemplateMembership, CancellationToken ct)
         {
-            var scenarioTemplateMembershipEntity = _mapper.Map<EventTemplateMembershipEntity>(scenarioTemplateMembership);
+            var eventTemplateMembershipEntity = _mapper.Map<EventTemplateMembershipEntity>(eventTemplateMembership);
 
-            _context.EventTemplateMemberships.Add(scenarioTemplateMembershipEntity);
+            _context.EventTemplateMemberships.Add(eventTemplateMembershipEntity);
             await _context.SaveChangesAsync(ct);
-            var scenario = await GetAsync(scenarioTemplateMembershipEntity.Id, ct);
+            var createdEvent = await GetAsync(eventTemplateMembershipEntity.Id, ct);
 
-            return scenario;
+            return createdEvent;
         }
-        public async STT.Task<EventTemplateMembership> UpdateAsync(Guid id, EventTemplateMembership scenarioTemplateMembership, CancellationToken ct)
+        public async STT.Task<EventTemplateMembership> UpdateAsync(Guid id, EventTemplateMembership eventTemplateMembership, CancellationToken ct)
         {
-            var scenarioTemplateMembershipToUpdate = await _context.EventTemplateMemberships.SingleOrDefaultAsync(v => v.Id == id, ct);
+            var eventTemplateMembershipToUpdate = await _context.EventTemplateMemberships.SingleOrDefaultAsync(v => v.Id == id, ct);
 
-            if (scenarioTemplateMembershipToUpdate == null)
+            if (eventTemplateMembershipToUpdate == null)
                 throw new EntityNotFoundException<Event>();
 
-            _mapper.Map(scenarioTemplateMembership, scenarioTemplateMembershipToUpdate);
+            _mapper.Map(eventTemplateMembership, eventTemplateMembershipToUpdate);
 
             await _context.SaveChangesAsync(ct);
 
-            return _mapper.Map<EventTemplateMembership>(scenarioTemplateMembershipToUpdate);
+            return _mapper.Map<EventTemplateMembership>(eventTemplateMembershipToUpdate);
         }
         public async STT.Task DeleteAsync(Guid id, CancellationToken ct)
         {
-            var scenarioTemplateMembershipToDelete = await _context.EventTemplateMemberships.SingleOrDefaultAsync(v => v.Id == id, ct);
+            var eventTemplateMembershipToDelete = await _context.EventTemplateMemberships.SingleOrDefaultAsync(v => v.Id == id, ct);
 
-            if (scenarioTemplateMembershipToDelete == null)
+            if (eventTemplateMembershipToDelete == null)
                 throw new EntityNotFoundException<EventTemplateMembership>();
 
-            _context.EventTemplateMemberships.Remove(scenarioTemplateMembershipToDelete);
+            _context.EventTemplateMemberships.Remove(eventTemplateMembershipToDelete);
             await _context.SaveChangesAsync(ct);
 
             return;

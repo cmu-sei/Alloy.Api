@@ -21,9 +21,9 @@ namespace Alloy.Api.Services
     public interface IEventMembershipService
     {
         STT.Task<EventMembership> GetAsync(Guid id, CancellationToken ct);
-        STT.Task<IEnumerable<EventMembership>> GetByEventAsync(Guid scenarioId, CancellationToken ct);
-        STT.Task<EventMembership> CreateAsync(EventMembership scenarioMembership, CancellationToken ct);
-        STT.Task<EventMembership> UpdateAsync(Guid id, EventMembership scenarioMembership, CancellationToken ct);
+        STT.Task<IEnumerable<EventMembership>> GetByEventAsync(Guid eventId, CancellationToken ct);
+        STT.Task<EventMembership> CreateAsync(EventMembership eventMembership, CancellationToken ct);
+        STT.Task<EventMembership> UpdateAsync(Guid id, EventMembership eventMembership, CancellationToken ct);
         STT.Task DeleteAsync(Guid id, CancellationToken ct);
     }
 
@@ -51,46 +51,46 @@ namespace Alloy.Api.Services
             return _mapper.Map<SAVM.EventMembership>(item);
         }
 
-        public async STT.Task<IEnumerable<EventMembership>> GetByEventAsync(Guid scenarioId, CancellationToken ct)
+        public async STT.Task<IEnumerable<EventMembership>> GetByEventAsync(Guid eventId, CancellationToken ct)
         {
             var items = await _context.EventMemberships
-                .Where(m => m.EventId == scenarioId)
+                .Where(m => m.EventId == eventId)
                 .ToListAsync(ct);
 
             return _mapper.Map<IEnumerable<SAVM.EventMembership>>(items);
         }
 
-        public async STT.Task<EventMembership> CreateAsync(EventMembership scenarioMembership, CancellationToken ct)
+        public async STT.Task<EventMembership> CreateAsync(EventMembership eventMembership, CancellationToken ct)
         {
-            var scenarioMembershipEntity = _mapper.Map<EventMembershipEntity>(scenarioMembership);
+            var eventMembershipEntity = _mapper.Map<EventMembershipEntity>(eventMembership);
 
-            _context.EventMemberships.Add(scenarioMembershipEntity);
+            _context.EventMemberships.Add(eventMembershipEntity);
             await _context.SaveChangesAsync(ct);
-            var scenario = await GetAsync(scenarioMembershipEntity.Id, ct);
+            var createdEvent = await GetAsync(eventMembershipEntity.Id, ct);
 
-            return scenario;
+            return createdEvent;
         }
-        public async STT.Task<EventMembership> UpdateAsync(Guid id, EventMembership scenarioMembership, CancellationToken ct)
+        public async STT.Task<EventMembership> UpdateAsync(Guid id, EventMembership eventMembership, CancellationToken ct)
         {
-            var scenarioMembershipToUpdate = await _context.EventMemberships.SingleOrDefaultAsync(v => v.Id == id, ct);
+            var eventMembershipToUpdate = await _context.EventMemberships.SingleOrDefaultAsync(v => v.Id == id, ct);
 
-            if (scenarioMembershipToUpdate == null)
+            if (eventMembershipToUpdate == null)
                 throw new EntityNotFoundException<SAVM.Event>();
 
-            _mapper.Map(scenarioMembership, scenarioMembershipToUpdate);
+            _mapper.Map(eventMembership, eventMembershipToUpdate);
 
             await _context.SaveChangesAsync(ct);
 
-            return _mapper.Map<SAVM.EventMembership>(scenarioMembershipToUpdate);
+            return _mapper.Map<SAVM.EventMembership>(eventMembershipToUpdate);
         }
         public async STT.Task DeleteAsync(Guid id, CancellationToken ct)
         {
-            var scenarioMembershipToDelete = await _context.EventMemberships.SingleOrDefaultAsync(v => v.Id == id, ct);
+            var eventMembershipToDelete = await _context.EventMemberships.SingleOrDefaultAsync(v => v.Id == id, ct);
 
-            if (scenarioMembershipToDelete == null)
+            if (eventMembershipToDelete == null)
                 throw new EntityNotFoundException<SAVM.EventMembership>();
 
-            _context.EventMemberships.Remove(scenarioMembershipToDelete);
+            _context.EventMemberships.Remove(eventMembershipToDelete);
             await _context.SaveChangesAsync(ct);
 
             return;

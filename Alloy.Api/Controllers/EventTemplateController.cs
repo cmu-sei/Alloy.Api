@@ -42,15 +42,10 @@ namespace Alloy.Api.Controllers
         [SwaggerOperation(OperationId = "getEventTemplates")]
         public async Task<IActionResult> Get(CancellationToken ct)
         {
-            IEnumerable<EventTemplate> list = new List<EventTemplate>();
-            if (await _authorizationService.AuthorizeAsync([SystemPermission.ViewEventTemplates], ct))
-            {
-                list = await _eventTemplateService.GetAsync(ct);
-            }
-            else
-            {
-                list = await _eventTemplateService.GetByUserAsync(ct);
-            }
+            if (!await _authorizationService.AuthorizeAsync([SystemPermission.ViewEventTemplates], ct))
+                throw new ForbiddenException();
+
+            var list = await _eventTemplateService.GetAsync(ct);
             // add this user's permissions for each event template
             AddPermissions(list);
 
