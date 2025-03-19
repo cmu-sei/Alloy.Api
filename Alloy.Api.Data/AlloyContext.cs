@@ -50,15 +50,27 @@ namespace Alloy.Api.Data
             var modifiedEntries = ChangeTracker.Entries().Where(x => x.State == EntityState.Modified);
             foreach (var entry in addedEntries)
             {
-                ((BaseEntity)entry.Entity).DateCreated = DateTime.UtcNow;
-                ((BaseEntity)entry.Entity).DateModified = null;
-                ((BaseEntity)entry.Entity).ModifiedBy = null;
+                // add info to entities that are base entities
+                try
+                {
+                    ((BaseEntity)entry.Entity).DateCreated = DateTime.UtcNow;
+                    ((BaseEntity)entry.Entity).DateModified = null;
+                    ((BaseEntity)entry.Entity).ModifiedBy = null;
+                }
+                catch
+                { }
             }
             foreach (var entry in modifiedEntries)
             {
-                ((BaseEntity)entry.Entity).DateModified = DateTime.UtcNow;
-                ((BaseEntity)entry.Entity).CreatedBy = (Guid)entry.OriginalValues["CreatedBy"];
-                ((BaseEntity)entry.Entity).DateCreated = DateTime.SpecifyKind((DateTime)entry.OriginalValues["DateCreated"], DateTimeKind.Utc);
+                // add info to entities that are base entities
+                try
+                {
+                    ((BaseEntity)entry.Entity).DateModified = DateTime.UtcNow;
+                    ((BaseEntity)entry.Entity).CreatedBy = (Guid)entry.OriginalValues["CreatedBy"];
+                    ((BaseEntity)entry.Entity).DateCreated = DateTime.SpecifyKind((DateTime)entry.OriginalValues["DateCreated"], DateTimeKind.Utc);
+                }
+                catch
+                { }
             }
             return await base.SaveChangesAsync(ct);
         }
