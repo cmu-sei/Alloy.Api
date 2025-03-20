@@ -3,6 +3,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Net;
 using System.Threading;
 using System.Threading.Tasks;
@@ -41,10 +42,18 @@ namespace Alloy.Api.Controllers
         [SwaggerOperation(OperationId = "getEvents")]
         public async Task<IActionResult> Get(CancellationToken ct)
         {
-            if (!await _authorizationService.AuthorizeAsync([SystemPermission.ViewEvents], ct))
-                throw new ForbiddenException();
+            IEnumerable<Event> list = new List<Event>();
+            if (await _authorizationService.AuthorizeAsync([SystemPermission.ViewEvents], ct))
+            {
+                list = await _eventService.GetAsync(ct);
+            }
+            else
+            {
+                list = await _eventService.GetMyEventsAsync(ct);
+            }
 
-            var list = await _eventService.GetAsync(ct);
+            // add this user's permissions for each event
+            AddPermissions(list);
 
             return Ok(list);
         }
@@ -65,6 +74,9 @@ namespace Alloy.Api.Controllers
                 throw new ForbiddenException();
 
             var list = await _eventService.GetEventTemplateEventsAsync(eventTemplateId, ct);
+            // add this user's permissions for each event
+            AddPermissions(list);
+
             return Ok(list);
         }
 
@@ -81,6 +93,9 @@ namespace Alloy.Api.Controllers
         public async Task<IActionResult> GetMyEventTemplateEvents(Guid eventTemplateId, bool includeInvites, CancellationToken ct)
         {
             var list = await _eventService.GetMyEventTemplateEventsAsync(eventTemplateId, includeInvites, ct);
+            // add this user's permissions for each event
+            AddPermissions(list);
+
             return Ok(list);
         }
 
@@ -97,6 +112,9 @@ namespace Alloy.Api.Controllers
         public async Task<IActionResult> GetMyViewEvents(Guid playerViewId, CancellationToken ct)
         {
             var list = await _eventService.GetMyViewEventsAsync(playerViewId, ct);
+            // add this user's permissions for each event
+            AddPermissions(list);
+
             return Ok(list);
         }
 
@@ -112,6 +130,9 @@ namespace Alloy.Api.Controllers
         public async Task<IActionResult> GetMyEventsAsync(CancellationToken ct)
         {
             var list = await _eventService.GetMyEventsAsync(ct);
+            // add this user's permissions for each event
+            AddPermissions(list);
+
             return Ok(list);
         }
 
@@ -139,6 +160,9 @@ namespace Alloy.Api.Controllers
             if (eventx == null)
                 throw new EntityNotFoundException<Event>();
 
+            // add this user's permissions
+            AddPermissions(eventx);
+
             return Ok(eventx);
         }
 
@@ -161,6 +185,9 @@ namespace Alloy.Api.Controllers
                 throw new ForbiddenException();
 
             var createdEvent = await _eventService.CreateAsync(eventx, ct);
+            // add this user's permissions
+            AddPermissions(createdEvent);
+
             return CreatedAtAction(nameof(this.Get), new { id = createdEvent.Id }, createdEvent);
         }
 
@@ -190,6 +217,9 @@ namespace Alloy.Api.Controllers
 
             command.EventTemplateId = eventTemplateId;
             var createdEvent = await _eventService.LaunchEventFromEventTemplateAsync(command, ct);
+            // add this user's permissions
+            AddPermissions(createdEvent);
+
             return CreatedAtAction(nameof(this.Get), new { id = createdEvent.Id }, createdEvent);
         }
 
@@ -219,6 +249,9 @@ namespace Alloy.Api.Controllers
             }
 
             var createdEvent = await _eventService.LaunchEventFromEventTemplateAsync(eventTemplateId, userId, username, new List<Guid>(), ct);
+            // add this user's permissions
+            AddPermissions(createdEvent);
+
             return CreatedAtAction(nameof(this.Get), new { id = createdEvent.Id }, createdEvent);
         }
 
@@ -242,6 +275,9 @@ namespace Alloy.Api.Controllers
                 throw new ForbiddenException();
 
             var updatedEvent = await _eventService.UpdateAsync(id, eventx, ct);
+            // add this user's permissions
+            AddPermissions(updatedEvent);
+
             return Ok(updatedEvent);
         }
 
@@ -392,5 +428,21 @@ namespace Alloy.Api.Controllers
             var list = await _eventService.GradeEventAsync(id, answers, ct);
             return Ok(list);
         }
+
+        private void AddPermissions(IEnumerable<Event> list)
+        {
+            foreach (var item in list)
+            {
+                AddPermissions(item);
+            }
+        }
+
+        private void AddPermissions(Event item)
+        {
+            item.EventPermissions =
+            _authorizationService.GetEventPermissions(item.Id).Select((m) => m.ToString())
+            .Concat(_authorizationService.GetSystemPermissions().Select((m) => m.ToString()));
+        }
+
     }
 }

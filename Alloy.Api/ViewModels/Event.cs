@@ -35,5 +35,6 @@ namespace Alloy.Api.ViewModels
         public DateTime? LaunchDate { get; set; }
         public DateTime? EndDate { get; set; }
         public DateTime? ExpirationDate { get; set; }
+        public IEnumerable<string> EventPermissions { get; set; }
     }
 }
