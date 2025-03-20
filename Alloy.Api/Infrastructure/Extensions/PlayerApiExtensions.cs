@@ -2,6 +2,7 @@
 // Released under a MIT (SEI)-style license. See LICENSE.md in the project root for license information.
 
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Net.Http;
 using System.Threading;
@@ -21,7 +22,7 @@ namespace Alloy.Api.Infrastructure.Extensions
             return apiClient;
         }
 
-        public static async Task<Guid?> CreatePlayerViewAsync(PlayerApiClient playerApiClient, EventEntity eventEntity, EventTemplateEntity eventTemplateEntity, CancellationToken ct)
+        public static async Task<Guid?> CreatePlayerViewAsync(PlayerApiClient playerApiClient, EventEntity eventEntity, EventTemplateEntity eventTemplateEntity, List<UserEntity> userList, CancellationToken ct)
         {
             View clonedView = null;
             try
@@ -67,23 +68,23 @@ namespace Alloy.Api.Infrastructure.Extensions
 
                     await playerApiClient.AddUserToTeamAsync(team.Id, eventEntity.UserId, ct);
 
-                    foreach (var user in eventEntity.EventUsers)
+                    foreach (var user in userList)
                     {
                         try
                         {
-                            var playerUser = await playerApiClient.GetUserAsync(user.UserId, ct);
+                            var playerUser = await playerApiClient.GetUserAsync(user.Id, ct);
                         }
                         catch (Exception)
                         {
                             await playerApiClient.CreateUserAsync(
                                 new User
                                 {
-                                    Id = user.UserId,
-                                    Name = ""
+                                    Id = user.Id,
+                                    Name = user.Name
                                 });
                         }
 
-                        await playerApiClient.AddUserToTeamAsync(team.Id, user.UserId, ct);
+                        await playerApiClient.AddUserToTeamAsync(team.Id, user.Id, ct);
                     }
                 }
 

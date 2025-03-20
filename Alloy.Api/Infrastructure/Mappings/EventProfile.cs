@@ -13,8 +13,6 @@ namespace Alloy.Api.Infrastructure.Mappings
         {
             CreateMap<EventEntity, Event>()
             .ReverseMap();
-            CreateMap<EventEntity, EventUserEntity>()
-            .ForMember(dest => dest.EventId, opt => opt.MapFrom(source => source.Id));
         }
     }
 }

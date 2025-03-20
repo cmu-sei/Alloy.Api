@@ -23,7 +23,6 @@ namespace Alloy.Api.ViewModels
         public string Name { get; set; }
         public string Description { get; set; }
         public string ShareCode { get; set; }
-        public List<EventUser> EventUsers { get; set; }
         public EventStatus Status { get; set; }
         public InternalEventStatus InternalStatus { get; set; }
         public int FailureCount { get; set; }

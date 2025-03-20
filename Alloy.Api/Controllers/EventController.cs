@@ -356,7 +356,7 @@ namespace Alloy.Api.Controllers
         [HttpPost("events/{id}/invite")]
         [ProducesResponseType(typeof(Event), (int)HttpStatusCode.Created)]
         [SwaggerOperation(OperationId = "invite")]
-        public async Task<ActionResult<EventUser>> Invite(Guid id, CancellationToken ct)
+        public async Task<ActionResult<Event>> Invite(Guid id, CancellationToken ct)
         {
             if (!await _authorizationService.AuthorizeAsync<Event>(id, [SystemPermission.ManageEvents], [EventPermission.ManageEvent], ct))
                 throw new ForbiddenException();
@@ -366,7 +366,7 @@ namespace Alloy.Api.Controllers
         }
 
         [HttpPost("events/enlist/{code}")]
-        [ProducesResponseType(typeof(EventUser), (int)HttpStatusCode.Created)]
+        [ProducesResponseType(typeof(Event), (int)HttpStatusCode.Created)]
         [SwaggerOperation(OperationId = "enlist")]
         public async Task<ActionResult> Enlist(string code, CancellationToken ct)
         {

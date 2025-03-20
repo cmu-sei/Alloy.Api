@@ -21,6 +21,9 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using System.Security.Cryptography.X509Certificates;
+using Alloy.Api.Controllers;
+using Player.Api.Client;
 
 namespace Alloy.Api.Services
 {
@@ -117,16 +120,20 @@ namespace Alloy.Api.Services
 
         public async Task<IEnumerable<Event>> GetMyEventTemplateEventsAsync(Guid eventTemplateId, bool includeInvites, CancellationToken ct)
         {
-            var query = _context.Events
-                .Where(x => x.EventTemplateId == eventTemplateId);
+            IQueryable<EventEntity> query;
+            var userId = _user.GetId();
 
             if (includeInvites)
             {
-                query = query.Where(x => x.UserId == _user.GetId() || x.EventUsers.Any(y => y.UserId == _user.GetId()));
+                query = _context.EventMemberships
+                    .Include(m => m.Event)
+                    .Where(m => m.Event.EventTemplateId == eventTemplateId && (m.Event.UserId == userId || m.UserId == userId))
+                    .Select(m => m.Event);
             }
             else
             {
-                query = query.Where(x => x.UserId == _user.GetId());
+                query = _context.Events
+                    .Where(x => x.EventTemplateId == eventTemplateId && x.UserId == userId);
             }
 
             var items = await query.ToListAsync(ct);
@@ -136,10 +143,12 @@ namespace Alloy.Api.Services
 
         public async Task<IEnumerable<Event>> GetMyViewEventsAsync(Guid viewId, CancellationToken ct)
         {
-            var items = await _context.Events
-                .Where(x => x.ViewId == viewId &&
-                            x.UserId == _user.GetId() ||
-                            x.EventUsers.Any(y => y.UserId == _user.GetId()))
+            var userId = _user.GetId();
+            var items = await _context.EventMemberships
+                .Where(m => m.Event.ViewId == viewId &&
+                            m.Event.UserId == userId ||
+                            m.UserId == userId)
+                .Select(m => m.Event)
                 .ToListAsync(ct);
 
             return _mapper.Map<IEnumerable<Event>>(items);
@@ -147,9 +156,9 @@ namespace Alloy.Api.Services
 
         public async Task<IEnumerable<Event>> GetMyEventsAsync(CancellationToken ct)
         {
-            var items = await _context.Events
-                .Where(x => x.EventUsers.Any(y => y.UserId == _user.GetId()))
-                .Where(x => x.Status == EventStatus.Active || x.Status == EventStatus.Paused)
+            var userId = _user.GetId();
+            var items = await _context.EventMemberships
+                .Where(x => x.UserId == userId && (x.Event.Status == EventStatus.Active || x.Event.Status == EventStatus.Paused))
                 .ToListAsync();
 
             return _mapper.Map<IEnumerable<Event>>(items);
@@ -303,6 +312,7 @@ namespace Alloy.Api.Services
 
             var eventEntity = new EventEntity()
             {
+                Id = Guid.NewGuid(),
                 CreatedBy = userId,
                 UserId = userId,
                 Username = username,
@@ -310,21 +320,21 @@ namespace Alloy.Api.Services
                 Status = EventStatus.Creating,
                 InternalStatus = InternalEventStatus.LaunchQueued
             };
+            _context.Events.Add(eventEntity);
 
             if (additionalUserIds != null)
             {
                 foreach (var additionalUserId in additionalUserIds)
                 {
-                    var eventUser = new EventUserEntity()
+                    var eventMembership = new EventMembershipEntity()
                     {
-                        UserId = additionalUserId
+                        UserId = additionalUserId,
+                        EventId = eventEntity.Id
                     };
-
-                    eventEntity.EventUsers.Add(eventUser);
+                    _context.EventMemberships.Add(eventMembership);
                 }
             }
 
-            _context.Events.Add(eventEntity);
             await _context.SaveChangesAsync(ct);
             _logger.LogInformation($"Event {eventEntity.Id} created for EventTemplate {eventTemplateId}.");
 
@@ -413,6 +423,7 @@ namespace Alloy.Api.Services
 
         public async Task<Event> EnlistAsync(string code, CancellationToken ct)
         {
+            var userId = _user.GetId();
             // user may not have access to the player api, so we get the resource owner token
             var token = await ApiClientsExtensions.GetToken(_serviceProvider);
             var playerApiClient = PlayerApiExtensions.GetPlayerApiClient(_httpClientFactory, _clientOptions.urls.playerApi, token);
@@ -425,27 +436,27 @@ namespace Alloy.Api.Services
                 {
                     if (alloyEvent.ViewId.HasValue)
                     {
-                        await PlayerApiExtensions.AddUserToViewTeamAsync(playerApiClient, alloyEvent.ViewId.Value, _user.GetId(), ct);
+                        await PlayerApiExtensions.AddUserToViewTeamAsync(playerApiClient, alloyEvent.ViewId.Value, userId, ct);
                     }
 
                     if (alloyEvent.ScenarioId.HasValue)
                     {
-                        await steamfitterApiClient.AddUsersToScenarioAsync(alloyEvent.ScenarioId.Value, new List<Guid> { _user.GetId() }, ct);
+                        await steamfitterApiClient.AddUsersToScenarioAsync(alloyEvent.ScenarioId.Value, new List<Guid> { userId }, ct);
                     }
 
                     try
                     {
-                        var entity = await _context.EventUsers.Where(e => e.UserId == _user.GetId() && e.EventId == alloyEvent.Id).FirstOrDefaultAsync();
+                        var entity = await _context.EventMemberships.Where(m => m.UserId == userId && m.EventId == alloyEvent.Id).FirstOrDefaultAsync();
                         if (entity == null)
                         {
-                            var eventUser = new EventUserEntity
+                            var eventMembership = new EventMembershipEntity
                             {
                                 EventId = alloyEvent.Id,
-                                UserId = _user.GetId(),
-                                CreatedBy = _user.GetId()
+                                UserId = userId,
+                                RoleId = EventRoleDefaults.EventMemberRoleId
                             };
 
-                            _context.EventUsers.Add(eventUser);
+                            _context.EventMemberships.Add(eventMembership);
                             await _context.SaveChangesAsync();
                         }
 

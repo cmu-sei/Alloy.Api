@@ -5,8 +5,10 @@ using System;
 using System.Linq;
 using System.Security.Claims;
 using System.Security.Principal;
+using System.Threading;
 using System.Threading.Tasks;
 using Alloy.Api.Data;
+using Alloy.Api.Infrastructure.Authorization;
 using Alloy.Api.Infrastructure.Extensions;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
@@ -18,10 +20,10 @@ namespace Alloy.Api.Hubs
     public class EngineHub : Hub
     {
         private readonly AlloyContext _context;
-        private readonly IAuthorizationService _authorizationService;
+        private readonly IAlloyAuthorizationService _authorizationService;
         private readonly ClaimsPrincipal _user;
 
-        public EngineHub(AlloyContext context, IAuthorizationService authorizationService, IPrincipal user)
+        public EngineHub(AlloyContext context, IAlloyAuthorizationService authorizationService, IPrincipal user)
         {
             _context = context;
             _authorizationService = authorizationService;
@@ -31,11 +33,12 @@ namespace Alloy.Api.Hubs
 
         public async Task JoinEvent(Guid eventId)
         {
-            var evt = await _context.Events
-                .Include(x => x.EventUsers)
-                .SingleOrDefaultAsync(x => x.Id == eventId);
+            var userId = _user.GetId();
+            var evt = await _context.EventMemberships
+                .SingleOrDefaultAsync(x => x.EventId == eventId && x.UserId == userId);
 
-            if (evt.UserId == _user.GetId() || evt.EventUsers.Any(x => x.UserId == _user.GetId()))
+            var ct = new CancellationToken();
+            if (evt != null || await _authorizationService.AuthorizeAsync([SystemPermission.ViewEvents], ct))
             {
                 await Groups.AddToGroupAsync(Context.ConnectionId, eventId.ToString());
             }
