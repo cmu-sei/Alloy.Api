@@ -159,6 +159,7 @@ namespace Alloy.Api.Services
             var userId = _user.GetId();
             var items = await _context.EventMemberships
                 .Where(x => x.UserId == userId && (x.Event.Status == EventStatus.Active || x.Event.Status == EventStatus.Paused))
+                .Select(m => m.Event)
                 .ToListAsync();
 
             return _mapper.Map<IEnumerable<Event>>(items);
@@ -321,20 +322,28 @@ namespace Alloy.Api.Services
                 InternalStatus = InternalEventStatus.LaunchQueued
             };
             _context.Events.Add(eventEntity);
-
+            // add the event creator role to this event creator
+            var eventMembership = new EventMembershipEntity()
+            {
+                UserId = userId,
+                EventId = eventEntity.Id,
+                RoleId = EventRoleDefaults.EventCreatorRoleId
+            };
+            _context.EventMemberships.Add(eventMembership);
+            // add any additional users
             if (additionalUserIds != null)
             {
-                foreach (var additionalUserId in additionalUserIds)
+                foreach (var additionalUserId in additionalUserIds.Where(m => m != userId))
                 {
-                    var eventMembership = new EventMembershipEntity()
+                    eventMembership = new EventMembershipEntity()
                     {
                         UserId = additionalUserId,
-                        EventId = eventEntity.Id
+                        EventId = eventEntity.Id,
+                        RoleId = EventRoleDefaults.EventMemberRoleId
                     };
                     _context.EventMemberships.Add(eventMembership);
                 }
             }
-
             await _context.SaveChangesAsync(ct);
             _logger.LogInformation($"Event {eventEntity.Id} created for EventTemplate {eventTemplateId}.");
 
@@ -455,8 +464,14 @@ namespace Alloy.Api.Services
                                 UserId = userId,
                                 RoleId = EventRoleDefaults.EventMemberRoleId
                             };
-
                             _context.EventMemberships.Add(eventMembership);
+                            var eventTemplateMembership = new EventTemplateMembershipEntity
+                            {
+                                EventTemplateId = (Guid)alloyEvent.EventTemplateId,
+                                UserId = userId,
+                                RoleId = EventTemplateRoleEntityDefaults.EventTemplateReadOnlyRoleId
+                            };
+                            _context.EventTemplateMemberships.Add(eventTemplateMembership);
                             await _context.SaveChangesAsync();
                         }
 

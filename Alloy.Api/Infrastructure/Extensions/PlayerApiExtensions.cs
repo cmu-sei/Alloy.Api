@@ -35,7 +35,7 @@ namespace Alloy.Api.Infrastructure.Extensions
                 clonedView = await playerApiClient.CloneViewAsync((Guid)eventTemplateEntity.ViewId, body, ct);
                 // add user to first non-admin team
                 var roles = await playerApiClient.GetRolesAsync(ct);
-                var teams = (await playerApiClient.GetViewTeamsAsync((Guid)clonedView.Id, ct));
+                var teams = await playerApiClient.GetViewTeamsAsync((Guid)clonedView.Id, ct);
 
                 foreach (var team in teams)
                 {
@@ -70,21 +70,24 @@ namespace Alloy.Api.Infrastructure.Extensions
 
                     foreach (var user in userList)
                     {
-                        try
+                        if (user.Id != eventEntity.UserId)
                         {
-                            var playerUser = await playerApiClient.GetUserAsync(user.Id, ct);
-                        }
-                        catch (Exception)
-                        {
-                            await playerApiClient.CreateUserAsync(
-                                new User
-                                {
-                                    Id = user.Id,
-                                    Name = user.Name
-                                });
-                        }
+                            try
+                            {
+                                var playerUser = await playerApiClient.GetUserAsync(user.Id, ct);
+                            }
+                            catch (Exception)
+                            {
+                                await playerApiClient.CreateUserAsync(
+                                    new User
+                                    {
+                                        Id = user.Id,
+                                        Name = user.Name
+                                    });
+                            }
 
-                        await playerApiClient.AddUserToTeamAsync(team.Id, user.Id, ct);
+                            await playerApiClient.AddUserToTeamAsync(team.Id, user.Id, ct);
+                        }
                     }
                 }
 
