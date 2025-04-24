@@ -173,7 +173,7 @@ namespace Alloy.Api.Controllers
         private void AddPermissions(EventTemplate item)
         {
             item.EventTemplatePermissions =
-            _authorizationService.GetEventTemplatePermissions(item.Id).Select((m) => m.ToString())
+            _authorizationService.GetEventTemplatePermissions(item.Id).Select((m) => String.Join(",", m.Permissions))
             .Concat(_authorizationService.GetSystemPermissions().Select((m) => m.ToString()));
         }
 

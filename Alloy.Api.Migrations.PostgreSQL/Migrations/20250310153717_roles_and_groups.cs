@@ -219,7 +219,7 @@ namespace Alloy.Api.Migrations.PostgreSQL.Migrations
                 {
                     { new Guid("1a3f26cd-9d99-4b98-b914-12931e786198"), true, "Can perform all actions on the Event", "Manager", new int[0] },
                     { new Guid("39aa296e-05ba-4fb0-8d74-c92cf3354c6f"), false, "Has read only access to the Event", "Observer", new[] { 0 } },
-                    { new Guid("f870d8ee-7332-4f7f-8ee0-63bd07cfd7e4"), false, "Has read only access to the Event", "Member", new[] { 0, 1 } }
+                    { new Guid("f870d8ee-7332-4f7f-8ee0-63bd07cfd7e4"), false, "Has read only access to the Event", "Member", new[] { 0 } }
                 });
 
             migrationBuilder.InsertData(
@@ -229,7 +229,7 @@ namespace Alloy.Api.Migrations.PostgreSQL.Migrations
                 {
                     { new Guid("1a3f26cd-9d99-4b98-b914-12931e786198"), true, "Can perform all actions on the EventTemplate", "Manager", new int[0] },
                     { new Guid("39aa296e-05ba-4fb0-8d74-c92cf3354c6f"), false, "Has read only access to the EventTemplate", "Observer", new[] { 0 } },
-                    { new Guid("f870d8ee-7332-4f7f-8ee0-63bd07cfd7e4"), false, "Has read only access to the EventTemplate", "Member", new[] { 0, 1 } }
+                    { new Guid("f870d8ee-7332-4f7f-8ee0-63bd07cfd7e4"), false, "Has read only access to the EventTemplate", "Member", new[] { 0 } }
                 });
 
             migrationBuilder.InsertData(
