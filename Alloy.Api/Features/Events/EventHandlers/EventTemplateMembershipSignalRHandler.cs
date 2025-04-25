@@ -29,7 +29,7 @@ namespace Alloy.Api.Events.EventHandlers
         {
             var groupMembership = _mapper.Map<ViewModels.EventTemplateMembership>(notification.Entity);
             await _engineHub.Clients
-                .Groups(notification.Entity.Id.ToString(), "admin")
+                .Groups(notification.Entity.Id.ToString(), EngineHub.ADMIN_EVENT_TEMPLATE_GROUP)
                 .SendAsync(EngineHubMethods.EventTemplateMembershipCreated, groupMembership);
         }
     }
@@ -47,7 +47,7 @@ namespace Alloy.Api.Events.EventHandlers
         public async Task Handle(EntityDeleted<EventTemplateMembershipEntity> notification, CancellationToken cancellationToken)
         {
             await _engineHub.Clients
-                .Groups(notification.Entity.Id.ToString(), "admin")
+                .Groups(notification.Entity.Id.ToString(), EngineHub.ADMIN_EVENT_TEMPLATE_GROUP)
                 .SendAsync(EngineHubMethods.EventTemplateMembershipDeleted, notification.Entity.Id);
         }
     }
@@ -69,7 +69,7 @@ namespace Alloy.Api.Events.EventHandlers
         {
             var groupMembership = _mapper.Map<ViewModels.EventTemplateMembership>(notification.Entity);
             await _engineHub.Clients
-                .Groups(notification.Entity.Id.ToString(), "admin")
+                .Groups(notification.Entity.Id.ToString(), EngineHub.ADMIN_EVENT_TEMPLATE_GROUP)
                 .SendAsync(EngineHubMethods.EventTemplateMembershipUpdated, groupMembership);
         }
     }

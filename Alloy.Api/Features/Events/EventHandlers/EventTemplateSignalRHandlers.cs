@@ -49,7 +49,7 @@ namespace Alloy.Api.Features.Events.EventHandlers
 
             var alloyEventTemplate = _mapper.Map<EventTemplate>(eventTemplateEntity);
             await _engineHub.Clients
-                .Groups(eventTemplateEntity.Id.ToString(), "admin")
+                .Groups(eventTemplateEntity.Id.ToString(), EngineHub.ADMIN_EVENT_TEMPLATE_GROUP)
                 .SendAsync(method, alloyEventTemplate, modifiedProperties, ct);
         }
     }
@@ -94,7 +94,7 @@ namespace Alloy.Api.Features.Events.EventHandlers
         public async Task Handle(EntityDeleted<EventTemplateEntity> notification, CancellationToken ct)
         {
             await _engineHub.Clients
-                .Groups(notification.Entity.Id.ToString(), "admin")
+                .Groups(notification.Entity.Id.ToString(), EngineHub.ADMIN_EVENT_TEMPLATE_GROUP)
                 .SendAsync(EngineHubMethods.EventDeleted, notification.Entity.Id, ct);
         }
     }

@@ -42,7 +42,7 @@ namespace Alloy.Api.Events.EventHandlers
     {
         public async Task Handle(EntityDeleted<GroupMembershipEntity> notification, CancellationToken cancellationToken)
         {
-            await projectHub.Clients.Group(notification.Entity.GroupId.ToString()).SendAsync(EngineHubMethods.GroupMembershipDeleted, notification.Entity.Id);
+            await projectHub.Clients.Group(EngineHub.ADMIN_EVENT_GROUP).SendAsync(EngineHubMethods.GroupMembershipDeleted, notification.Entity.Id);
         }
     }
 
@@ -55,7 +55,7 @@ namespace Alloy.Api.Events.EventHandlers
                 .ProjectTo<GroupMembership>(mapper.ConfigurationProvider)
                 .FirstOrDefaultAsync();
 
-            await projectHub.Clients.Group(entity.GroupId.ToString()).SendAsync(method, groupMembership, modifiedProperties, cancellationToken);
+            await projectHub.Clients.Group(EngineHub.ADMIN_EVENT_GROUP).SendAsync(method, groupMembership, modifiedProperties, cancellationToken);
         }
     }
 }
