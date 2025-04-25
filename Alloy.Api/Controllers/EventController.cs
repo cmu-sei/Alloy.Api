@@ -47,6 +47,10 @@ namespace Alloy.Api.Controllers
             {
                 list = await _eventService.GetAsync(ct);
             }
+            else
+            {
+                list = await _eventService.GetMyEventsAsync(ct);
+            }
 
             // add this user's permissions for each event
             AddPermissions(list);
