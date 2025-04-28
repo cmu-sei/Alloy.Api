@@ -76,7 +76,7 @@ namespace Alloy.Api.Services
         {
             var userId = _user.GetId();
             var items = await _context.EventTemplateMemberships
-                .Where(m => m.EventTemplate.CreatedBy == userId || m.UserId == userId)
+                .Where(m => m.EventTemplate.CreatedBy == userId || m.UserId == userId || m.EventTemplate.IsPublished)
                 .Select(m => m.EventTemplate)
                 .Distinct()
                 .ToListAsync(ct);
