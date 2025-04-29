@@ -70,6 +70,9 @@ namespace Alloy.Api.Controllers
         [SwaggerOperation(OperationId = "CreateSystemRole")]
         public async Task<IActionResult> Create([FromBody] SystemRole systemRole, CancellationToken ct)
         {
+            if (!await _authorizationService.AuthorizeAsync([SystemPermission.ManageRoles], ct))
+                throw new ForbiddenException();
+
             var result = await _systemRoleService.CreateAsync(systemRole, ct);
             return CreatedAtAction(nameof(Get), new { id = result.Id }, result);
         }
@@ -85,6 +88,9 @@ namespace Alloy.Api.Controllers
         [SwaggerOperation(OperationId = "UpdateSystemRole")]
         public async Task<IActionResult> Update([FromRoute] Guid id, SystemRole systemRole, CancellationToken ct)
         {
+            if (!await _authorizationService.AuthorizeAsync([SystemPermission.ManageRoles], ct))
+                throw new ForbiddenException();
+
             var result = await _systemRoleService.UpdateAsync(id, systemRole, ct);
             return Ok(result);
         }
@@ -99,6 +105,9 @@ namespace Alloy.Api.Controllers
         [SwaggerOperation(OperationId = "DeleteSystemRole")]
         public async Task<IActionResult> Delete([FromRoute] Guid id, CancellationToken ct)
         {
+            if (!await _authorizationService.AuthorizeAsync([SystemPermission.ManageRoles], ct))
+                throw new ForbiddenException();
+
             await _systemRoleService.DeleteAsync(id, ct);
             return NoContent();
         }

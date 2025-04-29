@@ -137,6 +137,9 @@ namespace Alloy.Api.Controllers
         [SwaggerOperation(OperationId = "GetGroupMemberships")]
         public async STT.Task<IActionResult> GetMemberships([FromRoute] Guid groupId, CancellationToken ct)
         {
+            if (!await _authorizationService.AuthorizeAsync([SystemPermission.ViewGroups], ct))
+                throw new ForbiddenException();
+
             var result = await _GroupService.GetMembershipsForGroupAsync(groupId, ct);
             return Ok(result);
         }
@@ -152,6 +155,9 @@ namespace Alloy.Api.Controllers
         [SwaggerOperation(OperationId = "CreateGroupMembership")]
         public async STT.Task<IActionResult> CreateMembership([FromRoute] Guid groupId, GroupMembership groupMembership, CancellationToken ct)
         {
+            if (!await _authorizationService.AuthorizeAsync([SystemPermission.ManageGroups], ct))
+                throw new ForbiddenException();
+
             var result = await _GroupService.CreateMembershipAsync(groupMembership, ct);
             return CreatedAtAction(nameof(Get), new { id = result.Id }, result);
         }
@@ -165,6 +171,9 @@ namespace Alloy.Api.Controllers
         [SwaggerOperation(OperationId = "DeleteGroupMembership")]
         public async STT.Task<IActionResult> DeleteMembership([FromRoute] Guid id, CancellationToken ct)
         {
+            if (!await _authorizationService.AuthorizeAsync([SystemPermission.ManageGroups], ct))
+                throw new ForbiddenException();
+
             await _GroupService.DeleteMembershipAsync(id, ct);
             return NoContent();
         }

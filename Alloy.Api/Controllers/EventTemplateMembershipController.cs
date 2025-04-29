@@ -38,10 +38,10 @@ public class EventTemplateMembershipsController : BaseController
     [SwaggerOperation(OperationId = "GetEventTemplateMembership")]
     public async Task<IActionResult> Get([FromRoute] Guid id, CancellationToken ct)
     {
-        if (!await _authorizationService.AuthorizeAsync([SystemPermission.ViewEventTemplates], ct))
+        var result = await _eventTemplateMembershipService.GetAsync(id, ct);
+        if (!await _authorizationService.AuthorizeAsync<EventTemplate>(result.EventTemplateId, [SystemPermission.ViewEventTemplates], [EventTemplatePermission.ViewEventTemplate], ct))
             throw new ForbiddenException();
 
-        var result = await _eventTemplateMembershipService.GetAsync(id, ct);
         return Ok(result);
     }
 
@@ -54,6 +54,9 @@ public class EventTemplateMembershipsController : BaseController
     [SwaggerOperation(OperationId = "GetAllEventTemplateMemberships")]
     public async Task<IActionResult> GetAll(Guid id, CancellationToken ct)
     {
+        if (!await _authorizationService.AuthorizeAsync<EventTemplate>(id, [SystemPermission.ViewEventTemplates], [EventTemplatePermission.ViewEventTemplate], ct))
+            throw new ForbiddenException();
+
         var result = await _eventTemplateMembershipService.GetByEventTemplateAsync(id, ct);
         return Ok(result);
     }
@@ -93,7 +96,8 @@ public class EventTemplateMembershipsController : BaseController
     [SwaggerOperation(OperationId = "updateEventTemplateMembership")]
     public async Task<IActionResult> Update([FromRoute] Guid id, [FromBody] EventTemplateMembership eventTemplateMembership, CancellationToken ct)
     {
-        if (!await _authorizationService.AuthorizeAsync<EventTemplate>(id, [SystemPermission.ManageEventTemplates], [EventTemplatePermission.ManageEventTemplate], ct))
+        var membership = await _eventTemplateMembershipService.GetAsync(id, ct);
+        if (!await _authorizationService.AuthorizeAsync<EventTemplate>(membership.EventTemplateId, [SystemPermission.ManageEventTemplates], [EventTemplatePermission.ManageEventTemplate], ct))
             throw new ForbiddenException();
 
         var updatedEventTemplateMembership = await _eventTemplateMembershipService.UpdateAsync(id, eventTemplateMembership, ct);
@@ -109,9 +113,12 @@ public class EventTemplateMembershipsController : BaseController
     [SwaggerOperation(OperationId = "DeleteEventTemplateMembership")]
     public async Task<IActionResult> DeleteMembership([FromRoute] Guid id, CancellationToken ct)
     {
+        var membership = await _eventTemplateMembershipService.GetAsync(id, ct);
+        if (!await _authorizationService.AuthorizeAsync<EventTemplate>(membership.EventTemplateId, [SystemPermission.ManageEventTemplates], [EventTemplatePermission.ManageEventTemplate], ct))
+            throw new ForbiddenException();
+
         await _eventTemplateMembershipService.DeleteAsync(id, ct);
         return NoContent();
     }
-
 
 }

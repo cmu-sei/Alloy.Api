@@ -53,6 +53,9 @@ public class EventRolesController : BaseController
     [SwaggerOperation(OperationId = "GetAllEventRoles")]
     public async Task<IActionResult> GetAll(CancellationToken ct)
     {
+        if (!await _authorizationService.AuthorizeAsync([SystemPermission.ViewRoles], ct))
+            throw new ForbiddenException();
+
         var result = await _eventRoleService.GetAsync(ct);
         return Ok(result);
     }

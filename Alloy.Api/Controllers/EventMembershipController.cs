@@ -37,10 +37,10 @@ public class EventMembershipsController : BaseController
     [SwaggerOperation(OperationId = "GetEventMembership")]
     public async Task<IActionResult> Get([FromRoute] Guid id, CancellationToken ct)
     {
-        if (!await _authorizationService.AuthorizeAsync([SystemPermission.ViewEvents], ct))
+        var result = await _eventMembershipService.GetAsync(id, ct);
+        if (!await _authorizationService.AuthorizeAsync<Event>(result.EventId, [SystemPermission.ViewEvents], [EventPermission.ViewEvent], ct))
             throw new ForbiddenException();
 
-        var result = await _eventMembershipService.GetAsync(id, ct);
         return Ok(result);
     }
 
@@ -53,6 +53,9 @@ public class EventMembershipsController : BaseController
     [SwaggerOperation(OperationId = "GetAllEventMemberships")]
     public async Task<IActionResult> GetAll(Guid id, CancellationToken ct)
     {
+        if (!await _authorizationService.AuthorizeAsync<Event>(id, [SystemPermission.ViewEvents], [EventPermission.ViewEvent], ct))
+            throw new ForbiddenException();
+
         var result = await _eventMembershipService.GetByEventAsync(id, ct);
         return Ok(result);
     }
@@ -68,6 +71,9 @@ public class EventMembershipsController : BaseController
     [SwaggerOperation(OperationId = "CreateEventMembership")]
     public async Task<IActionResult> CreateMembership([FromRoute] Guid eventId, EventMembership eventMembership, CancellationToken ct)
     {
+        if (!await _authorizationService.AuthorizeAsync<Event>(eventMembership.EventId, [SystemPermission.ManageEvents], [EventPermission.ManageEvent], ct))
+            throw new ForbiddenException();
+
         var result = await _eventMembershipService.CreateAsync(eventMembership, ct);
         return CreatedAtAction(nameof(Get), new { id = result.Id }, result);
     }
@@ -86,7 +92,7 @@ public class EventMembershipsController : BaseController
     [SwaggerOperation(OperationId = "updateEventMembership")]
     public async Task<IActionResult> Update([FromRoute] Guid id, [FromBody] EventMembership eventMembership, CancellationToken ct)
     {
-        if (!await _authorizationService.AuthorizeAsync<EventMembership>(id, [SystemPermission.ManageEvents], [EventPermission.ManageEvent], ct))
+        if (!await _authorizationService.AuthorizeAsync<Event>(eventMembership.EventId, [SystemPermission.ManageEvents], [EventPermission.ManageEvent], ct))
             throw new ForbiddenException();
 
         var updatedEventMembership = await _eventMembershipService.UpdateAsync(id, eventMembership, ct);
@@ -102,6 +108,10 @@ public class EventMembershipsController : BaseController
     [SwaggerOperation(OperationId = "DeleteEventMembership")]
     public async Task<IActionResult> DeleteMembership([FromRoute] Guid id, CancellationToken ct)
     {
+        var eventMembership = await _eventMembershipService.GetAsync(id, ct);
+        if (!await _authorizationService.AuthorizeAsync<Event>(eventMembership.EventId, [SystemPermission.ManageEvents], [EventPermission.ManageEvent], ct))
+            throw new ForbiddenException();
+
         await _eventMembershipService.DeleteAsync(id, ct);
         return NoContent();
     }
