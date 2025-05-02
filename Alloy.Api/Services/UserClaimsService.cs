@@ -249,7 +249,10 @@ namespace Alloy.Api.Services
                 .Include(x => x.Role)
                 .GroupBy(x => x.EventTemplateId)
                 .ToListAsync();
-
+            var publicEventTemplateIds = await _context.EventTemplates
+                .Where(m => m.IsPublished)
+                .Select(m => m.Id)
+                .ToListAsync();
             foreach (var group in eventTemplateMemberships)
             {
                 var eventTemplatePermissions = new List<EventTemplatePermission>();
@@ -263,6 +266,11 @@ namespace Alloy.Api.Services
                     else
                     {
                         eventTemplatePermissions.AddRange(membership.Role.Permissions);
+                        if (publicEventTemplateIds.Contains(group.Key))
+                        {
+                            eventTemplatePermissions.Add(EventTemplatePermission.ViewEventTemplate);
+                            publicEventTemplateIds.Remove(group.Key);
+                        }
                     }
                 }
 
@@ -272,6 +280,15 @@ namespace Alloy.Api.Services
                     Permissions = eventTemplatePermissions.Distinct().ToArray()
                 };
 
+                claims.Add(new Claim(AuthorizationConstants.EventTemplatePermissionClaimType, permissionsClaim.ToString()));
+            }
+            foreach (var id in publicEventTemplateIds)
+            {
+                var permissionsClaim = new EventTemplatePermissionClaim
+                {
+                    EventTemplateId = id,
+                    Permissions = [EventTemplatePermission.ViewEventTemplate]
+                };
                 claims.Add(new Claim(AuthorizationConstants.EventTemplatePermissionClaimType, permissionsClaim.ToString()));
             }
 
