@@ -109,6 +109,10 @@ namespace Alloy.Api
                 .Configure<ClaimsTransformationOptions>(Configuration.GetSection("ClaimsTransformation"))
                     .AddScoped(config => config.GetService<IOptionsMonitor<ClaimsTransformationOptions>>().CurrentValue);
 
+            services.AddOptions()
+                .Configure<SeedDataOptions>(Configuration.GetSection("SeedData"))
+                    .AddScoped(config => config.GetService<IOptionsMonitor<SeedDataOptions>>().CurrentValue);
+
             services
                 .Configure<ClientOptions>(Configuration.GetSection("ClientSettings"))
                 .AddScoped(config => config.GetService<IOptionsMonitor<ClientOptions>>().CurrentValue);
