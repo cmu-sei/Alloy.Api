@@ -10,7 +10,7 @@ using Alloy.Api.Data.Models;
 
 namespace Alloy.Api.ViewModels
 {
-    public class Event : Base
+    public class Event : Base, IAuthorizationType
     {
         public Guid Id { get; set; }
         public Guid UserId { get; set; }
@@ -23,7 +23,6 @@ namespace Alloy.Api.ViewModels
         public string Name { get; set; }
         public string Description { get; set; }
         public string ShareCode { get; set; }
-        public List<EventUser> EventUsers { get; set; }
         public EventStatus Status { get; set; }
         public InternalEventStatus InternalStatus { get; set; }
         public int FailureCount { get; set; }
@@ -35,5 +34,6 @@ namespace Alloy.Api.ViewModels
         public DateTime? LaunchDate { get; set; }
         public DateTime? EndDate { get; set; }
         public DateTime? ExpirationDate { get; set; }
+        public IEnumerable<string> EventPermissions { get; set; }
     }
 }

@@ -4,7 +4,7 @@
 
 using System;
 
-namespace Alloy.Api.Extensions
+namespace Alloy.Api.Infrastructure.Extensions
 {
     public static class NotificationExtensions
     {
@@ -25,4 +25,3 @@ namespace Alloy.Api.Extensions
 
     }
 }
-

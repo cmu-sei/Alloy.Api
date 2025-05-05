@@ -26,17 +26,17 @@ namespace Alloy.Api.Features.Events.EventHandlers
         protected readonly AlloyContext _context;
         protected readonly IMapper _mapper;
         protected readonly IEventService _eventService;
-        protected readonly IHubContext<EventHub> _eventHub;
+        protected readonly IHubContext<EngineHub> _engineHub;
 
 
         public EventTemplateBaseSignlRHandler(
         AlloyContext context,
         IMapper mapper,
-        IHubContext<EventHub> eventHub)
+        IHubContext<EngineHub> engineHub)
         {
             _context = context;
             _mapper = mapper;
-            _eventHub = eventHub;
+            _engineHub = engineHub;
 
         }
 
@@ -48,11 +48,9 @@ namespace Alloy.Api.Features.Events.EventHandlers
         {
 
             var alloyEventTemplate = _mapper.Map<EventTemplate>(eventTemplateEntity);
-            var tasks = new List<Task>();
-            tasks.Add(_eventHub.Clients.Group(eventTemplateEntity.Id.ToString()).SendAsync(method, alloyEventTemplate, modifiedProperties, ct));
-            tasks.Add(_eventHub.Clients.Group("admin").SendAsync(method, alloyEventTemplate, modifiedProperties, ct));
-
-            await Task.WhenAll(tasks);
+            await _engineHub.Clients
+                .Groups(eventTemplateEntity.Id.ToString(), EngineHub.ADMIN_EVENT_TEMPLATE_GROUP)
+                .SendAsync(method, alloyEventTemplate, modifiedProperties, ct);
         }
     }
 
@@ -61,11 +59,11 @@ namespace Alloy.Api.Features.Events.EventHandlers
         public EventTemplateCreatedSignalRHandler(
           AlloyContext context,
           IMapper mapper,
-          IHubContext<EventHub> eventHub) : base(context, mapper, eventHub) { }
+          IHubContext<EngineHub> engineHub) : base(context, mapper, engineHub) { }
 
         public async Task Handle(EntityCreated<EventTemplateEntity> notification, CancellationToken ct)
         {
-            await base.HandleCreateOrUpdate(notification.Entity, EventHubMethods.EventTemplateCreated, null, ct);
+            await base.HandleCreateOrUpdate(notification.Entity, EngineHubMethods.EventTemplateCreated, null, ct);
         }
     }
 
@@ -74,13 +72,13 @@ namespace Alloy.Api.Features.Events.EventHandlers
         public EventTemplateUpdatedSignalRHandler(
           AlloyContext context,
           IMapper mapper,
-          IHubContext<EventHub> eventHub)
-           : base(context, mapper, eventHub) { }
+          IHubContext<EngineHub> engineHub)
+           : base(context, mapper, engineHub) { }
         public async Task Handle(EntityUpdated<EventTemplateEntity> notification, CancellationToken ct)
         {
             await base.HandleCreateOrUpdate(
               notification.Entity,
-              EventHubMethods.EventTemplateUpdated,
+              EngineHubMethods.EventTemplateUpdated,
               notification.ModifiedProperties.Select(e => e.TitleCaseToCamelCase()).ToArray(),
               ct);
         }
@@ -91,14 +89,13 @@ namespace Alloy.Api.Features.Events.EventHandlers
         public EventTemplateDeletedSignalRHandler(
             AlloyContext context,
             IMapper mapper,
-            IHubContext<EventHub> eventHub)
-             : base(context, mapper, eventHub) { }
+            IHubContext<EngineHub> engineHub)
+             : base(context, mapper, engineHub) { }
         public async Task Handle(EntityDeleted<EventTemplateEntity> notification, CancellationToken ct)
         {
-            var tasks = new List<Task>();
-            tasks.Add(_eventHub.Clients.Group(notification.Entity.Id.ToString()).SendAsync(EventHubMethods.EventDeleted, notification.Entity.Id, ct));
-            tasks.Add(_eventHub.Clients.Group("admin").SendAsync(EventHubMethods.EventDeleted, notification.Entity.Id, ct));
-            await Task.WhenAll(tasks);
+            await _engineHub.Clients
+                .Groups(notification.Entity.Id.ToString(), EngineHub.ADMIN_EVENT_TEMPLATE_GROUP)
+                .SendAsync(EngineHubMethods.EventDeleted, notification.Entity.Id, ct);
         }
     }
 

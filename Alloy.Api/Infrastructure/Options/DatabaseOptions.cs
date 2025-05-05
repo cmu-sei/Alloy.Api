@@ -6,7 +6,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 
-namespace Alloy.Api.Options
+namespace Alloy.Api.Infrastructure.Options
 {
     public class DatabaseOptions
     {
@@ -17,4 +17,3 @@ namespace Alloy.Api.Options
         public string SeedTemplateKey { get; set; }
     }
 }
-

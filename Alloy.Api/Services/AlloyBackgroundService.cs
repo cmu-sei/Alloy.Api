@@ -152,7 +152,6 @@ namespace Alloy.Api.Services
 
                 // get the alloy context entities required
                 eventEntity = await alloyContext.Events
-                    .Include(x => x.EventUsers)
                     .FirstAsync(x => x.Id == eventEntity.Id);
                 var eventTemplateEntity = alloyContext.EventTemplates.First(x => x.Id == eventEntity.EventTemplateId);
 
@@ -198,7 +197,11 @@ namespace Alloy.Api.Services
                                                     {
                                                         (playerApiClient, tokenResponse) = await RefreshClient(playerApiClient, tokenResponse, scope.ServiceProvider, ct);
                                                         eventEntity.InternalStatus = InternalEventStatus.CreatingView;
-                                                        var viewId = await PlayerApiExtensions.CreatePlayerViewAsync(playerApiClient, eventEntity, eventTemplateEntity, ct);
+                                                        var users = await alloyContext.EventMemberships
+                                                            .Where(m => m.EventId == eventEntity.Id)
+                                                            .Select(m => m.User)
+                                                            .ToListAsync();
+                                                        var viewId = await PlayerApiExtensions.CreatePlayerViewAsync(playerApiClient, eventEntity, eventTemplateEntity, users, ct);
                                                         if (viewId != null)
                                                         {
                                                             eventEntity.ViewId = viewId;

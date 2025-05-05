@@ -2,7 +2,7 @@
 // Released under a MIT (SEI)-style license. See LICENSE.md in the project root for license information.
 
 using Microsoft.AspNetCore.Http;
-using Alloy.Api.Extensions;
+using Alloy.Api.Infrastructure.Extensions;
 using Alloy.Api.Infrastructure.Options;
 using System;
 using System.Collections.Generic;

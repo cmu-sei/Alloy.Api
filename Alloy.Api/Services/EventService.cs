@@ -6,28 +6,24 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Net.Http;
 using System.Security.Claims;
-using System.Security.Cryptography.X509Certificates;
 using System.Security.Principal;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Alloy.Api.Data;
 using Alloy.Api.Data.Models;
-using Alloy.Api.Extensions;
-using Alloy.Api.Infrastructure.Authorization;
-using Alloy.Api.Infrastructure.Exceptions;
 using Alloy.Api.Infrastructure.Extensions;
-using Alloy.Api.Infrastructure.Mappings;
+using Alloy.Api.Infrastructure.Exceptions;
 using Alloy.Api.Infrastructure.Options;
 using Alloy.Api.ViewModels;
 using AutoMapper;
-using Caster.Api;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
-using Newtonsoft.Json.Linq;
+using System.Security.Cryptography.X509Certificates;
+using Alloy.Api.Controllers;
+using Player.Api.Client;
 
 namespace Alloy.Api.Services
 {
@@ -108,32 +104,13 @@ namespace Alloy.Api.Services
 
         public async Task<IEnumerable<Event>> GetAsync(CancellationToken ct)
         {
-            if (!(await _authorizationService.AuthorizeAsync(_user, null, new SystemAdminRightsRequirement())).Succeeded &&
-                !(await _authorizationService.AuthorizeAsync(_user, null, new ContentDeveloperRightsRequirement())).Succeeded)
-                throw new ForbiddenException();
-
-            IEnumerable<EventEntity> items = null;
-            if ((await _authorizationService.AuthorizeAsync(_user, null, new SystemAdminRightsRequirement())).Succeeded)
-            {
-                items = await _context.Events.ToListAsync(ct);
-            }
-            else
-            {
-                items = await _context.Events.Where(x => x.CreatedBy == _user.GetId()).ToListAsync(ct);
-            }
+            var items = await _context.Events.ToListAsync(ct);
 
             return _mapper.Map<IEnumerable<Event>>(items);
         }
 
         public async Task<IEnumerable<Event>> GetEventTemplateEventsAsync(Guid eventTemplateId, CancellationToken ct)
         {
-            if (!(await _authorizationService.AuthorizeAsync(_user, null, new SystemAdminRightsRequirement())).Succeeded &&
-                !(await _authorizationService.AuthorizeAsync(_user, null, new ContentDeveloperRightsRequirement())).Succeeded)
-            {
-                _logger.LogInformation($"User {_user.GetId()} is not a content developer.");
-                throw new ForbiddenException();
-            }
-
             var items = await _context.Events
                 .Where(x => x.EventTemplateId == eventTemplateId)
                 .ToListAsync(ct);
@@ -143,19 +120,20 @@ namespace Alloy.Api.Services
 
         public async Task<IEnumerable<Event>> GetMyEventTemplateEventsAsync(Guid eventTemplateId, bool includeInvites, CancellationToken ct)
         {
-            if (!(await _authorizationService.AuthorizeAsync(_user, null, new BasicRightsRequirement())).Succeeded)
-                throw new ForbiddenException();
-
-            var query = _context.Events
-                .Where(x => x.EventTemplateId == eventTemplateId);
+            IQueryable<EventEntity> query;
+            var userId = _user.GetId();
 
             if (includeInvites)
             {
-                query = query.Where(x => x.UserId == _user.GetId() || x.EventUsers.Any(y => y.UserId == _user.GetId()));
+                query = _context.EventMemberships
+                    .Include(m => m.Event)
+                    .Where(m => m.Event.EventTemplateId == eventTemplateId && (m.Event.UserId == userId || m.UserId == userId))
+                    .Select(m => m.Event);
             }
             else
             {
-                query = query.Where(x => x.UserId == _user.GetId());
+                query = _context.Events
+                    .Where(x => x.EventTemplateId == eventTemplateId && x.UserId == userId);
             }
 
             var items = await query.ToListAsync(ct);
@@ -165,13 +143,12 @@ namespace Alloy.Api.Services
 
         public async Task<IEnumerable<Event>> GetMyViewEventsAsync(Guid viewId, CancellationToken ct)
         {
-            if (!(await _authorizationService.AuthorizeAsync(_user, null, new BasicRightsRequirement())).Succeeded)
-                throw new ForbiddenException();
-
-            var items = await _context.Events
-                .Where(x => x.ViewId == viewId &&
-                            x.UserId == _user.GetId() ||
-                            x.EventUsers.Any(y => y.UserId == _user.GetId()))
+            var userId = _user.GetId();
+            var items = await _context.EventMemberships
+                .Where(m => m.Event.ViewId == viewId &&
+                            m.Event.UserId == userId ||
+                            m.UserId == userId)
+                .Select(m => m.Event)
                 .ToListAsync(ct);
 
             return _mapper.Map<IEnumerable<Event>>(items);
@@ -179,12 +156,10 @@ namespace Alloy.Api.Services
 
         public async Task<IEnumerable<Event>> GetMyEventsAsync(CancellationToken ct)
         {
-            if (!(await _authorizationService.AuthorizeAsync(_user, null, new BasicRightsRequirement())).Succeeded)
-                throw new ForbiddenException();
-
-            var items = await _context.Events
-                .Where(x => x.EventUsers.Any(y => y.UserId == _user.GetId()))
-                .Where(x => x.Status == EventStatus.Active || x.Status == EventStatus.Paused)
+            var userId = _user.GetId();
+            var items = await _context.EventMemberships
+                .Where(x => x.UserId == userId && (x.Event.Status == EventStatus.Active || x.Event.Status == EventStatus.Paused))
+                .Select(m => m.Event)
                 .ToListAsync();
 
             return _mapper.Map<IEnumerable<Event>>(items);
@@ -192,17 +167,13 @@ namespace Alloy.Api.Services
 
         public async Task<Event> GetAsync(Guid id, CancellationToken ct)
         {
-            var item = await GetTheEventAsync(id, true, false, false, ct);
+            var item = await GetTheEventAsync(id, ct);
 
             return _mapper.Map<Event>(item);
         }
 
         public async Task<Event> CreateAsync(Event eventx, CancellationToken ct)
         {
-            if (!(await _authorizationService.AuthorizeAsync(_user, null, new SystemAdminRightsRequirement())).Succeeded &&
-                !(await _authorizationService.AuthorizeAsync(_user, null, new ContentDeveloperRightsRequirement())).Succeeded)
-                throw new ForbiddenException();
-
             eventx.CreatedBy = _user.GetId();
             var eventEntity = _mapper.Map<EventEntity>(eventx);
 
@@ -219,30 +190,19 @@ namespace Alloy.Api.Services
 
         public async Task<Event> LaunchEventFromEventTemplateAsync(Guid eventTemplateId, Guid? userId, string username, List<Guid> additionalUserIds, CancellationToken ct)
         {
-            // Only an admin can start an Event for a different user than themselves
-            if (userId.HasValue &&
-                !(await _authorizationService.AuthorizeAsync(_user, null, new SystemAdminRightsRequirement())).Succeeded)
-            {
-                throw new ForbiddenException();
-            }
-
             if (!userId.HasValue)
             {
                 userId = _user.GetId();
             }
 
-            if (!(await _authorizationService.AuthorizeAsync(_user, null, new BasicRightsRequirement())).Succeeded)
-                throw new ForbiddenException();
             // check for resource limitations
-            if (!(await ResourcesAreAvailableAsync(eventTemplateId, userId.Value, ct)))
+            if (!await ResourcesAreAvailableAsync(eventTemplateId, userId.Value, ct))
             {
                 throw new Exception($"The appropriate resources are not available to create an event from the EventTemplate {eventTemplateId}.");
             }
-            // make sure the user can launch from the specified eventTemplate
+            // make sure the specified eventTemplate is published
             var eventTemplate = await _context.EventTemplates.SingleOrDefaultAsync(o => o.Id == eventTemplateId, ct);
-            if (!eventTemplate.IsPublished &&
-                !((await _authorizationService.AuthorizeAsync(_user, null, new ContentDeveloperRightsRequirement())).Succeeded ||
-                    (await _authorizationService.AuthorizeAsync(_user, null, new SystemAdminRightsRequirement())).Succeeded))
+            if (!eventTemplate.IsPublished)
                 throw new ForbiddenException();
 
             // create the event from the eventTemplate
@@ -254,7 +214,7 @@ namespace Alloy.Api.Services
 
         public async Task<Event> UpdateAsync(Guid id, Event eventx, CancellationToken ct)
         {
-            var eventEntity = await GetTheEventAsync(id, true, true, false, ct);
+            var eventEntity = await GetTheEventAsync(id, ct);
             eventx.ModifiedBy = _user.GetId();
             _mapper.Map(eventx, eventEntity);
 
@@ -266,7 +226,7 @@ namespace Alloy.Api.Services
 
         public async Task<bool> DeleteAsync(Guid id, CancellationToken ct)
         {
-            var eventEntity = await GetTheEventAsync(id, true, true, false, ct);
+            var eventEntity = await GetTheEventAsync(id, ct);
             _context.Events.Remove(eventEntity);
             await _context.SaveChangesAsync(ct);
 
@@ -277,7 +237,7 @@ namespace Alloy.Api.Services
         {
             try
             {
-                var eventEntity = await GetTheEventAsync(eventId, true, false, false, ct);
+                var eventEntity = await GetTheEventAsync(eventId, ct);
                 if (eventEntity.Status != EventStatus.Failed && eventEntity.EndDate != null)
                 {
                     var msg = $"Event {eventEntity.Id} has already been ended";
@@ -304,7 +264,7 @@ namespace Alloy.Api.Services
         {
             try
             {
-                var eventEntity = await GetTheEventAsync(eventId, true, false, false, ct);
+                var eventEntity = await GetTheEventAsync(eventId, ct);
                 if (eventEntity.Status != EventStatus.Active)
                 {
                     var msg = $"Only an Active Event can be redeployed";
@@ -353,6 +313,7 @@ namespace Alloy.Api.Services
 
             var eventEntity = new EventEntity()
             {
+                Id = Guid.NewGuid(),
                 CreatedBy = userId,
                 UserId = userId,
                 Username = username,
@@ -360,21 +321,29 @@ namespace Alloy.Api.Services
                 Status = EventStatus.Creating,
                 InternalStatus = InternalEventStatus.LaunchQueued
             };
-
+            _context.Events.Add(eventEntity);
+            // add the event creator role to this event creator
+            var eventMembership = new EventMembershipEntity()
+            {
+                UserId = userId,
+                EventId = eventEntity.Id,
+                RoleId = EventRoleDefaults.EventCreatorRoleId
+            };
+            _context.EventMemberships.Add(eventMembership);
+            // add any additional users
             if (additionalUserIds != null)
             {
-                foreach (var additionalUserId in additionalUserIds)
+                foreach (var additionalUserId in additionalUserIds.Where(m => m != userId))
                 {
-                    var eventUser = new EventUserEntity()
+                    eventMembership = new EventMembershipEntity()
                     {
-                        UserId = additionalUserId
+                        UserId = additionalUserId,
+                        EventId = eventEntity.Id,
+                        RoleId = EventRoleDefaults.EventMemberRoleId
                     };
-
-                    eventEntity.EventUsers.Add(eventUser);
+                    _context.EventMemberships.Add(eventMembership);
                 }
             }
-
-            _context.Events.Add(eventEntity);
             await _context.SaveChangesAsync(ct);
             _logger.LogInformation($"Event {eventEntity.Id} created for EventTemplate {eventTemplateId}.");
 
@@ -402,37 +371,20 @@ namespace Alloy.Api.Services
                 items = await _context.Events
                     .Where(x => x.UserId == userId && !notActiveStatuses.Contains(x.Status))
                     .ToListAsync(ct);
-                if (!(await _authorizationService.AuthorizeAsync(_user, null, new SystemAdminRightsRequirement())).Succeeded)
+                var upperLimit = _resourceOptions.CurrentValue.MaxEventsForBasicUser;
+                resourcesAvailable = items.Count() < upperLimit;
+                if (!resourcesAvailable)
                 {
-                    var upperLimit = _resourceOptions.CurrentValue.MaxEventsForBasicUser;
-                    resourcesAvailable = items.Count() < upperLimit;
-                    if (!resourcesAvailable)
-                    {
-                        _logger.LogError($"User {userId} already has {upperLimit} Events active.");
-                        throw new Exception($"User {userId} already has {upperLimit} Events active.");
-                    }
+                    _logger.LogError($"User {userId} already has {upperLimit} Events active.");
+                    throw new Exception($"User {userId} already has {upperLimit} Events active.");
                 }
             }
 
             return resourcesAvailable;
         }
 
-        private async Task<EventEntity> GetTheEventAsync(Guid eventId, bool mustBeOwner, bool mustBeContentDeveloper, bool mustBeSystemAdmin, CancellationToken ct)
+        private async Task<EventEntity> GetTheEventAsync(Guid eventId, CancellationToken ct)
         {
-            var isContentDeveloper = (await _authorizationService.AuthorizeAsync(_user, null, new ContentDeveloperRightsRequirement())).Succeeded;
-            var isSystemAdmin = (await _authorizationService.AuthorizeAsync(_user, null, new SystemAdminRightsRequirement())).Succeeded;
-            if (mustBeContentDeveloper && !isSystemAdmin && !isContentDeveloper)
-            {
-                _logger.LogInformation($"User {_user.GetId()} is not a content developer.");
-                throw new ForbiddenException($"User {_user.GetId()} is not a content developer.");
-            }
-
-            if (mustBeSystemAdmin && !isSystemAdmin)
-            {
-                _logger.LogInformation($"User {_user.GetId()} is not a system admin.");
-                throw new ForbiddenException($"User {_user.GetId()} is not a system admin.");
-            }
-
             var eventEntity = await _context.Events.SingleOrDefaultAsync(v => v.Id == eventId, ct);
 
             if (eventEntity == null)
@@ -440,18 +392,13 @@ namespace Alloy.Api.Services
                 _logger.LogError($"Event {eventId} was not found.");
                 throw new EntityNotFoundException<EventTemplate>();
             }
-            else if (mustBeOwner && eventEntity.CreatedBy != _user.GetId() && !isSystemAdmin)
-            {
-                _logger.LogError($"User {_user.GetId()} is not permitted to access Event {eventId}.");
-                throw new ForbiddenException($"User {_user.GetId()} is not permitted to access Event {eventId}.");
-            }
 
             return eventEntity;
         }
 
         public async Task<Event> CreateInviteAsync(Guid eventId, CancellationToken ct)
         {
-            var eventEntity = await GetTheEventAsync(eventId, true, false, false, ct);
+            var eventEntity = await GetTheEventAsync(eventId, ct);
 
             if (eventEntity.CreatedBy != _user.GetId())
             {
@@ -473,11 +420,6 @@ namespace Alloy.Api.Services
 
         private async Task<Event> GetEventByShareCodeAsync(string code, CancellationToken ct)
         {
-            if (!(await _authorizationService.AuthorizeAsync(_user, null, new BasicRightsRequirement())).Succeeded)
-            {
-                throw new ForbiddenException();
-            }
-
             var eventEntity = await _context.Events.Where(e => e.ShareCode == code).SingleOrDefaultAsync();
             if (eventEntity == null)
             {
@@ -490,6 +432,7 @@ namespace Alloy.Api.Services
 
         public async Task<Event> EnlistAsync(string code, CancellationToken ct)
         {
+            var userId = _user.GetId();
             // user may not have access to the player api, so we get the resource owner token
             var token = await ApiClientsExtensions.GetToken(_serviceProvider);
             var playerApiClient = PlayerApiExtensions.GetPlayerApiClient(_httpClientFactory, _clientOptions.urls.playerApi, token);
@@ -502,27 +445,33 @@ namespace Alloy.Api.Services
                 {
                     if (alloyEvent.ViewId.HasValue)
                     {
-                        await PlayerApiExtensions.AddUserToViewTeamAsync(playerApiClient, alloyEvent.ViewId.Value, _user.GetId(), ct);
+                        await PlayerApiExtensions.AddUserToViewTeamAsync(playerApiClient, alloyEvent.ViewId.Value, userId, ct);
                     }
 
                     if (alloyEvent.ScenarioId.HasValue)
                     {
-                        await steamfitterApiClient.AddUsersToScenarioAsync(alloyEvent.ScenarioId.Value, new List<Guid> { _user.GetId() }, ct);
+                        await steamfitterApiClient.AddUsersToScenarioAsync(alloyEvent.ScenarioId.Value, new List<Guid> { userId }, ct);
                     }
 
                     try
                     {
-                        var entity = await _context.EventUsers.Where(e => e.UserId == _user.GetId() && e.EventId == alloyEvent.Id).FirstOrDefaultAsync();
+                        var entity = await _context.EventMemberships.Where(m => m.UserId == userId && m.EventId == alloyEvent.Id).FirstOrDefaultAsync();
                         if (entity == null)
                         {
-                            var eventUser = new EventUserEntity
+                            var eventMembership = new EventMembershipEntity
                             {
                                 EventId = alloyEvent.Id,
-                                UserId = _user.GetId(),
-                                CreatedBy = _user.GetId()
+                                UserId = userId,
+                                RoleId = EventRoleDefaults.EventMemberRoleId
                             };
-
-                            _context.EventUsers.Add(eventUser);
+                            _context.EventMemberships.Add(eventMembership);
+                            var eventTemplateMembership = new EventTemplateMembershipEntity
+                            {
+                                EventTemplateId = (Guid)alloyEvent.EventTemplateId,
+                                UserId = userId,
+                                RoleId = EventTemplateRoleEntityDefaults.EventTemplateReadOnlyRoleId
+                            };
+                            _context.EventTemplateMemberships.Add(eventTemplateMembership);
                             await _context.SaveChangesAsync();
                         }
 
@@ -541,7 +490,7 @@ namespace Alloy.Api.Services
         {
             var list = new List<VirtualMachine>();
 
-            var evt = await GetTheEventAsync(eventId, true, false, false, ct);
+            var evt = await GetTheEventAsync(eventId, ct);
 
             if (evt != null && evt.WorkspaceId.HasValue)
             {
@@ -566,7 +515,7 @@ namespace Alloy.Api.Services
         {
             var list = new List<QuestionView>();
 
-            var evt = await GetTheEventAsync(eventId, true, false, false, ct);
+            var evt = await GetTheEventAsync(eventId, ct);
 
             if (evt != null && evt.WorkspaceId.HasValue)
             {
@@ -597,7 +546,7 @@ namespace Alloy.Api.Services
         {
             var questionViews = new List<QuestionView>();
 
-            var evt = await GetTheEventAsync(eventId, false, false, true, ct);
+            var evt = await GetTheEventAsync(eventId, ct);
 
             if (evt != null && evt.WorkspaceId.HasValue)
             {

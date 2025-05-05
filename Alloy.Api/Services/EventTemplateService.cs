@@ -14,7 +14,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Alloy.Api.Data;
 using Alloy.Api.Data.Models;
-using Alloy.Api.Extensions;
+using Alloy.Api.Infrastructure.Extensions;
 using Alloy.Api.Infrastructure.Authorization;
 using Alloy.Api.Infrastructure.Exceptions;
 using Alloy.Api.ViewModels;
@@ -24,6 +24,8 @@ namespace Alloy.Api.Services
     public interface IEventTemplateService
     {
         Task<IEnumerable<ViewModels.EventTemplate>> GetAsync(CancellationToken ct);
+        Task<IEnumerable<ViewModels.EventTemplate>> GetByUserAsync(CancellationToken ct);
+        Task<IEnumerable<ViewModels.EventTemplate>> GetPublishedAsync(CancellationToken ct);
         Task<ViewModels.EventTemplate> GetAsync(Guid id, CancellationToken ct);
         // Task<IEnumerable<ViewModels.EventTemplate>> GetByUserIdAsync(Guid userId, CancellationToken ct);
         Task<ViewModels.EventTemplate> CreateAsync(ViewModels.EventTemplate eventTemplate, CancellationToken ct);
@@ -60,19 +62,40 @@ namespace Alloy.Api.Services
         /// <returns>EventTemplates</returns>
         public async Task<IEnumerable<ViewModels.EventTemplate>> GetAsync(CancellationToken ct)
         {
-            if (!(await _authorizationService.AuthorizeAsync(_user, null, new BasicRightsRequirement())).Succeeded)
-                throw new ForbiddenException();
+            var items = await _context.EventTemplates.ToListAsync(ct);
 
-            List<EventTemplateEntity> items;
-            if ((await _authorizationService.AuthorizeAsync(_user, null, new ContentDeveloperRightsRequirement())).Succeeded ||
-                (await _authorizationService.AuthorizeAsync(_user, null, new SystemAdminRightsRequirement())).Succeeded)
-            {
-                items = await _context.EventTemplates.ToListAsync(ct);
-            }
-            else
-            {
-                items = await _context.EventTemplates.Where(d => d.IsPublished).ToListAsync(ct);
-            }
+            return _mapper.Map<IEnumerable<EventTemplate>>(items);
+        }
+
+        /// <summary>
+        /// Get user's eventTemplates
+        /// </summary>
+        /// <param name="ct"></param>
+        /// <returns>EventTemplates</returns>
+        public async Task<IEnumerable<ViewModels.EventTemplate>> GetByUserAsync(CancellationToken ct)
+        {
+            var userId = _user.GetId();
+            var items = await _context.EventTemplateMemberships
+                .Where(m => m.EventTemplate.CreatedBy == userId || m.UserId == userId)
+                .Select(m => m.EventTemplate)
+                .Distinct()
+                .ToListAsync(ct);
+            var publishedItems = await _context.EventTemplates
+                .Where(m => m.IsPublished)
+                .ToListAsync(ct);
+            items.AddRange(publishedItems);
+
+            return _mapper.Map<IEnumerable<EventTemplate>>(items.Distinct());
+        }
+
+        /// <summary>
+        /// Get all published eventTemplates
+        /// </summary>
+        /// <param name="ct"></param>
+        /// <returns>EventTemplates</returns>
+        public async Task<IEnumerable<ViewModels.EventTemplate>> GetPublishedAsync(CancellationToken ct)
+        {
+            var items = await _context.EventTemplates.Where(d => d.IsPublished).ToListAsync(ct);
 
             return _mapper.Map<IEnumerable<EventTemplate>>(items);
         }
@@ -85,28 +108,11 @@ namespace Alloy.Api.Services
         /// <returns>The EventTemplate</returns>
         public async Task<ViewModels.EventTemplate> GetAsync(Guid id, CancellationToken ct)
         {
-            if (!(await _authorizationService.AuthorizeAsync(_user, null, new BasicRightsRequirement())).Succeeded)
-                throw new ForbiddenException();
-
             var item = await _context.EventTemplates
                 .SingleOrDefaultAsync(o => o.Id == id, ct);
 
-            if (!item.IsPublished &&
-                !(
-                    (await _authorizationService.AuthorizeAsync(_user, null, new ContentDeveloperRightsRequirement())).Succeeded ||
-                    (await _authorizationService.AuthorizeAsync(_user, null, new SystemAdminRightsRequirement())).Succeeded))
-            {
-                if (!await _context.EventUsers.AnyAsync(x =>
-                    x.UserId == _user.GetId() &&
-                    x.Event.EventTemplateId == id &&
-                    x.Event.Status != EventStatus.Ended &&
-                    x.Event.Status != EventStatus.Failed &&
-                    x.Event.Status != EventStatus.Expired, ct))
-                {
-                    throw new ForbiddenException();
-                }
-            }
-
+            if (item == null)
+                throw new ForbiddenException();
 
             return _mapper.Map<EventTemplate>(item);
         }
@@ -119,12 +125,6 @@ namespace Alloy.Api.Services
         /// <returns></returns>
         public async Task<ViewModels.EventTemplate> CreateAsync(ViewModels.EventTemplate eventTemplate, CancellationToken ct)
         {
-            if (!(await _authorizationService.AuthorizeAsync(_user, null, new ContentDeveloperRightsRequirement())).Succeeded &&
-                !(await _authorizationService.AuthorizeAsync(_user, null, new SystemAdminRightsRequirement())).Succeeded)
-            {
-                throw new ForbiddenException();
-            }
-
             eventTemplate.CreatedBy = _user.GetId();
             var eventTemplateEntity = _mapper.Map<EventTemplateEntity>(eventTemplate);
 
@@ -143,7 +143,7 @@ namespace Alloy.Api.Services
         /// <returns></returns>
         public async Task<ViewModels.EventTemplate> UpdateAsync(Guid id, ViewModels.EventTemplate eventTemplate, CancellationToken ct)
         {
-            var eventTemplateEntity = await GetTheEventTemplateAsync(id, true, true, ct);
+            var eventTemplateEntity = await GetTheEventTemplateAsync(id, ct);
             eventTemplate.ModifiedBy = _user.GetId();
             _mapper.Map(eventTemplate, eventTemplateEntity);
 
@@ -161,7 +161,7 @@ namespace Alloy.Api.Services
         /// <returns></returns>
         public async Task<bool> DeleteAsync(Guid id, CancellationToken ct)
         {
-            var eventTemplateEntity = await GetTheEventTemplateAsync(id, true, true, ct);
+            var eventTemplateEntity = await GetTheEventTemplateAsync(id, ct);
 
             if (eventTemplateEntity == null)
                 throw new EntityNotFoundException<EventTemplate>();
@@ -172,27 +172,14 @@ namespace Alloy.Api.Services
             return true;
         }
 
-        private async Task<EventTemplateEntity> GetTheEventTemplateAsync(Guid eventTemplateId, bool mustBeOwner, bool mustBeContentDeveloper, CancellationToken ct)
+        private async Task<EventTemplateEntity> GetTheEventTemplateAsync(Guid eventTemplateId, CancellationToken ct)
         {
-            var isContentDeveloper = (await _authorizationService.AuthorizeAsync(_user, null, new ContentDeveloperRightsRequirement())).Succeeded;
-            var isSystemAdmin = (await _authorizationService.AuthorizeAsync(_user, null, new SystemAdminRightsRequirement())).Succeeded;
-            if (mustBeContentDeveloper && !isContentDeveloper && !isSystemAdmin)
-            {
-                _logger.LogInformation($"User {_user.GetId()} is not a content developer.");
-                throw new ForbiddenException();
-            }
-
             var eventTemplateEntity = await _context.EventTemplates.SingleOrDefaultAsync(v => v.Id == eventTemplateId, ct);
 
             if (eventTemplateEntity == null)
             {
                 _logger.LogError($"EventTemplate {eventTemplateId} was not found.");
                 throw new EntityNotFoundException<EventTemplate>();
-            }
-            else if (mustBeOwner && eventTemplateEntity.CreatedBy != _user.GetId() && !isSystemAdmin)
-            {
-                _logger.LogError($"User {_user.GetId()} is not permitted to access EventTemplate {eventTemplateId}.");
-                throw new ForbiddenException($"User {_user.GetId()} is not permitted to access EventTemplate {eventTemplateId}.");
             }
 
             return eventTemplateEntity;

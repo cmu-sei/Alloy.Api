@@ -3,8 +3,6 @@
 
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Alloy.Api.ViewModels;
-using System.Net;
 
 namespace Alloy.Api.Controllers
 {

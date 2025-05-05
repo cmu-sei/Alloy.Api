@@ -7,17 +7,15 @@ using System.Security.Principal;
 using System.Text.Json.Serialization;
 using System.Threading.Tasks;
 using Alloy.Api.Data;
-using Alloy.Api.Extensions;
+using Alloy.Api.Infrastructure.Extensions;
 using Alloy.Api.Hubs;
 using Alloy.Api.Infrastructure.Authorization;
-using Alloy.Api.Infrastructure.ClaimsTransformers;
 using Alloy.Api.Infrastructure.DbInterceptors;
-using Alloy.Api.Infrastructure.Extensions;
 using Alloy.Api.Infrastructure.Filters;
+using Alloy.Api.Infrastructure.Identity;
 using Alloy.Api.Infrastructure.JsonConverters;
 using Alloy.Api.Infrastructure.Mappings;
 using Alloy.Api.Infrastructure.Options;
-using Alloy.Api.Options;
 using Alloy.Api.Services;
 using AutoMapper.Internal;
 using Microsoft.AspNetCore.Authentication;
@@ -34,12 +32,14 @@ using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.JsonWebTokens;
+using Microsoft.AspNetCore.Mvc.Authorization;
 
 namespace Alloy.Api
 {
     public class Startup
     {
-        public Options.AuthorizationOptions _authOptions = new Options.AuthorizationOptions();
+        public Infrastructure.Options.AuthorizationOptions _authOptions = new();
+        private readonly SignalROptions _signalROptions = new();
         private const string _routePrefix = "api";
         private string _pathbase;
 
@@ -49,6 +49,7 @@ namespace Alloy.Api
         {
             Configuration = configuration;
             Configuration.GetSection("Authorization").Bind(_authOptions);
+            Configuration.GetSection("SignalR").Bind(_signalROptions);
             _pathbase = Configuration["PathBase"] ?? "";
         }
 
@@ -108,6 +109,10 @@ namespace Alloy.Api
                 .Configure<ClaimsTransformationOptions>(Configuration.GetSection("ClaimsTransformation"))
                     .AddScoped(config => config.GetService<IOptionsMonitor<ClaimsTransformationOptions>>().CurrentValue);
 
+            services.AddOptions()
+                .Configure<SeedDataOptions>(Configuration.GetSection("SeedData"))
+                    .AddScoped(config => config.GetService<IOptionsMonitor<SeedDataOptions>>().CurrentValue);
+
             services
                 .Configure<ClientOptions>(Configuration.GetSection("ClientSettings"))
                 .AddScoped(config => config.GetService<IOptionsMonitor<ClientOptions>>().CurrentValue);
@@ -126,7 +131,7 @@ namespace Alloy.Api
 
             services.AddCors(options => options.UseConfiguredCors(Configuration.GetSection("CorsPolicy")));
 
-            services.AddSignalR()
+            services.AddSignalR(o => o.StatefulReconnectBufferSize = _signalROptions.StatefulReconnectBufferSizeBytes)
             .AddJsonProtocol(options =>
             {
                 options.PayloadSerializerOptions.PropertyNameCaseInsensitive = true;
@@ -138,6 +143,13 @@ namespace Alloy.Api
             {
                 options.Filters.Add(typeof(ValidateModelStateFilter));
                 options.Filters.Add(typeof(JsonExceptionFilter));
+
+                // Require all scopes in authOptions
+                var policyBuilder = new AuthorizationPolicyBuilder().RequireAuthenticatedUser();
+                Array.ForEach(_authOptions.AuthorizationScope.Split(' '), x => policyBuilder.RequireScope(x));
+
+                var policy = policyBuilder.Build();
+                options.Filters.Add(new AuthorizeFilter(policy));
             })
             .AddJsonOptions(options =>
             {
@@ -203,12 +215,22 @@ namespace Alloy.Api
             services.AddMemoryCache();
 
             services.AddScoped<IEventTemplateService, EventTemplateService>();
+            services.AddScoped<IEventTemplateMembershipService, EventTemplateMembershipService>();
+            services.AddScoped<IEventTemplateRoleService, EventTemplateRoleService>();
             services.AddScoped<IEventService, EventService>();
+            services.AddScoped<IEventMembershipService, EventMembershipService>();
+            services.AddScoped<IEventRoleService, EventRoleService>();
             services.AddScoped<ICasterService, CasterService>();
             services.AddScoped<IPlayerService, PlayerService>();
             services.AddScoped<ISteamfitterService, SteamfitterService>();
+            services.AddScoped<IUserService, UserService>();
             services.AddScoped<IUserClaimsService, UserClaimsService>();
+            services.AddScoped<IClaimsTransformation, AuthorizationClaimsTransformer>();
             services.AddTransient<EventInterceptor>();
+            services.AddScoped<IAlloyAuthorizationService, AuthorizationService>();
+            services.AddScoped<IIdentityResolver, IdentityResolver>();
+            services.AddScoped<IGroupService, GroupService>();
+            services.AddScoped<ISystemRoleService, SystemRoleService>();
 
             // add the other API clients
             services.AddPlayerApiClient();
@@ -270,6 +292,17 @@ namespace Alloy.Api
 
             });
 
+            app.UseSwagger();
+            app.UseSwaggerUI(c =>
+            {
+                c.RoutePrefix = _routePrefix;
+                c.SwaggerEndpoint($"{_pathbase}/swagger/v1/swagger.json", "Alloy v1");
+                c.OAuthClientId(_authOptions.ClientId);
+                c.OAuthClientSecret(_authOptions.ClientSecret);
+                c.OAuthAppName(_authOptions.ClientName);
+                c.OAuthUsePkce();
+            });
+
             app.UseAuthentication();
             app.UseAuthorization();
 
@@ -285,37 +318,18 @@ namespace Alloy.Api
                 {
                     Predicate = (check) => check.Tags.Contains("live"),
                 });
-                endpoints.MapHub<EventHub>("/hubs/event");
-            });
-
-            app.UseSwagger();
-            app.UseSwaggerUI(c =>
-            {
-                c.RoutePrefix = _routePrefix;
-                c.SwaggerEndpoint($"{_pathbase}/swagger/v1/swagger.json", "Alloy v1");
-                c.OAuthClientId(_authOptions.ClientId);
-                c.OAuthClientSecret(_authOptions.ClientSecret);
-                c.OAuthAppName(_authOptions.ClientName);
-                c.OAuthUsePkce();
+                endpoints.MapHub<EngineHub>("/hubs/engine", options =>
+                    {
+                        options.AllowStatefulReconnects = _signalROptions.EnableStatefulReconnect;
+                    }
+                );
             });
         }
 
 
         private void ApplyPolicies(IServiceCollection services)
         {
-            services.AddAuthorization(options =>
-            {
-                // Require all scopes in authOptions
-                var policyBuilder = new AuthorizationPolicyBuilder().RequireAuthenticatedUser();
-                Array.ForEach(_authOptions.AuthorizationScope.Split(' '), x => policyBuilder.RequireClaim("scope", x));
-
-                options.DefaultPolicy = policyBuilder.Build();
-            });
-
-            // TODO: Add these automatically with reflection?
-            services.AddSingleton<IAuthorizationHandler, BasicRightsHandler>();
-            services.AddSingleton<IAuthorizationHandler, ContentDeveloperRightsHandler>();
-            services.AddSingleton<IAuthorizationHandler, SystemAdminRightsHandler>();
+            services.AddAuthorizationPolicy(_authOptions);
         }
     }
 }

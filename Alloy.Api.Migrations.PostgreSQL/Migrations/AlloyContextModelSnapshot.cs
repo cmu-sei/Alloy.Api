@@ -22,7 +22,7 @@ namespace Alloy.Api.Migrations.PostgreSQL.Migrations
         {
 #pragma warning disable 612, 618
             modelBuilder
-                .HasAnnotation("ProductVersion", "6.0.1")
+                .HasAnnotation("ProductVersion", "8.0.10")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
             NpgsqlModelBuilderExtensions.HasPostgresExtension(modelBuilder, "uuid-ossp");
@@ -143,6 +143,101 @@ namespace Alloy.Api.Migrations.PostgreSQL.Migrations
                     b.ToTable("events");
                 });
 
+            modelBuilder.Entity("Alloy.Api.Data.Models.EventMembershipEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id")
+                        .HasDefaultValueSql("uuid_generate_v4()");
+
+                    b.Property<Guid>("EventId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("event_id");
+
+                    b.Property<Guid?>("GroupId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("group_id");
+
+                    b.Property<Guid>("RoleId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasDefaultValue(new Guid("f870d8ee-7332-4f7f-8ee0-63bd07cfd7e4"))
+                        .HasColumnName("role_id");
+
+                    b.Property<Guid?>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("GroupId");
+
+                    b.HasIndex("RoleId");
+
+                    b.HasIndex("UserId");
+
+                    b.HasIndex("EventId", "UserId", "GroupId")
+                        .IsUnique();
+
+                    b.ToTable("event_memberships");
+                });
+
+            modelBuilder.Entity("Alloy.Api.Data.Models.EventRoleEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id")
+                        .HasDefaultValueSql("uuid_generate_v4()");
+
+                    b.Property<bool>("AllPermissions")
+                        .HasColumnType("boolean")
+                        .HasColumnName("all_permissions");
+
+                    b.Property<string>("Description")
+                        .HasColumnType("text")
+                        .HasColumnName("description");
+
+                    b.Property<string>("Name")
+                        .HasColumnType("text")
+                        .HasColumnName("name");
+
+                    b.Property<int[]>("Permissions")
+                        .HasColumnType("integer[]")
+                        .HasColumnName("permissions");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("event_roles");
+
+                    b.HasData(
+                        new
+                        {
+                            Id = new Guid("1a3f26cd-9d99-4b98-b914-12931e786198"),
+                            AllPermissions = true,
+                            Description = "Can perform all actions on the Event",
+                            Name = "Manager",
+                            Permissions = new int[0]
+                        },
+                        new
+                        {
+                            Id = new Guid("39aa296e-05ba-4fb0-8d74-c92cf3354c6f"),
+                            AllPermissions = false,
+                            Description = "Has read only access to the Event",
+                            Name = "Observer",
+                            Permissions = new[] { 0 }
+                        },
+                        new
+                        {
+                            Id = new Guid("f870d8ee-7332-4f7f-8ee0-63bd07cfd7e4"),
+                            AllPermissions = false,
+                            Description = "Has read only access to the Event",
+                            Name = "Member",
+                            Permissions = new[] { 0, 1 }
+                        });
+                });
+
             modelBuilder.Entity("Alloy.Api.Data.Models.EventTemplateEntity", b =>
                 {
                     b.Property<Guid>("Id")
@@ -204,6 +299,101 @@ namespace Alloy.Api.Migrations.PostgreSQL.Migrations
                     b.ToTable("event_templates");
                 });
 
+            modelBuilder.Entity("Alloy.Api.Data.Models.EventTemplateMembershipEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id")
+                        .HasDefaultValueSql("uuid_generate_v4()");
+
+                    b.Property<Guid>("EventTemplateId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("event_template_id");
+
+                    b.Property<Guid?>("GroupId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("group_id");
+
+                    b.Property<Guid>("RoleId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasDefaultValue(new Guid("f870d8ee-7332-4f7f-8ee0-63bd07cfd7e4"))
+                        .HasColumnName("role_id");
+
+                    b.Property<Guid?>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("GroupId");
+
+                    b.HasIndex("RoleId");
+
+                    b.HasIndex("UserId");
+
+                    b.HasIndex("EventTemplateId", "UserId", "GroupId")
+                        .IsUnique();
+
+                    b.ToTable("event_template_memberships");
+                });
+
+            modelBuilder.Entity("Alloy.Api.Data.Models.EventTemplateRoleEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id")
+                        .HasDefaultValueSql("uuid_generate_v4()");
+
+                    b.Property<bool>("AllPermissions")
+                        .HasColumnType("boolean")
+                        .HasColumnName("all_permissions");
+
+                    b.Property<string>("Description")
+                        .HasColumnType("text")
+                        .HasColumnName("description");
+
+                    b.Property<string>("Name")
+                        .HasColumnType("text")
+                        .HasColumnName("name");
+
+                    b.Property<int[]>("Permissions")
+                        .HasColumnType("integer[]")
+                        .HasColumnName("permissions");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("event_template_roles");
+
+                    b.HasData(
+                        new
+                        {
+                            Id = new Guid("1a3f26cd-9d99-4b98-b914-12931e786198"),
+                            AllPermissions = true,
+                            Description = "Can perform all actions on the EventTemplate",
+                            Name = "Manager",
+                            Permissions = new int[0]
+                        },
+                        new
+                        {
+                            Id = new Guid("39aa296e-05ba-4fb0-8d74-c92cf3354c6f"),
+                            AllPermissions = false,
+                            Description = "Has read only access to the EventTemplate",
+                            Name = "Observer",
+                            Permissions = new[] { 0 }
+                        },
+                        new
+                        {
+                            Id = new Guid("f870d8ee-7332-4f7f-8ee0-63bd07cfd7e4"),
+                            AllPermissions = false,
+                            Description = "Has read only access to the EventTemplate",
+                            Name = "Member",
+                            Permissions = new[] { 0, 1 }
+                        });
+                });
+
             modelBuilder.Entity("Alloy.Api.Data.Models.EventUserEntity", b =>
                 {
                     b.Property<Guid>("Id")
@@ -244,6 +434,208 @@ namespace Alloy.Api.Migrations.PostgreSQL.Migrations
                     b.ToTable("event_users");
                 });
 
+            modelBuilder.Entity("Alloy.Api.Data.Models.GroupEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id")
+                        .HasDefaultValueSql("uuid_generate_v4()");
+
+                    b.Property<string>("Description")
+                        .HasColumnType("text")
+                        .HasColumnName("description");
+
+                    b.Property<string>("Name")
+                        .HasColumnType("text")
+                        .HasColumnName("name");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("groups");
+                });
+
+            modelBuilder.Entity("Alloy.Api.Data.Models.GroupMembershipEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id")
+                        .HasDefaultValueSql("uuid_generate_v4()");
+
+                    b.Property<Guid>("GroupId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("group_id");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId");
+
+                    b.HasIndex("GroupId", "UserId")
+                        .IsUnique();
+
+                    b.ToTable("group_memberships");
+                });
+
+            modelBuilder.Entity("Alloy.Api.Data.Models.PermissionEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id")
+                        .HasDefaultValueSql("uuid_generate_v4()");
+
+                    b.Property<Guid>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<DateTime>("DateCreated")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("date_created");
+
+                    b.Property<DateTime?>("DateModified")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("date_modified");
+
+                    b.Property<string>("Description")
+                        .HasColumnType("text")
+                        .HasColumnName("description");
+
+                    b.Property<string>("Key")
+                        .HasColumnType("text")
+                        .HasColumnName("key");
+
+                    b.Property<Guid?>("ModifiedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("modified_by");
+
+                    b.Property<bool>("ReadOnly")
+                        .HasColumnType("boolean")
+                        .HasColumnName("read_only");
+
+                    b.Property<string>("Value")
+                        .HasColumnType("text")
+                        .HasColumnName("value");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Key", "Value")
+                        .IsUnique();
+
+                    b.ToTable("permissions");
+                });
+
+            modelBuilder.Entity("Alloy.Api.Data.Models.SystemRoleEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id")
+                        .HasDefaultValueSql("uuid_generate_v4()");
+
+                    b.Property<bool>("AllPermissions")
+                        .HasColumnType("boolean")
+                        .HasColumnName("all_permissions");
+
+                    b.Property<string>("Description")
+                        .HasColumnType("text")
+                        .HasColumnName("description");
+
+                    b.Property<bool>("Immutable")
+                        .HasColumnType("boolean")
+                        .HasColumnName("immutable");
+
+                    b.Property<string>("Name")
+                        .HasColumnType("text")
+                        .HasColumnName("name");
+
+                    b.Property<int[]>("Permissions")
+                        .HasColumnType("integer[]")
+                        .HasColumnName("permissions");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Name")
+                        .IsUnique();
+
+                    b.ToTable("system_roles");
+
+                    b.HasData(
+                        new
+                        {
+                            Id = new Guid("f35e8fff-f996-4cba-b303-3ba515ad8d2f"),
+                            AllPermissions = true,
+                            Description = "Can perform all actions",
+                            Immutable = true,
+                            Name = "Administrator",
+                            Permissions = new int[0]
+                        },
+                        new
+                        {
+                            Id = new Guid("d80b73c3-95d7-4468-8650-c62bbd082507"),
+                            AllPermissions = false,
+                            Description = "Can create and manage their own Event Templates and Events.",
+                            Immutable = false,
+                            Name = "Content Developer",
+                            Permissions = new[] { 0, 4, 7 }
+                        },
+                        new
+                        {
+                            Id = new Guid("1da3027e-725d-4753-9455-a836ed9bdb1e"),
+                            AllPermissions = false,
+                            Description = "Can View all Event Templates and Events, but cannot make any changes.",
+                            Immutable = false,
+                            Name = "Observer",
+                            Permissions = new[] { 1, 5, 9, 11, 13 }
+                        });
+                });
+
+            modelBuilder.Entity("Alloy.Api.Data.Models.UserEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id")
+                        .HasDefaultValueSql("uuid_generate_v4()");
+
+                    b.Property<Guid>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<DateTime>("DateCreated")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("date_created");
+
+                    b.Property<DateTime?>("DateModified")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("date_modified");
+
+                    b.Property<Guid?>("ModifiedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("modified_by");
+
+                    b.Property<string>("Name")
+                        .HasColumnType("text")
+                        .HasColumnName("name");
+
+                    b.Property<Guid?>("RoleId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("role_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Id")
+                        .IsUnique();
+
+                    b.HasIndex("RoleId");
+
+                    b.ToTable("users");
+                });
+
             modelBuilder.Entity("Alloy.Api.Data.Models.EventEntity", b =>
                 {
                     b.HasOne("Alloy.Api.Data.Models.EventTemplateEntity", "EventTemplate")
@@ -251,6 +643,68 @@ namespace Alloy.Api.Migrations.PostgreSQL.Migrations
                         .HasForeignKey("EventTemplateId");
 
                     b.Navigation("EventTemplate");
+                });
+
+            modelBuilder.Entity("Alloy.Api.Data.Models.EventMembershipEntity", b =>
+                {
+                    b.HasOne("Alloy.Api.Data.Models.EventEntity", "Event")
+                        .WithMany("Memberships")
+                        .HasForeignKey("EventId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Alloy.Api.Data.Models.GroupEntity", "Group")
+                        .WithMany("EventMemberships")
+                        .HasForeignKey("GroupId");
+
+                    b.HasOne("Alloy.Api.Data.Models.EventRoleEntity", "Role")
+                        .WithMany()
+                        .HasForeignKey("RoleId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Alloy.Api.Data.Models.UserEntity", "User")
+                        .WithMany("EventMemberships")
+                        .HasForeignKey("UserId");
+
+                    b.Navigation("Event");
+
+                    b.Navigation("Group");
+
+                    b.Navigation("Role");
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("Alloy.Api.Data.Models.EventTemplateMembershipEntity", b =>
+                {
+                    b.HasOne("Alloy.Api.Data.Models.EventTemplateEntity", "EventTemplate")
+                        .WithMany("Memberships")
+                        .HasForeignKey("EventTemplateId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Alloy.Api.Data.Models.GroupEntity", "Group")
+                        .WithMany("EventTemplateMemberships")
+                        .HasForeignKey("GroupId");
+
+                    b.HasOne("Alloy.Api.Data.Models.EventTemplateRoleEntity", "Role")
+                        .WithMany()
+                        .HasForeignKey("RoleId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Alloy.Api.Data.Models.UserEntity", "User")
+                        .WithMany("EventTemplateMemberships")
+                        .HasForeignKey("UserId");
+
+                    b.Navigation("EventTemplate");
+
+                    b.Navigation("Group");
+
+                    b.Navigation("Role");
+
+                    b.Navigation("User");
                 });
 
             modelBuilder.Entity("Alloy.Api.Data.Models.EventUserEntity", b =>
@@ -264,9 +718,62 @@ namespace Alloy.Api.Migrations.PostgreSQL.Migrations
                     b.Navigation("Event");
                 });
 
+            modelBuilder.Entity("Alloy.Api.Data.Models.GroupMembershipEntity", b =>
+                {
+                    b.HasOne("Alloy.Api.Data.Models.GroupEntity", "Group")
+                        .WithMany("Memberships")
+                        .HasForeignKey("GroupId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Alloy.Api.Data.Models.UserEntity", "User")
+                        .WithMany("GroupMemberships")
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Group");
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("Alloy.Api.Data.Models.UserEntity", b =>
+                {
+                    b.HasOne("Alloy.Api.Data.Models.SystemRoleEntity", "Role")
+                        .WithMany()
+                        .HasForeignKey("RoleId");
+
+                    b.Navigation("Role");
+                });
+
             modelBuilder.Entity("Alloy.Api.Data.Models.EventEntity", b =>
                 {
                     b.Navigation("EventUsers");
+
+                    b.Navigation("Memberships");
+                });
+
+            modelBuilder.Entity("Alloy.Api.Data.Models.EventTemplateEntity", b =>
+                {
+                    b.Navigation("Memberships");
+                });
+
+            modelBuilder.Entity("Alloy.Api.Data.Models.GroupEntity", b =>
+                {
+                    b.Navigation("EventMemberships");
+
+                    b.Navigation("EventTemplateMemberships");
+
+                    b.Navigation("Memberships");
+                });
+
+            modelBuilder.Entity("Alloy.Api.Data.Models.UserEntity", b =>
+                {
+                    b.Navigation("EventMemberships");
+
+                    b.Navigation("EventTemplateMemberships");
+
+                    b.Navigation("GroupMemberships");
                 });
 #pragma warning restore 612, 618
         }

@@ -24,7 +24,6 @@ namespace Alloy.Api.Data.Models
         public string Name { get; set; }
         public string Description { get; set; }
         public string ShareCode { get; set; }
-        public virtual ICollection<EventUserEntity> EventUsers { get; set; } = new List<EventUserEntity>();
         public EventStatus Status { get; set; }
         public InternalEventStatus InternalStatus { get; set; }
         public int FailureCount { get; set; }
@@ -36,5 +35,6 @@ namespace Alloy.Api.Data.Models
         public DateTime? LaunchDate { get; set; }
         public DateTime? EndDate { get; set; }
         public DateTime? ExpirationDate { get; set; }
+        public virtual ICollection<EventMembershipEntity> Memberships { get; set; } = new List<EventMembershipEntity>();
     }
 }

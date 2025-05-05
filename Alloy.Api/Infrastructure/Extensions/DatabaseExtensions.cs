@@ -9,11 +9,12 @@ using System;
 using System.Linq;
 using System.Reflection;
 using Microsoft.AspNetCore.Hosting;
-using Alloy.Api.Options;
+using Alloy.Api.Infrastructure.Options;
 using Alloy.Api.Data;
 using Microsoft.Extensions.Hosting;
+using Alloy.Api.Data.Models;
 
-namespace Alloy.Api.Extensions
+namespace Alloy.Api.Infrastructure.Extensions
 {
     public static class DatabaseExtensions
     {
@@ -25,6 +26,7 @@ namespace Alloy.Api.Extensions
 
                 try
                 {
+                    var seedDataOptions = services.GetService<SeedDataOptions>();
                     var databaseOptions = services.GetService<DatabaseOptions>();
                     var ctx = services.GetRequiredService<AlloyContext>();
 
@@ -42,19 +44,16 @@ namespace Alloy.Api.Extensions
                         if (databaseOptions.DevModeRecreate)
                         {
                             ctx.Database.EnsureCreated();
-                            // ProcessSeedDataOptions(seedDataOptions, ctx);
+                            ProcessSeedDataOptions(seedDataOptions, ctx);
 
                             if (!ctx.EventTemplates.Any())
                             {
                                 Seed.Run(ctx);
                             }
-
-                            // ProcessSystemAdminOptions(seedDataOptions.SystemAdminIds, ctx);
                         }
                         else
                         {
-                            // ProcessSeedDataOptions(seedDataOptions, ctx);
-                            // ProcessSystemAdminOptions(seedDataOptions.SystemAdminIds, ctx);
+                            ProcessSeedDataOptions(seedDataOptions, ctx);
                         }
                     }
 
@@ -99,5 +98,69 @@ namespace Alloy.Api.Extensions
             }
             return builder;
         }
+
+        private static void ProcessSeedDataOptions(SeedDataOptions options, AlloyContext context)
+        {
+            if (options.Roles?.Any() == true)
+            {
+                var dbRoles = context.SystemRoles.ToHashSet();
+
+                foreach (var role in options.Roles)
+                {
+                    if (!dbRoles.Any(x => x.Name == role.Name))
+                    {
+                        context.SystemRoles.Add(role);
+                    }
+                }
+
+                context.SaveChanges();
+            }
+
+            if (options.Users?.Any() == true)
+            {
+                var dbUserIds = context.Users.Select(x => x.Id).ToHashSet();
+
+                foreach (UserEntity user in options.Users)
+                {
+                    if (!dbUserIds.Contains(user.Id))
+                    {
+                        if (user.Role?.Id == Guid.Empty && !string.IsNullOrEmpty(user.Role.Name))
+                        {
+                            var role = context.SystemRoles.FirstOrDefault(x => x.Name == user.Role.Name);
+                            if (role != null)
+                            {
+                                user.RoleId = role.Id;
+                                user.Role = role;
+                            }
+                            else
+                            {
+                                user.RoleId = null;
+                                user.Role = null;
+                            }
+                        }
+
+                        context.Users.Add(user);
+                    }
+                }
+
+                context.SaveChanges();
+            }
+
+            if (options.Groups?.Any() == true)
+            {
+                var dbGroup = context.Groups.ToHashSet();
+
+                foreach (var group in options.Groups)
+                {
+                    if (!dbGroup.Any(x => x.Name == group.Name))
+                    {
+                        context.Groups.Add(group);
+                    }
+                }
+
+                context.SaveChanges();
+            }
+        }
+
     }
 }

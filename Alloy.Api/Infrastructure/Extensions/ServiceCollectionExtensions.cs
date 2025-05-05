@@ -10,7 +10,6 @@ using System.Reflection;
 using System.Text.Json;
 using Alloy.Api.Infrastructure.OperationFilters;
 using Alloy.Api.Infrastructure.Options;
-using Alloy.Api.Options;
 using Alloy.Api.Services;
 using Caster.Api.Client;
 using Microsoft.AspNetCore.Http;

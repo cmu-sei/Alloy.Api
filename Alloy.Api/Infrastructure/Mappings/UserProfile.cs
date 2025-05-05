@@ -6,12 +6,12 @@ using Alloy.Api.ViewModels;
 
 namespace Alloy.Api.Infrastructure.Mappings
 {
-    public class EventUserProfile : AutoMapper.Profile
+    public class UserProfile : AutoMapper.Profile
     {
-        public EventUserProfile()
+        public UserProfile()
         {
-            CreateMap<EventUserEntity, EventUser>()
-            .ReverseMap();
+            CreateMap<UserEntity, User>();
+            CreateMap<User, UserEntity>();
         }
     }
 }

@@ -56,4 +56,40 @@ namespace Alloy.Api.Data
         SystemAdmin,
         ContentDeveloper
     }
+
+    public enum SystemPermission
+    {
+        CreateEventTemplates,
+        ViewEventTemplates,
+        EditEventTemplates,
+        ManageEventTemplates,
+        CreateEvents,
+        ViewEvents,
+        EditEvents,
+        ExecuteEvents,
+        ManageEvents,
+        ViewUsers,
+        ManageUsers,
+        ViewRoles,
+        ManageRoles,
+        ViewGroups,
+        ManageGroups
+    }
+
+    public enum EventPermission
+    {
+        ViewEvent,
+        EditEvent,
+        ExecuteEvent,
+        ManageEvent
+    }
+
+    public enum EventTemplatePermission
+    {
+        ViewEventTemplate,
+        EditEventTemplate,
+        ManageEventTemplate
+    }
+
+
 }

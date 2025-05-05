@@ -6,7 +6,7 @@ using System;
 using System.Collections.Generic;
 using System.Security.Claims;
 
-namespace Alloy.Api.Extensions
+namespace Alloy.Api.Infrastructure.Extensions
 {
     public static class ClaimsPrincipalExtensions
     {
@@ -57,4 +57,3 @@ namespace Alloy.Api.Extensions
         }
     }
 }
-
