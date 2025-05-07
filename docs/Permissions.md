@@ -20,7 +20,7 @@ Permissions can be applied to Users by grouping them into Roles. There are two t
 
   - Administrator - Has all Permissions within the system.
   - Content Developer - Has the `CreateEventTemplates`, `CreateEvents`, `ExecuteEvents` Permissions. Users in this Role can create and manage their own Event Templates and Events, but not affect any global settings or other User's Event Templates and Events.
-  - Observer - Has the `ViewEventTemplates`, `ViewEvents`, `ViewUsers`, `ViewRoles`, and `ViewGroups` Permissions.  Users in this role can view all of these areas, but cannot make any changes.
+  - Observer - Has the `ViewEventTemplates`, `ViewEvents`, `ViewUsers`, `ViewRoles`, and `ViewGroups` Permissions. Users in this role can view all of these areas, but cannot make any changes.
 
   Custom System Roles can be created by Users with the `ManageRoles` Permission that include whatever Permissions are desired for that Role. This can be done in the Roles section of the Administration area.
 
@@ -61,11 +61,8 @@ If multiple Roles are present in the token, or if one Role is in the token and o
 
 If you are using Keycloak as your Identity Provider, Roles should work by default if you have not changed the default `RolesClaimPath`. You may need to adjust this value if your Keycloak is configured to put Roles in a different location within the token.
 
-# Migration
+# Migration - BREAKING CHANGES
 
-When moving from a version prior to 3.5.0, the database will be migrated from the old Permissions sytem to the new one. The end result should be no change in access to any existing Users.
+When moving from a version prior to 3.5.0, the database will be migrated from the old Permissions sytem to the new one. **There are breaking changes that require actions to be taken for continued access**
 
-- Any existing Users with the old `SystemAdmin` Permission will be migrated to the new `Administrator` Role
-- Any existing Users with the old `ContentDeveloper` Permissions will be migrated to the new `ContentDeveloper` Role
-
-Be sure to double check all of your Roles and Team Memberships once the migration is complete.
+In previous versions, Alloy used Player as a source of Permissions. Now it has it's own Permissions and Users table. Because of this, permissions will not carry over from the old version. **You MUST set at least one user as an Administrator in SeedData BEFORE accessing Alloy with that user after updating, or the user will not have Administrator permissions.** If you are using roles from your identity provider, this is not necessary. If not and you do not set an Administrator in SeedData before accessing Alloy with that user, a User record will be created for that user and it will not be updated by SeedData on subsequent restarts of the application. If this happens, you must create a new user and set it as Administrator in SeedData, or manually set your desired user's Role in the database.
