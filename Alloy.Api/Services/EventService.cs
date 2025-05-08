@@ -197,17 +197,12 @@ namespace Alloy.Api.Services
 
             // check for resource limitations
             if (!await ResourcesAreAvailableAsync(eventTemplateId, userId.Value, ct))
-            {
                 throw new Exception($"The appropriate resources are not available to create an event from the EventTemplate {eventTemplateId}.");
-            }
-            // make sure the specified eventTemplate is published
-            var eventTemplate = await _context.EventTemplates.SingleOrDefaultAsync(o => o.Id == eventTemplateId, ct);
-            if (!eventTemplate.IsPublished)
-                throw new ForbiddenException();
 
             // create the event from the eventTemplate
             var eventEntity = await CreateEventEntityAsync(eventTemplateId, userId.Value, username, additionalUserIds, ct);
-            // add the event to the event queue for AlloyBackgrounsService to process.
+            await _claimsService.RefreshClaims((Guid)userId);
+            // add the event to the event queue for AlloyBackgroundService to process.
             _alloyEventQueue.Add(eventEntity);
             return _mapper.Map<Event>(eventEntity);
         }
