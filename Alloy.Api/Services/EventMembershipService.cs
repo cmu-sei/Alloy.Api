@@ -73,12 +73,11 @@ namespace Alloy.Api.Services
         public async STT.Task<EventMembership> UpdateAsync(Guid id, EventMembership eventMembership, CancellationToken ct)
         {
             var eventMembershipToUpdate = await _context.EventMemberships.SingleOrDefaultAsync(v => v.Id == id, ct);
-
             if (eventMembershipToUpdate == null)
                 throw new EntityNotFoundException<SAVM.Event>();
 
-            _mapper.Map(eventMembership, eventMembershipToUpdate);
-
+            eventMembershipToUpdate.Role = null;
+            eventMembershipToUpdate.RoleId = eventMembership.RoleId;
             await _context.SaveChangesAsync(ct);
 
             return _mapper.Map<SAVM.EventMembership>(eventMembershipToUpdate);
