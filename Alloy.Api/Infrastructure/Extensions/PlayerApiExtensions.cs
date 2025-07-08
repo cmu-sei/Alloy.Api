@@ -27,26 +27,27 @@ namespace Alloy.Api.Infrastructure.Extensions
             View clonedView = null;
             try
             {
-                var body = new ViewCloneOverride()
+                var body = new CloneViewCommand()
                 {
                     Name = $"{eventTemplateEntity.Name} - {eventEntity.Username}",
                     Description = eventTemplateEntity.Description
                 };
                 clonedView = await playerApiClient.CloneViewAsync((Guid)eventTemplateEntity.ViewId, body, ct);
+
                 // add user to first non-admin team
                 var roles = await playerApiClient.GetRolesAsync(ct);
-                var teams = await playerApiClient.GetViewTeamsAsync((Guid)clonedView.Id, ct);
+                var teams = await playerApiClient.GetViewTeamsAsync(clonedView.Id, ct);
 
                 foreach (var team in teams)
                 {
-                    if (team.Permissions.Where(p => p.Key == "ViewAdmin").Any())
+                    if (team.Permissions.Where(p => p.Name.Contains("Manage")).Any())
                         continue;
 
                     if (team.RoleId.HasValue)
                     {
                         var role = roles.Where(r => r.Id == team.RoleId).FirstOrDefault();
 
-                        if (role != null && role.Permissions.Where(p => p.Key == "ViewAdmin").Any())
+                        if (role != null && role.Permissions.Where(p => p.Name.Contains("Manage")).Any())
                             continue;
                     }
 
@@ -57,14 +58,12 @@ namespace Alloy.Api.Infrastructure.Extensions
                     catch (Exception)
                     {
                         await playerApiClient.CreateUserAsync(
-                            new User
+                            new CreateUserCommand
                             {
                                 Id = eventEntity.UserId,
                                 Name = eventEntity.Username
                             });
                     }
-
-
 
                     await playerApiClient.AddUserToTeamAsync(team.Id, eventEntity.UserId, ct);
 
@@ -79,7 +78,7 @@ namespace Alloy.Api.Infrastructure.Extensions
                             catch (Exception)
                             {
                                 await playerApiClient.CreateUserAsync(
-                                    new User
+                                    new CreateUserCommand
                                     {
                                         Id = user.Id,
                                         Name = user.Name
@@ -140,14 +139,14 @@ namespace Alloy.Api.Infrastructure.Extensions
                 //Get first non-admin team
                 foreach (var team in teams)
                 {
-                    if (team.Permissions.Where(p => p.Key == "ViewAdmin").Any())
+                    if (team.Permissions.Where(p => p.Name.Contains("Manage")).Any())
                         continue;
 
                     if (team.RoleId.HasValue)
                     {
                         var role = roles.Where(r => r.Id == team.RoleId).FirstOrDefault();
 
-                        if (role != null && role.Permissions.Where(p => p.Key == "ViewAdmin").Any())
+                        if (role != null && role.Permissions.Where(p => p.Name.Contains("Manage")).Any())
                             continue;
                     }
 
