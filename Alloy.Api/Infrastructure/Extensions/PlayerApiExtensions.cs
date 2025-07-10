@@ -34,59 +34,47 @@ namespace Alloy.Api.Infrastructure.Extensions
                 };
                 clonedView = await playerApiClient.CloneViewAsync((Guid)eventTemplateEntity.ViewId, body, ct);
 
-                // add user to first non-admin team
-                var roles = await playerApiClient.GetRolesAsync(ct);
+                // add user to default team or first non-admin team
+                var roles = await playerApiClient.GetTeamRolesAsync(ct);
                 var teams = await playerApiClient.GetViewTeamsAsync(clonedView.Id, ct);
 
-                foreach (var team in teams)
+                var defaultTeamId = await GetDefaultTeamId(playerApiClient, clonedView, ct);
+
+                try
                 {
-                    if (team.Permissions.Where(p => p.Name.Contains("Manage")).Any())
-                        continue;
-
-                    if (team.RoleId.HasValue)
-                    {
-                        var role = roles.Where(r => r.Id == team.RoleId).FirstOrDefault();
-
-                        if (role != null && role.Permissions.Where(p => p.Name.Contains("Manage")).Any())
-                            continue;
-                    }
-
-                    try
-                    {
-                        var owner = await playerApiClient.GetUserAsync(eventEntity.UserId, ct);
-                    }
-                    catch (Exception)
-                    {
-                        await playerApiClient.CreateUserAsync(
-                            new CreateUserCommand
-                            {
-                                Id = eventEntity.UserId,
-                                Name = eventEntity.Username
-                            });
-                    }
-
-                    await playerApiClient.AddUserToTeamAsync(team.Id, eventEntity.UserId, ct);
-
-                    foreach (var user in userList)
-                    {
-                        if (user.Id != eventEntity.UserId)
+                    var owner = await playerApiClient.GetUserAsync(eventEntity.UserId, ct);
+                }
+                catch (Exception)
+                {
+                    await playerApiClient.CreateUserAsync(
+                        new CreateUserCommand
                         {
-                            try
-                            {
-                                var playerUser = await playerApiClient.GetUserAsync(user.Id, ct);
-                            }
-                            catch (Exception)
-                            {
-                                await playerApiClient.CreateUserAsync(
-                                    new CreateUserCommand
-                                    {
-                                        Id = user.Id,
-                                        Name = user.Name
-                                    });
-                            }
+                            Id = eventEntity.UserId,
+                            Name = eventEntity.Username
+                        });
+                }
 
-                            await playerApiClient.AddUserToTeamAsync(team.Id, user.Id, ct);
+                await playerApiClient.AddUserToTeamAsync(defaultTeamId, eventEntity.UserId, ct);
+
+                foreach (var user in userList)
+                {
+                    if (user.Id != eventEntity.UserId)
+                    {
+                        try
+                        {
+                            var playerUser = await playerApiClient.GetUserAsync(user.Id, ct);
                         }
+                        catch (Exception)
+                        {
+                            await playerApiClient.CreateUserAsync(
+                                new CreateUserCommand
+                                {
+                                    Id = user.Id,
+                                    Name = user.Name
+                                });
+                        }
+
+                        await playerApiClient.AddUserToTeamAsync(defaultTeamId, user.Id, ct);
                     }
                 }
 
@@ -133,10 +121,37 @@ namespace Alloy.Api.Infrastructure.Extensions
         {
             try
             {
-                var view = await playerApiClient.GetViewAsync(viewId, ct);
-                var roles = await playerApiClient.GetRolesAsync(ct);
-                var teams = await playerApiClient.GetViewTeamsAsync(viewId, ct);
-                //Get first non-admin team
+                var teamId = await GetDefaultTeamId(playerApiClient, viewId, ct);
+                await playerApiClient.AddUserToTeamAsync(teamId, userId, ct);
+                return true;
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
+        private static async Task<Guid> GetDefaultTeamId(PlayerApiClient playerApiClient, Guid viewId, CancellationToken ct)
+        {
+            var view = await playerApiClient.GetViewAsync(viewId, ct);
+            return await GetDefaultTeamId(playerApiClient, view, ct);
+        }
+
+        private static async Task<Guid> GetDefaultTeamId(PlayerApiClient playerApiClient, View view, CancellationToken ct)
+        {
+            // add user to default team or first non-admin team
+            var roles = await playerApiClient.GetTeamRolesAsync(ct);
+            var teams = await playerApiClient.GetViewTeamsAsync(view.Id, ct);
+
+            Guid? defaultTeamId = null;
+
+            if (view.DefaultTeamId.HasValue)
+            {
+                defaultTeamId = teams.Where(x => x.Id == view.DefaultTeamId).FirstOrDefault()?.Id;
+            }
+
+            if (!defaultTeamId.HasValue)
+            {
                 foreach (var team in teams)
                 {
                     if (team.Permissions.Where(p => p.Name.Contains("Manage")).Any())
@@ -146,19 +161,19 @@ namespace Alloy.Api.Infrastructure.Extensions
                     {
                         var role = roles.Where(r => r.Id == team.RoleId).FirstOrDefault();
 
-                        if (role != null && role.Permissions.Where(p => p.Name.Contains("Manage")).Any())
+                        if (role != null && role.AllPermissions || role.Permissions.Where(p => p.Name.Contains("Manage")).Any())
                             continue;
                     }
 
-                    await playerApiClient.AddUserToTeamAsync(team.Id, userId, ct);
+                    defaultTeamId = team.Id;
+                    break;
                 }
+            }
 
-                return true;
-            }
-            catch (Exception)
-            {
-                return false;
-            }
+            if (!defaultTeamId.HasValue)
+                throw new Exception("No useable Team found");
+
+            return defaultTeamId.Value;
         }
     }
 }
