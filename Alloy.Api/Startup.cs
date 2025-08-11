@@ -33,6 +33,8 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.JsonWebTokens;
 using Microsoft.AspNetCore.Mvc.Authorization;
+using OpenTelemetry.Metrics;
+using OpenTelemetry.Resources;
 
 namespace Alloy.Api
 {
@@ -42,6 +44,7 @@ namespace Alloy.Api
         private readonly SignalROptions _signalROptions = new();
         private const string _routePrefix = "api";
         private string _pathbase;
+        private readonly TelemetryOptions _telemetryOptions = new();
 
         public IConfiguration Configuration { get; }
 
@@ -50,6 +53,7 @@ namespace Alloy.Api
             Configuration = configuration;
             Configuration.GetSection("Authorization").Bind(_authOptions);
             Configuration.GetSection("SignalR").Bind(_signalROptions);
+            Configuration.GetSection("Telemetry").Bind(_telemetryOptions);
             _pathbase = Configuration["PathBase"] ?? "";
         }
 
@@ -232,6 +236,51 @@ namespace Alloy.Api
             services.AddScoped<IGroupService, GroupService>();
             services.AddScoped<ISystemRoleService, SystemRoleService>();
 
+            services.AddSingleton<TelemetryService>();
+            var metricsBuilder = services.AddOpenTelemetry()
+                .WithMetrics(builder =>
+                {
+                    builder
+                        .SetResourceBuilder(ResourceBuilder.CreateDefault().AddService("TelemetryService"))
+                        .AddMeter
+                        (
+                            TelemetryService.CasterMeterName
+                        )
+                        .AddPrometheusExporter();
+                    if (_telemetryOptions.AddRuntimeInstrumentation)
+                    {
+                        builder.AddRuntimeInstrumentation();
+                    }
+                    if (_telemetryOptions.AddProcessInstrumentation)
+                    {
+                        builder.AddProcessInstrumentation();
+                    }
+                    if (_telemetryOptions.AddAspNetCoreInstrumentation)
+                    {
+                        builder.AddAspNetCoreInstrumentation();
+                    }
+                    if (_telemetryOptions.AddHttpClientInstrumentation)
+                    {
+                        builder.AddHttpClientInstrumentation();
+                    }
+                    if (_telemetryOptions.UseMeterMicrosoftAspNetCoreHosting)
+                    {
+                        builder.AddMeter("Microsoft.AspNetCore.Hosting");
+                    }
+                    if (_telemetryOptions.UseMeterMicrosoftAspNetCoreServerKestrel)
+                    {
+                        builder.AddMeter("Microsoft.AspNetCore.Server.Kestrel");
+                    }
+                    if (_telemetryOptions.UseMeterSystemNetHttp)
+                    {
+                        builder.AddMeter("System.Net.Http");
+                    }
+                    if (_telemetryOptions.UseMeterSystemNetNameResolution)
+                    {
+                        builder.AddMeter("System.Net.NameResolution");
+                    }
+                }
+            );
             // add the other API clients
             services.AddPlayerApiClient();
             services.AddCasterApiClient();
@@ -323,6 +372,7 @@ namespace Alloy.Api
                         options.AllowStatefulReconnects = _signalROptions.EnableStatefulReconnect;
                     }
                 );
+                endpoints.MapPrometheusScrapingEndpoint().RequireAuthorization();
             });
         }
 
