@@ -34,6 +34,7 @@ namespace Alloy.Api.Services
         private readonly IAlloyEventQueue _eventQueue;
         private readonly IHttpClientFactory _httpClientFactory;
         private readonly StartupHealthCheck _startupHealthCheck;
+        private readonly TelemetryService _telemetryService;
 
         public AlloyBackgroundService(
                 ILogger<AlloyBackgroundService> logger,
@@ -41,7 +42,8 @@ namespace Alloy.Api.Services
                 IServiceScopeFactory scopeFactory,
                 IAlloyEventQueue eventQueue,
                 IHttpClientFactory httpClientFactory,
-                StartupHealthCheck startupHealthCheck
+                StartupHealthCheck startupHealthCheck,
+                TelemetryService telemetryService
             )
         {
             _logger = logger;
@@ -50,6 +52,7 @@ namespace Alloy.Api.Services
             _eventQueue = eventQueue;
             _httpClientFactory = httpClientFactory;
             _startupHealthCheck = startupHealthCheck;
+            _telemetryService = telemetryService;
         }
 
         public Task StartAsync(CancellationToken cancellationToken)
@@ -749,6 +752,9 @@ namespace Alloy.Api.Services
                         }
                     }
                 }
+
+                // Update Event metrics
+                await _telemetryService.UpdateEventGauges(alloyContext, ct);
             }
             catch (Exception ex)
             {
