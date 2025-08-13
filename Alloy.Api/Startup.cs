@@ -244,7 +244,7 @@ namespace Alloy.Api
                         .SetResourceBuilder(ResourceBuilder.CreateDefault().AddService("TelemetryService"))
                         .AddMeter
                         (
-                            TelemetryService.CasterMeterName
+                            TelemetryService.AlloyMeterName
                         )
                         .AddPrometheusExporter();
                     if (_telemetryOptions.AddRuntimeInstrumentation)

@@ -15,17 +15,17 @@ namespace Alloy.Api.Services
 
     public class TelemetryService : ITelemetryService
     {
-        public const string CasterMeterName = "cmu_sei_crucible_alloy";
-        public readonly Meter CasterMeter = new Meter(CasterMeterName, "1.0");
+        public const string AlloyMeterName = "cmu_sei_crucible_alloy";
+        public readonly Meter AlloyMeter = new Meter(AlloyMeterName, "1.0");
         public Gauge<int> ActiveEvents;
         public Gauge<int> EndedEvents;
         public Gauge<int> FailedEvents;
 
         public TelemetryService()
         {
-            ActiveEvents = CasterMeter.CreateGauge<int>("alloy_active_events");
-            EndedEvents = CasterMeter.CreateGauge<int>("alloy_ended_events");
-            FailedEvents = CasterMeter.CreateGauge<int>("alloy_failed_events");
+            ActiveEvents = AlloyMeter.CreateGauge<int>("alloy_active_events");
+            EndedEvents = AlloyMeter.CreateGauge<int>("alloy_ended_events");
+            FailedEvents = AlloyMeter.CreateGauge<int>("alloy_failed_events");
         }
 
         public async Task UpdateEventGauges(AlloyContext alloyContext, CancellationToken ct)
