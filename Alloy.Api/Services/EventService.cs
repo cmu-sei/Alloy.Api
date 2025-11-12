@@ -21,9 +21,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
-using System.Security.Cryptography.X509Certificates;
-using Alloy.Api.Controllers;
-using Player.Api.Client;
+using Steamfitter.Api.Client;
 
 namespace Alloy.Api.Services
 {
@@ -445,7 +443,22 @@ namespace Alloy.Api.Services
 
                     if (alloyEvent.ScenarioId.HasValue)
                     {
-                        await steamfitterApiClient.AddUsersToScenarioAsync(alloyEvent.ScenarioId.Value, new List<Guid> { userId }, ct);
+                        try
+                        {
+                            var user = await steamfitterApiClient.GetUserAsync(userId, ct);
+                        }
+                        catch (System.Exception)
+                        {
+                            var newUser = new Steamfitter.Api.Client.User()
+                            {
+                                Id = userId,
+                                Name = _user.FindFirst("Name").Value
+                            };
+                            await steamfitterApiClient.CreateUserAsync(newUser);
+                        }
+
+                        var scenarioMembership = new ScenarioMembership() { UserId = userId, ScenarioId = alloyEvent.ScenarioId.Value };
+                        await steamfitterApiClient.CreateScenarioMembershipAsync(alloyEvent.ScenarioId.Value, scenarioMembership, ct);
                     }
 
                     try
