@@ -3,11 +3,11 @@
 
 using System.Collections.Generic;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.OpenApi.Models;
+using Microsoft.OpenApi;
 using Swashbuckle.AspNetCore.SwaggerGen;
 
 namespace Alloy.Api.Infrastructure.OperationFilters
-{    
+{
     public class DefaultResponseOperationFilter : IOperationFilter
     {
         public void Apply(OpenApiOperation operation, OperationFilterContext context)
