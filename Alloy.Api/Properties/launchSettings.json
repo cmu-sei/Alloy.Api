@@ -3,7 +3,7 @@
     "Alloy.Api": {
       "commandName": "Project",
       "launchBrowser": true,
-      "launchUrl": "http://localhost:4402/swagger",
+      "launchUrl": "http://localhost:4402/api",
       "environmentVariables": {
         "ASPNETCORE_ENVIRONMENT": "Development"
       },
