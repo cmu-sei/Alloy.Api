@@ -3,6 +3,7 @@ using System;
 using Alloy.Api.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Alloy.Api.Migrations.PostgreSQL.Migrations
 {
     [DbContext(typeof(AlloyContext))]
-    partial class AlloyContextModelSnapshot : ModelSnapshot
+    [Migration("20251113165228_VersionUpgradeSync")]
+    partial class VersionUpgradeSync
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
