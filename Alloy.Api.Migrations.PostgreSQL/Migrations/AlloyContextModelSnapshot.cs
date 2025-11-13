@@ -426,7 +426,7 @@ namespace Alloy.Api.Migrations.PostgreSQL.Migrations
                     b.HasIndex("EventId", "UserId")
                         .IsUnique();
 
-                    b.ToTable("event_user_entity");
+                    b.ToTable("event_users");
                 });
 
             modelBuilder.Entity("Alloy.Api.Data.Models.GroupEntity", b =>

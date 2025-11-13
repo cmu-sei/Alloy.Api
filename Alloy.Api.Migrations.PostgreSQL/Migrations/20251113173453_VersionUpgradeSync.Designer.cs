@@ -12,7 +12,7 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Alloy.Api.Migrations.PostgreSQL.Migrations
 {
     [DbContext(typeof(AlloyContext))]
-    [Migration("20251113165228_VersionUpgradeSync")]
+    [Migration("20251113173453_VersionUpgradeSync")]
     partial class VersionUpgradeSync
     {
         /// <inheritdoc />
@@ -429,7 +429,7 @@ namespace Alloy.Api.Migrations.PostgreSQL.Migrations
                     b.HasIndex("EventId", "UserId")
                         .IsUnique();
 
-                    b.ToTable("event_user_entity");
+                    b.ToTable("event_users");
                 });
 
             modelBuilder.Entity("Alloy.Api.Data.Models.GroupEntity", b =>

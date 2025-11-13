@@ -30,6 +30,8 @@ namespace Alloy.Api.Data
         public DbSet<GroupEntity> Groups { get; set; }
         public DbSet<GroupMembershipEntity> GroupMemberships { get; set; }
 
+        public DbSet<EventUserEntity> EventUsers { get; set; }
+
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             modelBuilder.ApplyConfigurations();
