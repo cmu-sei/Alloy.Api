@@ -2,8 +2,8 @@
   "profiles": {
     "Alloy.Api": {
       "commandName": "Project",
-      "launchBrowser": true,
-      "launchUrl": "http://localhost:4402/api",
+      "launchBrowser": false,
+      "launchUrl": "api",
       "environmentVariables": {
         "ASPNETCORE_ENVIRONMENT": "Development"
       },
