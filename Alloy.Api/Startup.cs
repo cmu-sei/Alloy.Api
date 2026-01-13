@@ -290,7 +290,7 @@ namespace Alloy.Api
             services.AddAlloyBackgroundService();
 
             services.AddSingleton<IHttpContextAccessor, HttpContextAccessor>();
-            services.AddScoped<IPrincipal>(p => p.GetService<IHttpContextAccessor>().HttpContext.User);
+            services.AddScoped<IPrincipal>(p => p.GetService<IHttpContextAccessor>()?.HttpContext?.User);
 
             services.AddHttpClient();
 
