@@ -2,12 +2,15 @@
 // Released under a MIT (SEI)-style license. See LICENSE.md in the project root for license information.
 
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Alloy.Api.Data.Extensions;
 using Alloy.Api.Data.Models;
+using MediatR;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Alloy.Api.Data
 {
@@ -15,6 +18,9 @@ namespace Alloy.Api.Data
     {
         // Needed for EventInterceptor
         public IServiceProvider ServiceProvider;
+
+        // Entity Events collected by EventTransactionInterceptor and published in SaveChanges
+        public List<INotification> DomainEvents { get; } = [];
 
         public AlloyContext(DbContextOptions<AlloyContext> options) : base(options) { }
 
@@ -30,6 +36,8 @@ namespace Alloy.Api.Data
         public DbSet<GroupEntity> Groups { get; set; }
         public DbSet<GroupMembershipEntity> GroupMemberships { get; set; }
 
+        public DbSet<EventUserEntity> EventUsers { get; set; }
+
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             modelBuilder.ApplyConfigurations();
@@ -43,7 +51,23 @@ namespace Alloy.Api.Data
 
         }
 
+        public override int SaveChanges()
+        {
+            UpdateBaseEntityFields();
+            var result = base.SaveChanges();
+            PublishEvents().Wait();
+            return result;
+        }
+
         public override async Task<int> SaveChangesAsync(CancellationToken ct = default(CancellationToken))
+        {
+            UpdateBaseEntityFields();
+            var result = await base.SaveChangesAsync(ct);
+            await PublishEvents(ct);
+            return result;
+        }
+
+        private void UpdateBaseEntityFields()
         {
             var addedEntries = ChangeTracker.Entries().Where(x => x.State == EntityState.Added);
             var modifiedEntries = ChangeTracker.Entries().Where(x => x.State == EntityState.Modified);
@@ -71,7 +95,22 @@ namespace Alloy.Api.Data
                 catch
                 { }
             }
-            return await base.SaveChangesAsync(ct);
+        }
+
+        private async Task PublishEvents(CancellationToken cancellationToken = default)
+        {
+            // Publish deferred events after transaction is committed and cleared
+            if (DomainEvents.Count > 0 && ServiceProvider is not null)
+            {
+                var mediator = ServiceProvider.GetRequiredService<IMediator>();
+                var eventsToPublish = DomainEvents.ToArray();
+                DomainEvents.Clear();
+
+                foreach (var evt in eventsToPublish)
+                {
+                    await mediator.Publish(evt, cancellationToken);
+                }
+            }
         }
     }
 }
