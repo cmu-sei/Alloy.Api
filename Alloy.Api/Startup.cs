@@ -35,6 +35,7 @@ using Microsoft.IdentityModel.JsonWebTokens;
 using Microsoft.AspNetCore.Mvc.Authorization;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Resources;
+using Crucible.Common.ServiceDefaults;
 
 namespace Alloy.Api
 {
@@ -44,16 +45,16 @@ namespace Alloy.Api
         private readonly SignalROptions _signalROptions = new();
         private const string _routePrefix = "api";
         private string _pathbase;
-        private readonly TelemetryOptions _telemetryOptions = new();
+        private readonly IWebHostEnvironment _env;
 
         public IConfiguration Configuration { get; }
 
-        public Startup(IConfiguration configuration)
+        public Startup(IConfiguration configuration, IWebHostEnvironment env)
         {
+            _env = env;
             Configuration = configuration;
             Configuration.GetSection("Authorization").Bind(_authOptions);
             Configuration.GetSection("SignalR").Bind(_signalROptions);
-            Configuration.GetSection("Telemetry").Bind(_telemetryOptions);
             _pathbase = Configuration["PathBase"] ?? "";
         }
 
@@ -241,46 +242,29 @@ namespace Alloy.Api
                 .WithMetrics(builder =>
                 {
                     builder
-                        .SetResourceBuilder(ResourceBuilder.CreateDefault().AddService("TelemetryService"))
+                        .SetResourceBuilder(ResourceBuilder.CreateDefault().AddService("alloy-api"))
                         .AddMeter
                         (
                             TelemetryService.AlloyMeterName
                         )
                         .AddPrometheusExporter();
-                    if (_telemetryOptions.AddRuntimeInstrumentation)
-                    {
-                        builder.AddRuntimeInstrumentation();
-                    }
-                    if (_telemetryOptions.AddProcessInstrumentation)
-                    {
-                        builder.AddProcessInstrumentation();
-                    }
-                    if (_telemetryOptions.AddAspNetCoreInstrumentation)
-                    {
-                        builder.AddAspNetCoreInstrumentation();
-                    }
-                    if (_telemetryOptions.AddHttpClientInstrumentation)
-                    {
-                        builder.AddHttpClientInstrumentation();
-                    }
-                    if (_telemetryOptions.UseMeterMicrosoftAspNetCoreHosting)
-                    {
-                        builder.AddMeter("Microsoft.AspNetCore.Hosting");
-                    }
-                    if (_telemetryOptions.UseMeterMicrosoftAspNetCoreServerKestrel)
-                    {
-                        builder.AddMeter("Microsoft.AspNetCore.Server.Kestrel");
-                    }
-                    if (_telemetryOptions.UseMeterSystemNetHttp)
-                    {
-                        builder.AddMeter("System.Net.Http");
-                    }
-                    if (_telemetryOptions.UseMeterSystemNetNameResolution)
-                    {
-                        builder.AddMeter("System.Net.NameResolution");
-                    }
                 }
             );
+
+            // add Crucible Common Service Defaults with configuration from appsettings
+            services.AddServiceDefaults(_env, Configuration, openTelemetryOptions =>
+            {
+                // Bind configuration from appsettings.json "OpenTelemetry" section
+                var telemetrySection = Configuration.GetSection("OpenTelemetry");
+                if (telemetrySection.Exists())
+                {
+                    telemetrySection.Bind(openTelemetryOptions);
+                }
+
+                // Add service-specific meters
+                openTelemetryOptions.CustomMeters = openTelemetryOptions.CustomMeters.Append(TelemetryService.AlloyMeterName);
+            });
+
             // add the other API clients
             services.AddPlayerApiClient();
             services.AddCasterApiClient();
