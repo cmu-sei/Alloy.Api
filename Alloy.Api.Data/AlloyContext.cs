@@ -8,19 +8,17 @@ using System.Threading;
 using System.Threading.Tasks;
 using Alloy.Api.Data.Extensions;
 using Alloy.Api.Data.Models;
+using Crucible.Common.EntityEvents;
+using Crucible.Common.EntityEvents.Abstractions;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Alloy.Api.Data
 {
-    public class AlloyContext : DbContext
+    [GenerateEntityEventInterfaces(typeof(INotification))]
+    public class AlloyContext : EventPublishingDbContext
     {
-        // Needed for EventInterceptor
-        public IServiceProvider ServiceProvider;
-
-        // Entity Events collected by EventTransactionInterceptor and published in SaveChanges
-        public List<INotification> DomainEvents { get; } = [];
 
         public AlloyContext(DbContextOptions<AlloyContext> options) : base(options) { }
 
@@ -54,17 +52,13 @@ namespace Alloy.Api.Data
         public override int SaveChanges()
         {
             UpdateBaseEntityFields();
-            var result = base.SaveChanges();
-            PublishEvents().Wait();
-            return result;
+            return base.SaveChanges();
         }
 
         public override async Task<int> SaveChangesAsync(CancellationToken ct = default(CancellationToken))
         {
             UpdateBaseEntityFields();
-            var result = await base.SaveChangesAsync(ct);
-            await PublishEvents(ct);
-            return result;
+            return await base.SaveChangesAsync(ct);
         }
 
         private void UpdateBaseEntityFields()
@@ -97,16 +91,12 @@ namespace Alloy.Api.Data
             }
         }
 
-        private async Task PublishEvents(CancellationToken cancellationToken = default)
+        protected override async Task PublishEventsAsync(CancellationToken cancellationToken)
         {
-            // Publish deferred events after transaction is committed and cleared
-            if (DomainEvents.Count > 0 && ServiceProvider is not null)
+            if (EntityEvents.Count > 0 && ServiceProvider is not null)
             {
                 var mediator = ServiceProvider.GetRequiredService<IMediator>();
-                var eventsToPublish = DomainEvents.ToArray();
-                DomainEvents.Clear();
-
-                foreach (var evt in eventsToPublish)
+                foreach (var evt in EntityEvents.Cast<INotification>())
                 {
                     await mediator.Publish(evt, cancellationToken);
                 }

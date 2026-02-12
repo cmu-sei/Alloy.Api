@@ -10,8 +10,8 @@ using Alloy.Api.Data;
 using Alloy.Api.Infrastructure.Extensions;
 using Alloy.Api.Hubs;
 using Alloy.Api.Infrastructure.Authorization;
-using Alloy.Api.Infrastructure.DbInterceptors;
 using Alloy.Api.Infrastructure.Filters;
+using Crucible.Common.EntityEvents.Extensions;
 using Alloy.Api.Infrastructure.Identity;
 using Alloy.Api.Infrastructure.JsonConverters;
 using Alloy.Api.Infrastructure.Mappings;
@@ -65,21 +65,16 @@ namespace Alloy.Api
             switch (provider)
             {
                 case "InMemory":
-                    services.AddPooledDbContextFactory<AlloyContext>((ServiceProvider, builder) => builder
-                        .AddInterceptors(ServiceProvider.GetRequiredService<EventInterceptor>())
+                    services.AddEventPublishingDbContextFactory<AlloyContext>((ServiceProvider, builder) => builder
                         .UseInMemoryDatabase("api"));
                     break;
                 case "Sqlite":
                 case "SqlServer":
                 case "PostgreSQL":
-                    services.AddPooledDbContextFactory<AlloyContext>((serviceProvider, builder) => builder
-                        .AddInterceptors(serviceProvider.GetRequiredService<EventInterceptor>())
+                    services.AddEventPublishingDbContextFactory<AlloyContext>((serviceProvider, builder) => builder
                         .UseConfiguredDatabase(Configuration));
                     break;
             }
-
-            services.AddScoped<AlloyContextFactory>();
-            services.AddScoped(sp => sp.GetRequiredService<AlloyContextFactory>().CreateDbContext());
 
             services.AddSingleton<StartupHealthCheck>();
             services.AddSingleton<HostedServiceHealthCheck>();
@@ -231,7 +226,6 @@ namespace Alloy.Api
             services.AddScoped<IUserService, UserService>();
             services.AddScoped<IUserClaimsService, UserClaimsService>();
             services.AddScoped<IClaimsTransformation, AuthorizationClaimsTransformer>();
-            services.AddTransient<EventInterceptor>();
             services.AddScoped<IAlloyAuthorizationService, AuthorizationService>();
             services.AddScoped<IIdentityResolver, IdentityResolver>();
             services.AddScoped<IGroupService, GroupService>();
