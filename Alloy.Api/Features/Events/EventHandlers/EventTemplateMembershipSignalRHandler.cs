@@ -7,7 +7,7 @@ using AutoMapper;
 using MediatR;
 using Microsoft.AspNetCore.SignalR;
 using Alloy.Api.Data.Models;
-using Alloy.Api.Domain.Events;
+using Crucible.Common.EntityEvents.Events;
 using Alloy.Api.Hubs;
 
 namespace Alloy.Api.Events.EventHandlers
