@@ -10,7 +10,7 @@ using MediatR;
 using Microsoft.AspNetCore.SignalR;
 using Alloy.Api.Data;
 using Alloy.Api.Data.Models;
-using Alloy.Api.Domain.Events;
+using Crucible.Common.EntityEvents.Events;
 using Alloy.Api.Hubs;
 using Alloy.Api.ViewModels;
 using Microsoft.EntityFrameworkCore;
