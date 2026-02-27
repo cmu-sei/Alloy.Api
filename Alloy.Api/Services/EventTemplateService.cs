@@ -12,6 +12,7 @@ using AutoMapper;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Npgsql;
 using Alloy.Api.Data;
 using Alloy.Api.Data.Models;
 using Alloy.Api.Infrastructure.Extensions;
@@ -125,13 +126,56 @@ namespace Alloy.Api.Services
         /// <returns></returns>
         public async Task<ViewModels.EventTemplate> CreateAsync(ViewModels.EventTemplate eventTemplate, CancellationToken ct)
         {
+            // Validate required fields
+            if (string.IsNullOrWhiteSpace(eventTemplate.Name))
+            {
+                _logger.LogWarning("CreateEventTemplate failed: Name is required");
+                throw new ArgumentException("EventTemplate Name is required and cannot be empty.");
+            }
+
             eventTemplate.CreatedBy = _user.GetId();
             var eventTemplateEntity = _mapper.Map<EventTemplateEntity>(eventTemplate);
 
-            _context.EventTemplates.Add(eventTemplateEntity);
-            await _context.SaveChangesAsync(ct);
+            try
+            {
+                _context.EventTemplates.Add(eventTemplateEntity);
+                await _context.SaveChangesAsync(ct);
 
-            return await GetAsync(eventTemplateEntity.Id, ct);
+                _logger.LogInformation($"Successfully created EventTemplate {eventTemplateEntity.Id} ('{eventTemplate.Name}')");
+
+                return await GetAsync(eventTemplateEntity.Id, ct);
+            }
+            catch (DbUpdateException ex) when (ex.InnerException is PostgresException pgEx)
+            {
+                _logger.LogError(ex, $"Database error creating EventTemplate '{eventTemplate.Name}': {pgEx.MessageText}");
+
+                // Handle specific PostgreSQL errors
+                switch (pgEx.SqlState)
+                {
+                    case "23505": // unique_violation
+                        throw new InvalidOperationException($"An EventTemplate with the ID '{eventTemplateEntity.Id}' already exists.", ex);
+                    case "23503": // foreign_key_violation
+                        var constraintName = pgEx.ConstraintName ?? "unknown";
+                        if (constraintName.Contains("ScenarioTemplateId", StringComparison.OrdinalIgnoreCase))
+                        {
+                            throw new InvalidOperationException($"Invalid ScenarioTemplateId '{eventTemplate.ScenarioTemplateId}'. The ScenarioTemplate does not exist.", ex);
+                        }
+                        if (constraintName.Contains("DirectoryId", StringComparison.OrdinalIgnoreCase))
+                        {
+                            throw new InvalidOperationException($"Invalid DirectoryId '{eventTemplate.DirectoryId}'. The Directory does not exist.", ex);
+                        }
+                        throw new InvalidOperationException($"Foreign key constraint violated: {constraintName}. Please verify all referenced entities exist.", ex);
+                    case "23514": // check_violation
+                        throw new InvalidOperationException($"Data validation failed: {pgEx.MessageText}", ex);
+                    default:
+                        throw new InvalidOperationException($"Database error creating EventTemplate: {pgEx.MessageText}", ex);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, $"Unexpected error creating EventTemplate '{eventTemplate.Name}'");
+                throw new InvalidOperationException($"An unexpected error occurred while creating the EventTemplate: {ex.Message}", ex);
+            }
         }
 
         /// <summary>

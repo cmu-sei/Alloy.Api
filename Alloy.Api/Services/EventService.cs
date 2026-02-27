@@ -21,6 +21,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Npgsql;
 using Steamfitter.Api.Client;
 
 namespace Alloy.Api.Services
@@ -172,13 +173,60 @@ namespace Alloy.Api.Services
 
         public async Task<Event> CreateAsync(Event eventx, CancellationToken ct)
         {
+            // Validate required fields
+            if (string.IsNullOrWhiteSpace(eventx.Name))
+            {
+                _logger.LogWarning("CreateEvent failed: Name is required");
+                throw new ArgumentException("Event Name is required and cannot be empty.");
+            }
+
             eventx.CreatedBy = _user.GetId();
             var eventEntity = _mapper.Map<EventEntity>(eventx);
 
-            _context.Events.Add(eventEntity);
-            await _context.SaveChangesAsync(ct);
+            try
+            {
+                _context.Events.Add(eventEntity);
+                await _context.SaveChangesAsync(ct);
 
-            return _mapper.Map<Event>(eventEntity);
+                _logger.LogInformation($"Successfully created Event {eventEntity.Id} ('{eventx.Name}')");
+
+                return _mapper.Map<Event>(eventEntity);
+            }
+            catch (DbUpdateException ex) when (ex.InnerException is PostgresException pgEx)
+            {
+                _logger.LogError(ex, $"Database error creating Event '{eventx.Name}': {pgEx.MessageText}");
+
+                // Handle specific PostgreSQL errors
+                switch (pgEx.SqlState)
+                {
+                    case "23505": // unique_violation
+                        throw new InvalidOperationException($"An Event with the ID '{eventEntity.Id}' already exists.", ex);
+                    case "23503": // foreign_key_violation
+                        var constraintName = pgEx.ConstraintName ?? "unknown";
+                        if (constraintName.Contains("ViewId", StringComparison.OrdinalIgnoreCase))
+                        {
+                            throw new InvalidOperationException($"Invalid ViewId '{eventx.ViewId}'. The referenced View does not exist.", ex);
+                        }
+                        if (constraintName.Contains("EventTemplateId", StringComparison.OrdinalIgnoreCase))
+                        {
+                            throw new InvalidOperationException($"Invalid EventTemplateId '{eventx.EventTemplateId}'. The EventTemplate does not exist.", ex);
+                        }
+                        if (constraintName.Contains("ScenarioId", StringComparison.OrdinalIgnoreCase))
+                        {
+                            throw new InvalidOperationException($"Invalid ScenarioId '{eventx.ScenarioId}'. The Scenario does not exist.", ex);
+                        }
+                        throw new InvalidOperationException($"Foreign key constraint violated: {constraintName}. Please verify all referenced entities exist.", ex);
+                    case "23514": // check_violation
+                        throw new InvalidOperationException($"Data validation failed: {pgEx.MessageText}", ex);
+                    default:
+                        throw new InvalidOperationException($"Database error creating Event: {pgEx.MessageText}", ex);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, $"Unexpected error creating Event '{eventx.Name}'");
+                throw new InvalidOperationException($"An unexpected error occurred while creating the Event: {ex.Message}", ex);
+            }
         }
 
         public async Task<Event> LaunchEventFromEventTemplateAsync(CreateEventCommand command, CancellationToken ct)
