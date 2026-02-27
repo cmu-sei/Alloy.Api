@@ -125,11 +125,21 @@ namespace Alloy.Api.Services
         /// <returns></returns>
         public async Task<ViewModels.EventTemplate> CreateAsync(ViewModels.EventTemplate eventTemplate, CancellationToken ct)
         {
+            // Validate required fields
+            if (string.IsNullOrWhiteSpace(eventTemplate.Name))
+            {
+                _logger.LogWarning("CreateEventTemplate failed: Name is required");
+                throw new ArgumentException("EventTemplate Name is required and cannot be empty.");
+            }
+
             eventTemplate.CreatedBy = _user.GetId();
             var eventTemplateEntity = _mapper.Map<EventTemplateEntity>(eventTemplate);
 
             _context.EventTemplates.Add(eventTemplateEntity);
             await _context.SaveChangesAsync(ct);
+
+            _logger.LogInformation("Successfully created EventTemplate {EventTemplateId} ('{EventTemplateName}')",
+                eventTemplateEntity.Id, eventTemplate.Name);
 
             return await GetAsync(eventTemplateEntity.Id, ct);
         }
@@ -178,7 +188,7 @@ namespace Alloy.Api.Services
 
             if (eventTemplateEntity == null)
             {
-                _logger.LogError($"EventTemplate {eventTemplateId} was not found.");
+                _logger.LogError("EventTemplate {EventTemplateId} was not found", eventTemplateId);
                 throw new EntityNotFoundException<EventTemplate>();
             }
 
