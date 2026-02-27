@@ -188,7 +188,7 @@ namespace Alloy.Api.Services
 
             if (eventTemplateEntity == null)
             {
-                _logger.LogError($"EventTemplate {eventTemplateId} was not found.");
+                _logger.LogError("EventTemplate {EventTemplateId} was not found", eventTemplateId);
                 throw new EntityNotFoundException<EventTemplate>();
             }
 

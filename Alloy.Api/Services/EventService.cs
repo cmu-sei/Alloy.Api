@@ -255,7 +255,7 @@ namespace Alloy.Api.Services
             }
             catch (Exception ex)
             {
-                _logger.LogError($"Error ending Event {eventId}.", ex);
+                _logger.LogError(ex, "Error ending Event {EventId}", eventId);
                 throw;
             }
 
@@ -297,7 +297,7 @@ namespace Alloy.Api.Services
             }
             catch (Exception ex)
             {
-                _logger.LogError($"Error ending Event {eventId}.", ex);
+                _logger.LogError(ex, "Error ending Event {EventId}", eventId);
                 throw;
             }
 
@@ -306,7 +306,7 @@ namespace Alloy.Api.Services
 
         private async Task<EventEntity> CreateEventEntityAsync(Guid eventTemplateId, Guid userId, string username, List<Guid> additionalUserIds, CancellationToken ct)
         {
-            _logger.LogInformation($"For EventTemplate {eventTemplateId}, Create Event.");
+            _logger.LogInformation("For EventTemplate {EventTemplateId}, Create Event", eventTemplateId);
 
             if (string.IsNullOrEmpty(username))
             {
@@ -347,7 +347,8 @@ namespace Alloy.Api.Services
                 }
             }
             await _context.SaveChangesAsync(ct);
-            _logger.LogInformation($"Event {eventEntity.Id} created for EventTemplate {eventTemplateId}.");
+            _logger.LogInformation("Event {EventId} created for EventTemplate {EventTemplateId}",
+                eventEntity.Id, eventTemplateId);
 
             return eventEntity;
         }
@@ -365,7 +366,8 @@ namespace Alloy.Api.Services
             resourcesAvailable = !items.Any();
             if (!resourcesAvailable)
             {
-                _logger.LogError($"User {userId} already has an active Event for EventTemplate {eventTemplateId}.");
+                _logger.LogError("User {UserId} already has an active Event for EventTemplate {EventTemplateId}",
+                    userId, eventTemplateId);
                 throw new Exception($"User {userId} already has an active Event for EventTemplate {eventTemplateId}.");
             }
             {
@@ -377,7 +379,7 @@ namespace Alloy.Api.Services
                 resourcesAvailable = items.Count() < upperLimit;
                 if (!resourcesAvailable)
                 {
-                    _logger.LogError($"User {userId} already has {upperLimit} Events active.");
+                    _logger.LogError("User {UserId} already has {UpperLimit} Events active", userId, upperLimit);
                     throw new Exception($"User {userId} already has {upperLimit} Events active.");
                 }
             }
@@ -391,7 +393,7 @@ namespace Alloy.Api.Services
 
             if (eventEntity == null)
             {
-                _logger.LogError($"Event {eventId} was not found.");
+                _logger.LogError("Event {EventId} was not found", eventId);
                 throw new EntityNotFoundException<EventTemplate>();
             }
 
@@ -404,7 +406,7 @@ namespace Alloy.Api.Services
 
             if (eventEntity.CreatedBy != _user.GetId())
             {
-                _logger.LogError($"User {_user.GetId()} is not the owner, Only owners of an event can create an invite link");
+                _logger.LogError("User {UserId} is not the owner, Only owners of an event can create an invite link", _user.GetId());
                 throw new ForbiddenException($"User {_user.GetId()} is not the owner, Only owners of an event can create an invite link");
             }
 
