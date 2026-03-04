@@ -138,8 +138,8 @@ namespace Alloy.Api.Services
             _context.EventTemplates.Add(eventTemplateEntity);
             await _context.SaveChangesAsync(ct);
 
-            _logger.LogInformation("Successfully created EventTemplate {EventTemplateId} ('{EventTemplateName}')",
-                eventTemplateEntity.Id, eventTemplate.Name);
+            _logger.LogInformation("Successfully created EventTemplate {EventTemplateId}",
+                eventTemplateEntity.Id);
 
             return await GetAsync(eventTemplateEntity.Id, ct);
         }

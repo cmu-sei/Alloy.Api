@@ -185,7 +185,7 @@ namespace Alloy.Api.Services
             _context.Events.Add(eventEntity);
             await _context.SaveChangesAsync(ct);
 
-            _logger.LogInformation("Successfully created Event {EventId} ('{EventName}')", eventEntity.Id, eventx.Name);
+            _logger.LogInformation("Successfully created Event {EventId}", eventEntity.Id);
 
             return _mapper.Map<Event>(eventEntity);
         }

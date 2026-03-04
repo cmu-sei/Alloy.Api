@@ -67,7 +67,7 @@ namespace Alloy.Api.Services
 
             _context.Users.Add(userEntity);
             await _context.SaveChangesAsync(ct);
-            _logger.LogWarning("User {UserName} ({UserId}) created by {CreatorId}", user.Name, userEntity.Id, _user.GetId());
+            _logger.LogWarning("User {UserId} created by {CreatorId}", userEntity.Id, _user.GetId());
             return await GetAsync(user.Id, ct);
         }
 
@@ -88,7 +88,7 @@ namespace Alloy.Api.Services
 
             _context.Users.Update(userToUpdate);
             await _context.SaveChangesAsync(ct);
-            _logger.LogWarning("User {UserName} ({UserId}) updated by {UpdaterId}", userToUpdate.Name, userToUpdate.Id, _user.GetId());
+            _logger.LogWarning("User {UserId} updated by {UpdaterId}", userToUpdate.Id, _user.GetId());
             return await GetAsync(id, ct);
         }
 
@@ -106,7 +106,7 @@ namespace Alloy.Api.Services
 
             _context.Users.Remove(userToDelete);
             await _context.SaveChangesAsync(ct);
-            _logger.LogWarning("User {UserName} ({UserId}) deleted by {DeleterId}", userToDelete.Name, userToDelete.Id, _user.GetId());
+            _logger.LogWarning("User {UserId} deleted by {DeleterId}", userToDelete.Id, _user.GetId());
             return true;
         }
 
