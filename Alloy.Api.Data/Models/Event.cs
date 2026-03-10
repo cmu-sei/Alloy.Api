@@ -31,6 +31,7 @@ namespace Alloy.Api.Data.Models
         public InternalEventStatus LastLaunchInternalStatus { get; set; }
         public EventStatus LastEndStatus { get; set; }
         public InternalEventStatus LastEndInternalStatus { get; set; }
+        public string ErrorMessage { get; set; }
         public DateTime StatusDate { get; set; }
         public DateTime? LaunchDate { get; set; }
         public DateTime? EndDate { get; set; }

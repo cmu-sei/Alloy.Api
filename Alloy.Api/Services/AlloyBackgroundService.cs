@@ -220,6 +220,7 @@ namespace Alloy.Api.Services
                                                     catch (Exception ex)
                                                     {
                                                         _logger.LogError(ex, $"Error creating the player view for Event {eventEntity.Id}.");
+                                                        eventEntity.ErrorMessage = $"Failed to create Player view: {ex.Message}";
                                                         retry = true;
                                                         tokenResponse = null;
                                                     }
@@ -235,16 +236,27 @@ namespace Alloy.Api.Services
                                                 }
                                                 else
                                                 {
-                                                    (steamfitterApiClient, tokenResponse) = await RefreshClient(steamfitterApiClient, tokenResponse, scope.ServiceProvider, ct);
-                                                    var scenario = await SteamfitterApiExtensions.CreateSteamfitterScenarioAsync(steamfitterApiClient, eventEntity, (Guid)eventTemplateEntity.ScenarioTemplateId, ct);
-                                                    if (scenario != null)
+                                                    try
                                                     {
-                                                        eventEntity.ScenarioId = scenario.Id;
-                                                        eventEntity.InternalStatus = InternalEventStatus.CreatingWorkspace;
-                                                        updateTheEntity = true;
+                                                        (steamfitterApiClient, tokenResponse) = await RefreshClient(steamfitterApiClient, tokenResponse, scope.ServiceProvider, ct);
+                                                        var scenario = await SteamfitterApiExtensions.CreateSteamfitterScenarioAsync(steamfitterApiClient, eventEntity, (Guid)eventTemplateEntity.ScenarioTemplateId, ct);
+                                                        if (scenario != null)
+                                                        {
+                                                            eventEntity.ScenarioId = scenario.Id;
+                                                            eventEntity.InternalStatus = InternalEventStatus.CreatingWorkspace;
+                                                            updateTheEntity = true;
+                                                        }
+                                                        else
+                                                        {
+                                                            eventEntity.ErrorMessage = "Failed to create Steamfitter scenario";
+                                                            retry = true;
+                                                            tokenResponse = null;
+                                                        }
                                                     }
-                                                    else
+                                                    catch (Exception ex)
                                                     {
+                                                        _logger.LogError(ex, $"Error creating the Steamfitter scenario for Event {eventEntity.Id}.");
+                                                        eventEntity.ErrorMessage = $"Failed to create Steamfitter scenario: {ex.Message}";
                                                         retry = true;
                                                         tokenResponse = null;
                                                     }
@@ -480,6 +492,7 @@ namespace Alloy.Api.Services
                                                     eventEntity.ExpirationDate = launchDate.AddHours(eventTemplateEntity.DurationHours);
                                                     eventEntity.Status = EventStatus.Active;
                                                     eventEntity.InternalStatus = InternalEventStatus.Launched;
+                                                    eventEntity.ErrorMessage = null; // Clear error on successful launch
                                                 }
                                                 else
                                                 {

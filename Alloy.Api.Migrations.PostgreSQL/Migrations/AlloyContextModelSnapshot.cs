@@ -71,6 +71,10 @@ namespace Alloy.Api.Migrations.PostgreSQL.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("last_end_internal_status");
 
+                    b.Property<string>("ErrorMessage")
+                        .HasColumnType("text")
+                        .HasColumnName("error_message");
+
                     b.Property<int>("LastEndStatus")
                         .HasColumnType("integer")
                         .HasColumnName("last_end_status");
