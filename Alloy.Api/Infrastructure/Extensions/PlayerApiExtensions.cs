@@ -22,7 +22,7 @@ namespace Alloy.Api.Infrastructure.Extensions
             return apiClient;
         }
 
-        public static async Task<Guid?> CreatePlayerViewAsync(PlayerApiClient playerApiClient, EventEntity eventEntity, EventTemplateEntity eventTemplateEntity, List<UserEntity> userList, CancellationToken ct)
+        public static async Task<(Guid? viewId, string errorMessage)> CreatePlayerViewAsync(PlayerApiClient playerApiClient, EventEntity eventEntity, EventTemplateEntity eventTemplateEntity, List<UserEntity> userList, CancellationToken ct)
         {
             View clonedView = null;
             try
@@ -78,10 +78,11 @@ namespace Alloy.Api.Infrastructure.Extensions
                     }
                 }
 
-                return clonedView.Id;
+                return (clonedView.Id, null);
             }
-            catch (Exception)
+            catch (Exception ex)
             {
+                var errorMessage = $"Failed to create Player view: {ex.Message}";
                 try
                 {
                     if (clonedView != null)
@@ -89,12 +90,12 @@ namespace Alloy.Api.Infrastructure.Extensions
                         await playerApiClient.DeleteViewAsync(clonedView.Id);
                     }
                 }
-                catch (Exception)
+                catch (Exception deleteEx)
                 {
-                    return null;
+                    errorMessage += $" (Failed to cleanup view: {deleteEx.Message})";
                 }
 
-                return null;
+                return (null, errorMessage);
             }
         }
 

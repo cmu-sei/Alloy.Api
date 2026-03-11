@@ -204,11 +204,19 @@ namespace Alloy.Api.Services
                                                             .Where(m => m.EventId == eventEntity.Id)
                                                             .Select(m => m.User)
                                                             .ToListAsync();
-                                                        var viewId = await PlayerApiExtensions.CreatePlayerViewAsync(playerApiClient, eventEntity, eventTemplateEntity, users, ct);
+                                                        var (viewId, errorMessage) = await PlayerApiExtensions.CreatePlayerViewAsync(playerApiClient, eventEntity, eventTemplateEntity, users, ct);
                                                         if (viewId != null)
                                                         {
                                                             eventEntity.ViewId = viewId;
                                                             eventEntity.InternalStatus = InternalEventStatus.CreatingScenario;
+                                                            updateTheEntity = true;
+                                                        }
+                                                        else if (!string.IsNullOrWhiteSpace(errorMessage))
+                                                        {
+                                                            // View creation failed with a specific error
+                                                            eventEntity.ErrorMessage = errorMessage;
+                                                            eventEntity.Status = EventStatus.Failed;
+                                                            eventEntity.InternalStatus = InternalEventStatus.FailedLaunch;
                                                             updateTheEntity = true;
                                                         }
                                                         else
