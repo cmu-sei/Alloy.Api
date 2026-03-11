@@ -359,10 +359,11 @@ namespace Alloy.Api.Services
                                         case InternalEventStatus.PlannedRedeploy:
                                             {
                                                 (casterApiClient, tokenResponse) = await RefreshClient(casterApiClient, tokenResponse, scope.ServiceProvider, ct);
-                                                updateTheEntity = await CasterApiExtensions.WaitForRunToBePlannedAsync(eventEntity, casterApiClient, _clientOptions.CurrentValue.CasterCheckIntervalSeconds, _clientOptions.CurrentValue.CasterPlanningMaxWaitMinutes, _logger, ct);
-                                                if (updateTheEntity)
+                                                var (success, errorMessage) = await CasterApiExtensions.WaitForRunToBePlannedAsync(eventEntity, casterApiClient, _clientOptions.CurrentValue.CasterCheckIntervalSeconds, _clientOptions.CurrentValue.CasterPlanningMaxWaitMinutes, _logger, ct);
+                                                if (success)
                                                 {
                                                     eventEntity.Status = EventStatus.Applying;
+                                                    updateTheEntity = true;
 
                                                     switch (eventEntity.InternalStatus)
                                                     {
@@ -374,9 +375,17 @@ namespace Alloy.Api.Services
                                                             break;
                                                     }
                                                 }
+                                                else if (!string.IsNullOrWhiteSpace(errorMessage))
+                                                {
+                                                    // Plan failed with a specific error
+                                                    eventEntity.ErrorMessage = errorMessage;
+                                                    eventEntity.Status = EventStatus.Failed;
+                                                    eventEntity.InternalStatus = InternalEventStatus.FailedLaunch;
+                                                    updateTheEntity = true;
+                                                }
                                                 else
                                                 {
-                                                    // Plan failed, retry
+                                                    // Plan failed or timed out, retry
                                                     switch (eventEntity.InternalStatus)
                                                     {
                                                         case InternalEventStatus.PlannedLaunch:
@@ -559,14 +568,23 @@ namespace Alloy.Api.Services
                                         case InternalEventStatus.PlannedDestroy:
                                             {
                                                 (casterApiClient, tokenResponse) = await RefreshClient(casterApiClient, tokenResponse, scope.ServiceProvider, ct);
-                                                updateTheEntity = await CasterApiExtensions.WaitForRunToBePlannedAsync(eventEntity, casterApiClient, _clientOptions.CurrentValue.CasterCheckIntervalSeconds, _clientOptions.CurrentValue.CasterPlanningMaxWaitMinutes, _logger, ct);
-                                                if (updateTheEntity)
+                                                var (success, errorMessage) = await CasterApiExtensions.WaitForRunToBePlannedAsync(eventEntity, casterApiClient, _clientOptions.CurrentValue.CasterCheckIntervalSeconds, _clientOptions.CurrentValue.CasterPlanningMaxWaitMinutes, _logger, ct);
+                                                if (success)
                                                 {
                                                     eventEntity.InternalStatus = InternalEventStatus.ApplyingDestroy;
+                                                    updateTheEntity = true;
+                                                }
+                                                else if (!string.IsNullOrWhiteSpace(errorMessage))
+                                                {
+                                                    // Destroy plan failed with a specific error
+                                                    eventEntity.ErrorMessage = errorMessage;
+                                                    eventEntity.Status = EventStatus.Failed;
+                                                    eventEntity.InternalStatus = InternalEventStatus.FailedDestroy;
+                                                    updateTheEntity = true;
                                                 }
                                                 else
                                                 {
-                                                    // Destroy failed, retry
+                                                    // Destroy failed or timed out, retry
                                                     eventEntity.InternalStatus = InternalEventStatus.PlanningDestroy;
                                                     updateTheEntity = true;
                                                     retry = true;

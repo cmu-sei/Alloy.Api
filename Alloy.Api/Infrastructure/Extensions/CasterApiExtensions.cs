@@ -97,6 +97,16 @@ namespace Alloy.Api.Infrastructure.Extensions
                 var casterRun = await casterApiClient.CreateRunAsync(runCommand, ct);
                 return (casterRun.Id, null);
             }
+            catch (Caster.Api.Client.ApiException apiEx)
+            {
+                logger.LogError(apiEx, "Error Creating Run - API Exception");
+                var errorMessage = $"Failed to create Caster run: HTTP {apiEx.StatusCode}";
+                if (!string.IsNullOrWhiteSpace(apiEx.Response))
+                {
+                    errorMessage += $" - {apiEx.Response}";
+                }
+                return (null, errorMessage);
+            }
             catch (Exception ex)
             {
                 logger.LogError(ex, "Error Creating Run");
@@ -107,7 +117,7 @@ namespace Alloy.Api.Infrastructure.Extensions
             }
         }
 
-        public static async Task<bool> WaitForRunToBePlannedAsync(
+        public static async Task<(bool success, string errorMessage)> WaitForRunToBePlannedAsync(
             EventEntity eventEntity,
             CasterApiClient casterApiClient,
             int loopIntervalSeconds,
@@ -117,14 +127,15 @@ namespace Alloy.Api.Infrastructure.Extensions
         {
             if (eventEntity.RunId == null)
             {
-                return false;
+                return (false, null);
             }
             var endTime = DateTime.UtcNow.AddMinutes(maxWaitMinutes);
             var status = RunStatus.Planning;
+            Run casterRun = null;
 
             while ((status == RunStatus.Queued || status == RunStatus.Planning) && DateTime.UtcNow < endTime)
             {
-                var casterRun = await casterApiClient.GetRunAsync((Guid)eventEntity.RunId, false, false);
+                casterRun = await casterApiClient.GetRunAsync((Guid)eventEntity.RunId, true, false);
                 status = casterRun.Status;
                 // if not there yet, pause before the next check
                 if (status == RunStatus.Planning || status == RunStatus.Queued)
@@ -134,11 +145,22 @@ namespace Alloy.Api.Infrastructure.Extensions
             }
             if (status == RunStatus.Planned)
             {
-                return true;
+                return (true, null);
+            }
+            else if (status == RunStatus.Failed)
+            {
+                var output = casterRun?.Plan?.Output ?? "No output available";
+                // Strip ANSI escape codes
+                output = System.Text.RegularExpressions.Regex.Replace(output, @"\x1B\[[0-9;]*[mGKH]", "");
+                var errorMessage = $"Terraform plan failed: {output}";
+                logger.LogError($"Run {eventEntity.RunId} failed during planning: {errorMessage}");
+                return (false, errorMessage);
             }
             else
             {
-                return false;
+                var errorMessage = $"Run did not reach Planned status. Current status: {status}";
+                logger.LogWarning($"Run {eventEntity.RunId} timed out or entered unexpected status: {status}");
+                return (false, errorMessage);
             }
         }
 
