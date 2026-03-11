@@ -21,7 +21,7 @@ namespace Alloy.Api.Infrastructure.Extensions
             return apiClient;
         }
 
-        public static async Task<Scenario> CreateSteamfitterScenarioAsync(SteamfitterApiClient steamfitterApiClient, EventEntity eventEntity, Guid scenarioTemplateId, CancellationToken ct)
+        public static async Task<(Scenario scenario, string errorMessage)> CreateSteamfitterScenarioAsync(SteamfitterApiClient steamfitterApiClient, EventEntity eventEntity, Guid scenarioTemplateId, CancellationToken ct)
         {
             try
             {
@@ -33,11 +33,23 @@ namespace Alloy.Api.Infrastructure.Extensions
                 };
 
                 var scenario = await steamfitterApiClient.CreateScenarioFromScenarioTemplateAsync(scenarioTemplateId, options, ct);
-                return scenario;
+                return (scenario, null);
             }
-            catch (Exception)
+            catch (Steamfitter.Api.Client.ApiException apiEx)
             {
-                return null;
+                var errorMessage = $"Failed to create Steamfitter scenario: HTTP {apiEx.StatusCode}";
+                if (!string.IsNullOrWhiteSpace(apiEx.Response))
+                {
+                    errorMessage += $" - {apiEx.Response}";
+                }
+                return (null, errorMessage);
+            }
+            catch (Exception ex)
+            {
+                var errorMessage = ex.InnerException != null
+                    ? $"Failed to create Steamfitter scenario: {ex.Message} ({ex.InnerException.Message})"
+                    : $"Failed to create Steamfitter scenario: {ex.Message}";
+                return (null, errorMessage);
             }
         }
 

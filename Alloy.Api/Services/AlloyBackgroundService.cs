@@ -252,27 +252,23 @@ namespace Alloy.Api.Services
                                                 }
                                                 else
                                                 {
-                                                    try
+                                                    (steamfitterApiClient, tokenResponse) = await RefreshClient(steamfitterApiClient, tokenResponse, scope.ServiceProvider, ct);
+                                                    var (scenario, errorMessage) = await SteamfitterApiExtensions.CreateSteamfitterScenarioAsync(steamfitterApiClient, eventEntity, (Guid)eventTemplateEntity.ScenarioTemplateId, ct);
+                                                    if (scenario != null)
                                                     {
-                                                        (steamfitterApiClient, tokenResponse) = await RefreshClient(steamfitterApiClient, tokenResponse, scope.ServiceProvider, ct);
-                                                        var scenario = await SteamfitterApiExtensions.CreateSteamfitterScenarioAsync(steamfitterApiClient, eventEntity, (Guid)eventTemplateEntity.ScenarioTemplateId, ct);
-                                                        if (scenario != null)
-                                                        {
-                                                            eventEntity.ScenarioId = scenario.Id;
-                                                            eventEntity.InternalStatus = InternalEventStatus.CreatingWorkspace;
-                                                            updateTheEntity = true;
-                                                        }
-                                                        else
-                                                        {
-                                                            eventEntity.ErrorMessage = "Failed to create Steamfitter scenario";
-                                                            retry = true;
-                                                            tokenResponse = null;
-                                                        }
+                                                        eventEntity.ScenarioId = scenario.Id;
+                                                        eventEntity.InternalStatus = InternalEventStatus.CreatingWorkspace;
+                                                        updateTheEntity = true;
                                                     }
-                                                    catch (Exception ex)
+                                                    else if (!string.IsNullOrWhiteSpace(errorMessage))
                                                     {
-                                                        _logger.LogError(ex, $"Error creating the Steamfitter scenario for Event {eventEntity.Id}.");
-                                                        eventEntity.ErrorMessage = $"Failed to create Steamfitter scenario: {ex.Message}";
+                                                        eventEntity.ErrorMessage = errorMessage;
+                                                        eventEntity.Status = EventStatus.Failed;
+                                                        eventEntity.InternalStatus = InternalEventStatus.FailedLaunch;
+                                                        updateTheEntity = true;
+                                                    }
+                                                    else
+                                                    {
                                                         retry = true;
                                                         tokenResponse = null;
                                                     }
