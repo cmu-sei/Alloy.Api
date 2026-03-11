@@ -80,7 +80,7 @@ namespace Alloy.Api.Infrastructure.Extensions
             }
         }
 
-        public static async Task<Guid?> CreateRunAsync(
+        public static async Task<(Guid? runId, string errorMessage)> CreateRunAsync(
             EventEntity eventEntity,
             CasterApiClient casterApiClient,
             bool isDestroy,
@@ -95,12 +95,15 @@ namespace Alloy.Api.Infrastructure.Extensions
             try
             {
                 var casterRun = await casterApiClient.CreateRunAsync(runCommand, ct);
-                return casterRun.Id;
+                return (casterRun.Id, null);
             }
             catch (Exception ex)
             {
                 logger.LogError(ex, "Error Creating Run");
-                return null;
+                var errorMessage = ex.InnerException != null
+                    ? $"Failed to create Caster run: {ex.Message} ({ex.InnerException.Message})"
+                    : $"Failed to create Caster run: {ex.Message}";
+                return (null, errorMessage);
             }
         }
 

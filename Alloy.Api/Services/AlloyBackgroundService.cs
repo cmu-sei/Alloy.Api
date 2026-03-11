@@ -330,7 +330,7 @@ namespace Alloy.Api.Services
                                         case InternalEventStatus.PlanningRedeploy:
                                             {
                                                 (casterApiClient, tokenResponse) = await RefreshClient(casterApiClient, tokenResponse, scope.ServiceProvider, ct);
-                                                var runId = await CasterApiExtensions.CreateRunAsync(eventEntity, casterApiClient, false, _logger, ct);
+                                                var (runId, errorMessage) = await CasterApiExtensions.CreateRunAsync(eventEntity, casterApiClient, false, _logger, ct);
                                                 if (runId != null)
                                                 {
                                                     eventEntity.RunId = runId;
@@ -348,8 +348,10 @@ namespace Alloy.Api.Services
                                                 }
                                                 else
                                                 {
-                                                    retry = true;
-                                                    tokenResponse = null;
+                                                    eventEntity.ErrorMessage = errorMessage;
+                                                    eventEntity.Status = EventStatus.Failed;
+                                                    eventEntity.InternalStatus = InternalEventStatus.FailedLaunch;
+                                                    updateTheEntity = true;
                                                 }
                                                 break;
                                             }
@@ -531,7 +533,7 @@ namespace Alloy.Api.Services
                                                     }
                                                     else
                                                     {
-                                                        var runId = await CasterApiExtensions.CreateRunAsync(eventEntity, casterApiClient, true, _logger, ct);
+                                                        var (runId, errorMessage) = await CasterApiExtensions.CreateRunAsync(eventEntity, casterApiClient, true, _logger, ct);
                                                         if (runId != null)
                                                         {
                                                             eventEntity.RunId = runId;
@@ -540,8 +542,10 @@ namespace Alloy.Api.Services
                                                         }
                                                         else
                                                         {
-                                                            retry = true;
-                                                            tokenResponse = null;
+                                                            eventEntity.ErrorMessage = errorMessage;
+                                                            eventEntity.Status = EventStatus.Failed;
+                                                            eventEntity.InternalStatus = InternalEventStatus.FailedDestroy;
+                                                            updateTheEntity = true;
                                                         }
                                                     }
                                                 }
