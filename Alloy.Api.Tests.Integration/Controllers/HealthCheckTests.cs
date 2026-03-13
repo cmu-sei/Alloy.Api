@@ -8,6 +8,7 @@ using Xunit;
 
 namespace Alloy.Api.Tests.Integration.Controllers;
 
+[Trait("Category", "Integration")]
 public class HealthCheckTests : IClassFixture<AlloyTestContext>
 {
     private readonly AlloyTestContext _context;
@@ -18,7 +19,7 @@ public class HealthCheckTests : IClassFixture<AlloyTestContext>
     }
 
     [Fact]
-    public async Task GetReadiness_ReturnsSuccessStatusCode()
+    public async Task GetReadiness_WhenHealthy_ReturnsOk()
     {
         // Arrange
         var client = _context.CreateClient();
@@ -31,7 +32,7 @@ public class HealthCheckTests : IClassFixture<AlloyTestContext>
     }
 
     [Fact]
-    public async Task GetLiveliness_ReturnsSuccessStatusCode()
+    public async Task GetLiveliness_WhenHealthy_ReturnsOk()
     {
         // Arrange
         var client = _context.CreateClient();

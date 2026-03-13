@@ -15,6 +15,7 @@ using Crucible.Common.Testing.Fixtures;
 
 namespace Alloy.Api.Tests.Unit.Services;
 
+[Trait("Category", "Unit")]
 public class UserServiceTests
 {
     private static readonly Guid TestUserId = Guid.NewGuid();
@@ -43,7 +44,7 @@ public class UserServiceTests
     }
 
     [Fact]
-    public async Task GetAsync_ReturnsAllUsers()
+    public async Task GetAsync_WhenUsersExist_ReturnsAllUsers()
     {
         // Arrange
         var users = new List<UserEntity>
@@ -71,7 +72,7 @@ public class UserServiceTests
     }
 
     [Fact]
-    public async Task GetByIdAsync_ReturnsCorrectUser()
+    public async Task GetAsync_WithValidUserId_ReturnsCorrectUser()
     {
         // Arrange
         var userId = Guid.NewGuid();

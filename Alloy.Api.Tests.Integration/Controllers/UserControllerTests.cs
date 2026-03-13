@@ -12,6 +12,7 @@ using Xunit;
 
 namespace Alloy.Api.Tests.Integration.Controllers;
 
+[Trait("Category", "Integration")]
 public class UserControllerTests : IClassFixture<AlloyTestContext>
 {
     private readonly AlloyTestContext _context;
@@ -22,7 +23,7 @@ public class UserControllerTests : IClassFixture<AlloyTestContext>
     }
 
     [Fact]
-    public async Task GetUsers_ReturnsSuccessStatusCode()
+    public async Task GetUsers_WhenCalled_ReturnsOk()
     {
         // Arrange
         var client = _context.CreateClient();
@@ -35,7 +36,7 @@ public class UserControllerTests : IClassFixture<AlloyTestContext>
     }
 
     [Fact]
-    public async Task CreateUser_ReturnsCreatedStatusCode()
+    public async Task CreateUser_WithValidUser_ReturnsCreated()
     {
         // Arrange
         var client = _context.CreateClient();
@@ -57,7 +58,7 @@ public class UserControllerTests : IClassFixture<AlloyTestContext>
     }
 
     [Fact]
-    public async Task GetUser_AfterCreate_ReturnsCorrectUser()
+    public async Task GetUser_WithExistingUserId_ReturnsCorrectUser()
     {
         // Arrange
         var client = _context.CreateClient();

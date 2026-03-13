@@ -13,6 +13,7 @@ using Crucible.Common.Testing.Fixtures;
 
 namespace Alloy.Api.Tests.Unit.Services;
 
+[Trait("Category", "Unit")]
 public class EventServiceTests
 {
     private static EventService BuildEventService(AlloyContext context, IMapper? mapper = null)
@@ -22,7 +23,7 @@ public class EventServiceTests
     }
 
     [Fact]
-    public async Task GetAsync_ReturnsAllEvents()
+    public async Task GetAsync_WhenEventsExist_ReturnsAllEvents()
     {
         // Arrange
         var events = new List<EventEntity>
@@ -54,7 +55,7 @@ public class EventServiceTests
     }
 
     [Fact]
-    public async Task GetEventTemplateEventsAsync_FiltersCorrectly()
+    public async Task GetEventTemplateEventsAsync_WithTemplateId_ReturnsOnlyMatchingEvents()
     {
         // Arrange
         var templateId = Guid.NewGuid();

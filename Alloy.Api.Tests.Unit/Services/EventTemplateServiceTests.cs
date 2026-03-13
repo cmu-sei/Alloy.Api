@@ -13,6 +13,7 @@ using Crucible.Common.Testing.Fixtures;
 
 namespace Alloy.Api.Tests.Unit.Services;
 
+[Trait("Category", "Unit")]
 public class EventTemplateServiceTests
 {
     private static EventTemplateService BuildService(AlloyContext context, IMapper? mapper = null)
@@ -22,7 +23,7 @@ public class EventTemplateServiceTests
     }
 
     [Fact]
-    public async Task GetAsync_ReturnsAllEventTemplates()
+    public async Task GetAsync_WhenTemplatesExist_ReturnsAllEventTemplates()
     {
         // Arrange
         var templates = new List<EventTemplateEntity>
@@ -54,7 +55,7 @@ public class EventTemplateServiceTests
     }
 
     [Fact]
-    public async Task GetPublishedAsync_ReturnsOnlyPublishedTemplates()
+    public async Task GetPublishedAsync_WhenCalledWithMixedTemplates_ReturnsOnlyPublishedTemplates()
     {
         // Arrange
         var templates = new List<EventTemplateEntity>

@@ -9,10 +9,11 @@ using Xunit;
 
 namespace Alloy.Api.Tests.Unit;
 
+[Trait("Category", "Unit")]
 public class MappingConfigurationTests
 {
     [Fact]
-    public void AllMappingProfiles_ShouldHaveValidConfiguration()
+    public void CreateMapper_WithAllProfiles_ShouldSucceed()
     {
         // Arrange
         var config = new MapperConfiguration(cfg =>
@@ -38,7 +39,7 @@ public class MappingConfigurationTests
     }
 
     [Fact]
-    public void EventProfile_ShouldMapEventEntityToEvent()
+    public void Map_EventEntityToEvent_MapsProperties()
     {
         // Arrange
         var config = new MapperConfiguration(cfg => cfg.AddProfile<EventProfile>());
@@ -65,7 +66,7 @@ public class MappingConfigurationTests
     }
 
     [Fact]
-    public void UserProfile_ShouldMapUserEntityToUser()
+    public void Map_UserEntityToUser_MapsProperties()
     {
         // Arrange
         var config = new MapperConfiguration(cfg => cfg.AddProfile<UserProfile>());
