@@ -37,7 +37,6 @@ AutoFixture customization that registers entity type builders and services for A
 ## Dependencies
 
 - **AutoFixture 4.18.1** - Test data generation framework
-- **AutoFixture.Xunit2 4.18.1** - xUnit integration for AutoFixture
 - **Alloy.Api** - Main API project reference
 - **Alloy.Api.Data** - Data access layer with entity models
 - **Crucible.Common.Testing** - Shared Crucible test utilities (GuidIdBuilder, DateTimeOffsetBuilder)
@@ -46,7 +45,7 @@ AutoFixture customization that registers entity type builders and services for A
 
 This project does not contain runnable tests. It provides shared infrastructure consumed by:
 
-- **Alloy.Api.Tests.Unit** - References AlloyCustomization via AlloyAutoDataAttribute
+- **Alloy.Api.Tests.Unit** - References AlloyCustomization via CrucibleFixtureFactory
 - **Alloy.Api.Tests.Integration** - Can reference for entity building in integration scenarios
 
 ### In Unit Tests
@@ -54,17 +53,21 @@ This project does not contain runnable tests. It provides shared infrastructure 
 ```csharp
 using Alloy.Api.Tests.Shared.Fixtures;
 
-public class AlloyAutoDataAttribute : AutoDataAttribute
+public class CrucibleFixtureFactory : ITestDataSource
 {
-    public AlloyAutoDataAttribute() : base(() =>
-        new Fixture().Customize(new AlloyCustomization())) { }
+    public IEnumerable<Func<object?[]>> GetTestData(TestContext testContext)
+    {
+        var fixture = new Fixture().Customize(new AlloyCustomization());
+        // Generate test data using fixture
+        yield return () => new object?[] { /* test parameters */ };
+    }
 }
 
 // Use in tests:
-[Theory, AlloyAutoData]
-public void TestMethod(EventEntity entity, IMapper mapper)
+[Test]
+public async Task TestMethod(EventEntity entity, IMapper mapper)
 {
-    // entity and mapper auto-generated with AlloyCustomization
+    // entity and mapper can be generated using fixture in test body
 }
 ```
 

@@ -19,7 +19,7 @@ Integration tests for the Alloy API that validate the full HTTP request pipeline
 - Substitutes authentication with `TestAuthenticationHandler` (no real OIDC required)
 - Replaces `IAlloyAuthorizationService` with `TestAlloyAuthorizationService` (permissive authorization)
 - Removes hosted background services that depend on external integrations
-- Implements `IAsyncLifetime` for container lifecycle management
+- Uses `[ClassDataSource<T>(Shared = SharedType.PerTestSession)]` for container lifecycle management
 
 **Container Configuration:**
 - Image: `postgres:latest`
@@ -50,11 +50,10 @@ User API endpoint integration tests demonstrating full CRUD lifecycle:
 
 ## Dependencies
 
-- **xUnit 2.9.3** - Test framework
+- **TUnit 1.19.22** - Test framework
 - **Microsoft.AspNetCore.Mvc.Testing 10.0.1** - WebApplicationFactory for in-process API hosting
 - **Testcontainers.PostgreSql 4.0.0** - PostgreSQL Docker container management
 - **Npgsql.EntityFrameworkCore.PostgreSQL 10.0.0** - PostgreSQL EF Core provider
-- **Shouldly 4.2.1** - Assertion library
 - **AutoFixture 4.18.1** - Test data generation
 - **Alloy.Api.Tests.Shared** - Shared fixtures
 - **Crucible.Common.Testing** - Test authentication handlers and extensions
@@ -88,31 +87,25 @@ dotnet test Alloy.Api.Tests.Integration --collect:"XPlat Code Coverage"
 ### WebApplicationFactory Pattern
 
 ```csharp
-public class ControllerTests : IClassFixture<AlloyTestContext>
+[ClassDataSource<AlloyTestContext>(Shared = SharedType.PerTestSession)]
+public class ControllerTests(AlloyTestContext context)
 {
-    private readonly AlloyTestContext _context;
-
-    public ControllerTests(AlloyTestContext context)
-    {
-        _context = context;
-    }
-
-    [Fact]
+    [Test]
     public async Task TestEndpoint()
     {
-        var client = _context.CreateClient();
+        var client = context.CreateClient();
         var response = await client.GetAsync("/api/endpoint");
-        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.OK);
     }
 }
 ```
 
-xUnit's `IClassFixture<T>` ensures AlloyTestContext (and its PostgreSQL container) is shared across all tests in the class, then disposed once.
+TUnit's `[ClassDataSource<T>(Shared = SharedType.PerTestSession)]` ensures AlloyTestContext (and its PostgreSQL container) is shared across all tests in the class, then disposed once.
 
 ### Testcontainers Lifecycle
 
 ```csharp
-public class AlloyTestContext : WebApplicationFactory<Program>, IAsyncLifetime
+public class AlloyTestContext : WebApplicationFactory<Program>, IAsyncInitializer, IAsyncDisposable
 {
     private PostgreSqlContainer? _container;
 
@@ -125,7 +118,7 @@ public class AlloyTestContext : WebApplicationFactory<Program>, IAsyncLifetime
         await _container.StartAsync();
     }
 
-    public new async Task DisposeAsync()
+    public new async ValueTask DisposeAsync()
     {
         if (_container is not null)
             await _container.DisposeAsync();
@@ -133,23 +126,23 @@ public class AlloyTestContext : WebApplicationFactory<Program>, IAsyncLifetime
 }
 ```
 
-`IAsyncLifetime` hooks ensure container starts before any tests run and stops after all tests complete.
+`IAsyncInitializer` and `IAsyncDisposable` hooks ensure container starts before any tests run and stops after all tests complete.
 
 ### HTTP Client Testing
 
 ```csharp
 // GET request
 var response = await client.GetAsync("/api/users");
-response.StatusCode.ShouldBe(HttpStatusCode.OK);
+await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.OK);
 
 // POST request with JSON body
 var user = new User { Id = Guid.NewGuid(), Name = "Test" };
 var response = await client.PostAsJsonAsync("/api/users", user);
-response.StatusCode.ShouldBe(HttpStatusCode.Created);
+await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.Created);
 
 // Read response body
 var createdUser = await response.Content.ReadFromJsonAsync<User>();
-createdUser.ShouldNotBeNull();
+await Assert.That(createdUser).IsNotNull();
 ```
 
 Uses `HttpClient` extension methods from `System.Net.Http.Json` for serialization.

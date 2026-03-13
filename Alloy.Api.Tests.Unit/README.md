@@ -10,7 +10,7 @@ Unit tests for the Alloy API event orchestration and on-demand simulation launch
 
 ### Fixtures/AlloyAutoDataAttribute.cs
 
-Custom xUnit `AutoDataAttribute` that combines AutoFixture with FakeItEasy auto-mocking and Alloy-specific entity customizations. Enables parameterized tests with auto-generated mocks and domain entities.
+Custom fixture factory that combines AutoFixture with FakeItEasy auto-mocking and Alloy-specific entity customizations. Enables parameterized tests with auto-generated mocks and domain entities.
 
 ### MappingConfigurationTests.cs
 
@@ -42,12 +42,11 @@ UserService unit tests with ClaimsPrincipal identity:
 
 ## Dependencies
 
-- **xUnit 2.9.3** - Test framework
+- **TUnit 1.19.22** - Test framework
 - **FakeItEasy 8.3.0** - Mocking framework
 - **AutoFixture 4.18.1** - Test data generation
 - **AutoFixture.AutoFakeItEasy 4.18.1** - Auto-mocking integration
 - **Microsoft.EntityFrameworkCore.InMemory 10.0.1** - In-memory database provider
-- **Shouldly 4.2.1** - Assertion library
 - **MockQueryable.FakeItEasy 7.0.3** - IQueryable mocking support
 - **Alloy.Api.Tests.Shared** - Shared fixtures and customizations
 - **Crucible.Common.Testing** - TestDbContextFactory for InMemory EF contexts
@@ -111,16 +110,16 @@ private static EventService BuildEventService(AlloyContext context, IMapper? map
 
 Uses `Crucible.Common.Testing.Fixtures.FakeBuilder` to construct services with dependency injection while allowing mock overrides for specific dependencies.
 
-### Shouldly Assertions
+### TUnit Assertions
 
 ```csharp
-result.ShouldNotBeNull();
-result.Count().ShouldBe(2);
-context.Events.FirstOrDefault(e => e.Id == eventId).ShouldBeNull();
-await Should.ThrowAsync<ForbiddenException>(() => sut.DeleteAsync(id, ct));
+await Assert.That(result).IsNotNull();
+await Assert.That(result.Count()).IsEqualTo(2);
+await Assert.That(context.Events.FirstOrDefault(e => e.Id == eventId)).IsNull();
+await Assert.That(() => sut.DeleteAsync(id, ct)).ThrowsExactlyAsync<ForbiddenException>();
 ```
 
-Fluent assertion syntax that produces readable failure messages.
+Built-in TUnit assertion syntax that produces readable failure messages.
 
 ## Test Coverage Goals
 

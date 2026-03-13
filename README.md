@@ -94,6 +94,34 @@ If there is an `active` event, then present option to rejoin and skip launch.
 
 The entire **Launch** and **End** processes will be single background tasks that poll the Caster API for each status change, update the event database record appropriately, and then move on to the next step in the process.
 
+## Testing
+
+This project uses [TUnit](https://tunit.dev/) as its test framework with FakeItEasy for mocking.
+
+### Test Projects
+
+| Project | Description |
+|---------|-------------|
+| `Alloy.Api.Tests.Unit` | Unit tests for services using in-memory EF Core and FakeItEasy |
+| `Alloy.Api.Tests.Integration` | Integration tests with WebApplicationFactory and Testcontainers PostgreSQL |
+| `Alloy.Api.Tests.Shared` | Shared AutoFixture customizations for Alloy entity types |
+
+### Running Tests
+
+```bash
+# Run all tests
+dotnet test
+
+# Run unit tests only
+dotnet test Alloy.Api.Tests.Unit
+
+# Run integration tests (requires Docker)
+dotnet test Alloy.Api.Tests.Integration
+
+# Run with coverage
+dotnet test --collect:"XPlat Code Coverage"
+```
+
 ## Reporting bugs and requesting features
 
 Think you found a bug? Please report all Crucible bugs - including bugs for the individual Crucible apps - in the [cmu-sei/crucible issue tracker](https://github.com/cmu-sei/crucible/issues). 
