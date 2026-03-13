@@ -7,13 +7,14 @@ using Alloy.Api.Data.Models;
 using Alloy.Api.Services;
 using AutoMapper;
 using FakeItEasy;
-using Shouldly;
-using Xunit;
+using TUnit.Core;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
 using Crucible.Common.Testing.Fixtures;
 
 namespace Alloy.Api.Tests.Unit.Services;
 
-[Trait("Category", "Unit")]
+[Category("Unit")]
 public class EventTemplateServiceTests
 {
     private static EventTemplateService BuildService(AlloyContext context, IMapper? mapper = null)
@@ -22,7 +23,7 @@ public class EventTemplateServiceTests
         return FakeBuilder.BuildMeA<EventTemplateService>(context, resolvedMapper);
     }
 
-    [Fact]
+    [Test]
     public async Task GetAsync_WhenTemplatesExist_ReturnsAllEventTemplates()
     {
         // Arrange
@@ -50,11 +51,11 @@ public class EventTemplateServiceTests
         var result = await sut.GetAsync(CancellationToken.None);
 
         // Assert
-        result.ShouldNotBeNull();
-        result.Count().ShouldBe(2);
+        await Assert.That(result).IsNotNull();
+        await Assert.That(result.Count()).IsEqualTo(2);
     }
 
-    [Fact]
+    [Test]
     public async Task GetPublishedAsync_WhenCalledWithMixedTemplates_ReturnsOnlyPublishedTemplates()
     {
         // Arrange
@@ -87,7 +88,7 @@ public class EventTemplateServiceTests
             .MustHaveHappenedOnceExactly();
     }
 
-    [Fact]
+    [Test]
     public async Task DeleteAsync_RemovesTemplate_ReturnsTrue()
     {
         // Arrange
@@ -109,7 +110,7 @@ public class EventTemplateServiceTests
         var result = await sut.DeleteAsync(templateId, CancellationToken.None);
 
         // Assert
-        result.ShouldBeTrue();
-        context.EventTemplates.FirstOrDefault(t => t.Id == templateId).ShouldBeNull();
+        await Assert.That(result).IsTrue();
+        await Assert.That(context.EventTemplates.FirstOrDefault(t => t.Id == templateId)).IsNull();
     }
 }

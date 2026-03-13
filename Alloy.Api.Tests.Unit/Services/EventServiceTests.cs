@@ -7,13 +7,14 @@ using Alloy.Api.Data.Models;
 using Alloy.Api.Services;
 using AutoMapper;
 using FakeItEasy;
-using Shouldly;
-using Xunit;
+using TUnit.Core;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
 using Crucible.Common.Testing.Fixtures;
 
 namespace Alloy.Api.Tests.Unit.Services;
 
-[Trait("Category", "Unit")]
+[Category("Unit")]
 public class EventServiceTests
 {
     private static EventService BuildEventService(AlloyContext context, IMapper? mapper = null)
@@ -22,7 +23,7 @@ public class EventServiceTests
         return FakeBuilder.BuildMeA<EventService>(context, resolvedMapper);
     }
 
-    [Fact]
+    [Test]
     public async Task GetAsync_WhenEventsExist_ReturnsAllEvents()
     {
         // Arrange
@@ -50,11 +51,11 @@ public class EventServiceTests
         var result = await sut.GetAsync(CancellationToken.None);
 
         // Assert
-        result.ShouldNotBeNull();
-        result.Count().ShouldBe(2);
+        await Assert.That(result).IsNotNull();
+        await Assert.That(result.Count()).IsEqualTo(2);
     }
 
-    [Fact]
+    [Test]
     public async Task GetEventTemplateEventsAsync_WithTemplateId_ReturnsOnlyMatchingEvents()
     {
         // Arrange
@@ -87,7 +88,7 @@ public class EventServiceTests
             .MustHaveHappenedOnceExactly();
     }
 
-    [Fact]
+    [Test]
     public async Task DeleteAsync_RemovesEvent_ReturnsTrue()
     {
         // Arrange
@@ -111,7 +112,7 @@ public class EventServiceTests
         var result = await sut.DeleteAsync(eventId, CancellationToken.None);
 
         // Assert
-        result.ShouldBeTrue();
-        context.Events.FirstOrDefault(e => e.Id == eventId).ShouldBeNull();
+        await Assert.That(result).IsTrue();
+        await Assert.That(context.Events.FirstOrDefault(e => e.Id == eventId)).IsNull();
     }
 }

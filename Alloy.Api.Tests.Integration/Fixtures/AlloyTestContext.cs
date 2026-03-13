@@ -13,10 +13,11 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Testcontainers.PostgreSql;
+using TUnit.Core.Interfaces;
 
 namespace Alloy.Api.Tests.Integration.Fixtures;
 
-public class AlloyTestContext : WebApplicationFactory<Program>, IAsyncLifetime
+public class AlloyTestContext : WebApplicationFactory<Program>, IAsyncInitializer, IAsyncDisposable
 {
     private PostgreSqlContainer? _container;
 
@@ -90,9 +91,10 @@ public class AlloyTestContext : WebApplicationFactory<Program>, IAsyncLifetime
         await _container.StartAsync();
     }
 
-    public new async Task DisposeAsync()
+    public new async ValueTask DisposeAsync()
     {
         if (_container is not null)
             await _container.DisposeAsync();
+        await base.DisposeAsync();
     }
 }

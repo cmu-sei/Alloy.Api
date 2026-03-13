@@ -3,44 +3,39 @@
 
 using System.Net;
 using Alloy.Api.Tests.Integration.Fixtures;
-using Shouldly;
-using Xunit;
+using TUnit.Core;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
 
 namespace Alloy.Api.Tests.Integration.Controllers;
 
-[Trait("Category", "Integration")]
-public class HealthCheckTests : IClassFixture<AlloyTestContext>
+[Category("Integration")]
+[ClassDataSource<AlloyTestContext>(Shared = SharedType.PerTestSession)]
+public class HealthCheckTests(AlloyTestContext context)
 {
-    private readonly AlloyTestContext _context;
-
-    public HealthCheckTests(AlloyTestContext context)
-    {
-        _context = context;
-    }
-
-    [Fact]
+    [Test]
     public async Task GetReadiness_WhenHealthy_ReturnsOk()
     {
         // Arrange
-        var client = _context.CreateClient();
+        var client = context.CreateClient();
 
         // Act
         var response = await client.GetAsync("/api/health/ready");
 
         // Assert
-        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.OK);
     }
 
-    [Fact]
+    [Test]
     public async Task GetLiveliness_WhenHealthy_ReturnsOk()
     {
         // Arrange
-        var client = _context.CreateClient();
+        var client = context.CreateClient();
 
         // Act
         var response = await client.GetAsync("/api/health/live");
 
         // Assert
-        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.OK);
     }
 }

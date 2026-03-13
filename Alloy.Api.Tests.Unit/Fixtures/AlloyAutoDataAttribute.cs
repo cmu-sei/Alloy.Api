@@ -3,16 +3,16 @@
 
 using AutoFixture;
 using AutoFixture.AutoFakeItEasy;
-using AutoFixture.Xunit2;
 using Alloy.Api.Tests.Shared.Fixtures;
 
 namespace Alloy.Api.Tests.Unit.Fixtures;
 
-public class AlloyAutoDataAttribute : AutoDataAttribute
+public static class AlloyFixtureFactory
 {
-    private static readonly IFixture FIXTURE = new Fixture()
-        .Customize(new AutoFakeItEasyCustomization())
-        .Customize(new AlloyCustomization());
-
-    public AlloyAutoDataAttribute() : base(() => FIXTURE) { }
+    public static IFixture CreateFixture()
+    {
+        return new Fixture()
+            .Customize(new AutoFakeItEasyCustomization())
+            .Customize(new AlloyCustomization());
+    }
 }

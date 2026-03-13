@@ -9,13 +9,14 @@ using Alloy.Api.Infrastructure.Exceptions;
 using Alloy.Api.Services;
 using AutoMapper;
 using FakeItEasy;
-using Shouldly;
-using Xunit;
+using TUnit.Core;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
 using Crucible.Common.Testing.Fixtures;
 
 namespace Alloy.Api.Tests.Unit.Services;
 
-[Trait("Category", "Unit")]
+[Category("Unit")]
 public class UserServiceTests
 {
     private static readonly Guid TestUserId = Guid.NewGuid();
@@ -43,7 +44,7 @@ public class UserServiceTests
         return (svc, context);
     }
 
-    [Fact]
+    [Test]
     public async Task GetAsync_WhenUsersExist_ReturnsAllUsers()
     {
         // Arrange
@@ -67,11 +68,11 @@ public class UserServiceTests
         var result = await sut.GetAsync(CancellationToken.None);
 
         // Assert
-        result.ShouldNotBeNull();
-        result.Count().ShouldBe(2);
+        await Assert.That(result).IsNotNull();
+        await Assert.That(result.Count()).IsEqualTo(2);
     }
 
-    [Fact]
+    [Test]
     public async Task GetAsync_WithValidUserId_ReturnsCorrectUser()
     {
         // Arrange
@@ -93,12 +94,12 @@ public class UserServiceTests
         var result = await sut.GetAsync(userId, CancellationToken.None);
 
         // Assert
-        result.ShouldNotBeNull();
-        result.Id.ShouldBe(userId);
-        result.Name.ShouldBe("Alice");
+        await Assert.That(result).IsNotNull();
+        await Assert.That(result.Id).IsEqualTo(userId);
+        await Assert.That(result.Name).IsEqualTo("Alice");
     }
 
-    [Fact]
+    [Test]
     public async Task DeleteAsync_WhenDeletingSelf_ThrowsForbiddenException()
     {
         // Arrange
@@ -111,7 +112,7 @@ public class UserServiceTests
         var (sut, _) = BuildService(users, actingUserId: selfId);
 
         // Act & Assert
-        await Should.ThrowAsync<ForbiddenException>(
-            () => sut.DeleteAsync(selfId, CancellationToken.None));
+        await Assert.That(() => sut.DeleteAsync(selfId, CancellationToken.None))
+            .ThrowsExactly<ForbiddenException>();
     }
 }

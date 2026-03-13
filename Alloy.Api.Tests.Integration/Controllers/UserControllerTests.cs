@@ -7,39 +7,34 @@ using Alloy.Api.Data;
 using Alloy.Api.Data.Models;
 using Alloy.Api.Tests.Integration.Fixtures;
 using Alloy.Api.ViewModels;
-using Shouldly;
-using Xunit;
+using TUnit.Core;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
 
 namespace Alloy.Api.Tests.Integration.Controllers;
 
-[Trait("Category", "Integration")]
-public class UserControllerTests : IClassFixture<AlloyTestContext>
+[Category("Integration")]
+[ClassDataSource<AlloyTestContext>(Shared = SharedType.PerTestSession)]
+public class UserControllerTests(AlloyTestContext context)
 {
-    private readonly AlloyTestContext _context;
-
-    public UserControllerTests(AlloyTestContext context)
-    {
-        _context = context;
-    }
-
-    [Fact]
+    [Test]
     public async Task GetUsers_WhenCalled_ReturnsOk()
     {
         // Arrange
-        var client = _context.CreateClient();
+        var client = context.CreateClient();
 
         // Act
         var response = await client.GetAsync("/api/users");
 
         // Assert
-        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.OK);
     }
 
-    [Fact]
+    [Test]
     public async Task CreateUser_WithValidUser_ReturnsCreated()
     {
         // Arrange
-        var client = _context.CreateClient();
+        var client = context.CreateClient();
         var user = new ViewModels.User
         {
             Id = Guid.NewGuid(),
@@ -50,18 +45,18 @@ public class UserControllerTests : IClassFixture<AlloyTestContext>
         var response = await client.PostAsJsonAsync("/api/users", user);
 
         // Assert
-        response.StatusCode.ShouldBe(HttpStatusCode.Created);
+        await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.Created);
 
         var createdUser = await response.Content.ReadFromJsonAsync<ViewModels.User>();
-        createdUser.ShouldNotBeNull();
-        createdUser.Name.ShouldBe("Integration Test User");
+        await Assert.That(createdUser).IsNotNull();
+        await Assert.That(createdUser!.Name).IsEqualTo("Integration Test User");
     }
 
-    [Fact]
+    [Test]
     public async Task GetUser_WithExistingUserId_ReturnsCorrectUser()
     {
         // Arrange
-        var client = _context.CreateClient();
+        var client = context.CreateClient();
         var userId = Guid.NewGuid();
         var user = new ViewModels.User
         {
@@ -76,11 +71,11 @@ public class UserControllerTests : IClassFixture<AlloyTestContext>
         var response = await client.GetAsync($"/api/users/{userId}");
 
         // Assert
-        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.OK);
 
         var fetchedUser = await response.Content.ReadFromJsonAsync<ViewModels.User>();
-        fetchedUser.ShouldNotBeNull();
-        fetchedUser.Id.ShouldBe(userId);
-        fetchedUser.Name.ShouldBe("Lookup Test User");
+        await Assert.That(fetchedUser).IsNotNull();
+        await Assert.That(fetchedUser!.Id).IsEqualTo(userId);
+        await Assert.That(fetchedUser.Name).IsEqualTo("Lookup Test User");
     }
 }

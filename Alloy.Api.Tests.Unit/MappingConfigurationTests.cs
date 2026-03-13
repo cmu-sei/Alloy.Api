@@ -4,16 +4,17 @@
 using AutoMapper;
 using Alloy.Api.Infrastructure.Mapping;
 using Alloy.Api.Infrastructure.Mappings;
-using Shouldly;
-using Xunit;
+using TUnit.Core;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
 
 namespace Alloy.Api.Tests.Unit;
 
-[Trait("Category", "Unit")]
+[Category("Unit")]
 public class MappingConfigurationTests
 {
-    [Fact]
-    public void CreateMapper_WithAllProfiles_ShouldSucceed()
+    [Test]
+    public async Task CreateMapper_WithAllProfiles_ShouldSucceed()
     {
         // Arrange
         var config = new MapperConfiguration(cfg =>
@@ -35,11 +36,11 @@ public class MappingConfigurationTests
         var mapper = config.CreateMapper();
 
         // Assert
-        mapper.ShouldNotBeNull();
+        await Assert.That(mapper).IsNotNull();
     }
 
-    [Fact]
-    public void Map_EventEntityToEvent_MapsProperties()
+    [Test]
+    public async Task Map_EventEntityToEvent_MapsProperties()
     {
         // Arrange
         var config = new MapperConfiguration(cfg => cfg.AddProfile<EventProfile>());
@@ -60,13 +61,13 @@ public class MappingConfigurationTests
         var result = mapper.Map<ViewModels.Event>(entity);
 
         // Assert
-        result.ShouldNotBeNull();
-        result.Id.ShouldBe(entity.Id);
-        result.Name.ShouldBe(entity.Name);
+        await Assert.That(result).IsNotNull();
+        await Assert.That(result.Id).IsEqualTo(entity.Id);
+        await Assert.That(result.Name).IsEqualTo(entity.Name);
     }
 
-    [Fact]
-    public void Map_UserEntityToUser_MapsProperties()
+    [Test]
+    public async Task Map_UserEntityToUser_MapsProperties()
     {
         // Arrange
         var config = new MapperConfiguration(cfg => cfg.AddProfile<UserProfile>());
@@ -84,8 +85,8 @@ public class MappingConfigurationTests
         var result = mapper.Map<ViewModels.User>(entity);
 
         // Assert
-        result.ShouldNotBeNull();
-        result.Id.ShouldBe(entity.Id);
-        result.Name.ShouldBe(entity.Name);
+        await Assert.That(result).IsNotNull();
+        await Assert.That(result.Id).IsEqualTo(entity.Id);
+        await Assert.That(result.Name).IsEqualTo(entity.Name);
     }
 }
