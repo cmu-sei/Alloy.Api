@@ -315,3 +315,6 @@ Version.h
 Version.cpp
 *.db
 Alloy.Api/appsettings.Development.json
+
+# Claude Code artifacts
+.claude/
