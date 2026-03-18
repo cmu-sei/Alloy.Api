@@ -13,6 +13,7 @@ using Crucible.Common.EntityEvents.Abstractions;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 
 namespace Alloy.Api.Data
 {
@@ -91,14 +92,23 @@ namespace Alloy.Api.Data
             }
         }
 
-        protected override async Task PublishEventsAsync(CancellationToken cancellationToken)
+        public override async Task PublishEventsAsync(IReadOnlyList<IEntityEvent> events, CancellationToken cancellationToken)
         {
-            if (EntityEvents.Count > 0 && ServiceProvider is not null)
+            if (ServiceProvider is not null)
             {
                 var mediator = ServiceProvider.GetRequiredService<IMediator>();
-                foreach (var evt in EntityEvents.Cast<INotification>())
+                var logger = ServiceProvider.GetRequiredService<ILogger<AlloyContext>>();
+
+                foreach (var evt in events.Cast<INotification>())
                 {
-                    await mediator.Publish(evt, cancellationToken);
+                    try
+                    {
+                        await mediator.Publish(evt, cancellationToken);
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.LogError(ex, "Error publishing entity event {EventType}", evt.GetType().Name);
+                    }
                 }
             }
         }
