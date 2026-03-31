@@ -2,7 +2,7 @@
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
-    <Version>3.6.5</Version>
+    <Version>0.0.0</Version>
     <ProjectGuid>{F442B91B-5ACD-43CD-BC5D-EDEC0AA73187}</ProjectGuid>
     <DocumentationFile>bin\$(Configuration)\$(TargetFramework)\$(AssemblyName).xml</DocumentationFile>
     <NoWarn>CS1591</NoWarn>
