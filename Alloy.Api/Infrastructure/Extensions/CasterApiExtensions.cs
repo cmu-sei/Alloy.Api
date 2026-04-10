@@ -223,6 +223,7 @@ namespace Alloy.Api.Infrastructure.Extensions
             var status = RunStatus.Applying;
 
             while ((status == RunStatus.Applying ||
+                    status == RunStatus.ApplyQueued ||
                     status == RunStatus.Planned ||
                     status == RunStatus.Queued ||
                     status == RunStatus.Applied__State_Error ||
@@ -234,6 +235,7 @@ namespace Alloy.Api.Infrastructure.Extensions
 
                 // if not there yet, pause before the next check
                 if (status == RunStatus.Applying ||
+                    status == RunStatus.ApplyQueued ||
                     status == RunStatus.Planned ||
                     status == RunStatus.Queued ||
                     status == RunStatus.Applied__State_Error ||
