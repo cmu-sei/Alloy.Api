@@ -63,7 +63,7 @@ namespace Alloy.Api.Services
 
         public async Task<Resource> RefreshResourceAsync(Guid workspaceId, Resource resource, CancellationToken ct)
         {
-            return await _casterApiClient.GetResourceAsync(workspaceId, resource.Id, resource.Type, ct);
+            return await _casterApiClient.GetResourceAsync(workspaceId, resource.Id, ct);
         }
 
         // public async Task<IEnumerable<Workspace>> GetWorkspacesAsync(CancellationToken ct)
