@@ -807,14 +807,12 @@ namespace Alloy.Api.Services
 
         private async Task<(PlayerApiClient, TokenResponse)> RefreshClient(PlayerApiClient clientObject, TokenResponse tokenResponse, IServiceProvider serviceProvider, CancellationToken ct)
         {
-            // TODO: check for token expiration also
-            if (clientObject == null || tokenResponse == null)
-            {
-                if (tokenResponse == null)
-                {
-                    tokenResponse = await ApiClientsExtensions.GetToken(serviceProvider);
-                }
+            // Check if token is null or expired
+            bool tokenExpired = tokenResponse != null && tokenResponse.ExpiresIn <= 60; // Refresh if less than 60 seconds left
 
+            if (clientObject == null || tokenResponse == null || tokenExpired)
+            {
+                tokenResponse = await ApiClientsExtensions.GetToken(serviceProvider);
                 clientObject = PlayerApiExtensions.GetPlayerApiClient(_httpClientFactory, _clientOptions.CurrentValue.urls.playerApi, tokenResponse);
             }
 
@@ -823,14 +821,12 @@ namespace Alloy.Api.Services
 
         private async Task<(SteamfitterApiClient, TokenResponse)> RefreshClient(SteamfitterApiClient clientObject, TokenResponse tokenResponse, IServiceProvider serviceProvider, CancellationToken ct)
         {
-            // TODO: check for token expiration also
-            if (clientObject == null || tokenResponse == null)
-            {
-                if (tokenResponse == null)
-                {
-                    tokenResponse = await ApiClientsExtensions.GetToken(serviceProvider);
-                }
+            // Check if token is null or expired
+            bool tokenExpired = tokenResponse != null && tokenResponse.ExpiresIn <= 60; // Refresh if less than 60 seconds left
 
+            if (clientObject == null || tokenResponse == null || tokenExpired)
+            {
+                tokenResponse = await ApiClientsExtensions.GetToken(serviceProvider);
                 clientObject = SteamfitterApiExtensions.GetSteamfitterApiClient(_httpClientFactory, _clientOptions.CurrentValue.urls.steamfitterApi, tokenResponse);
             }
 
@@ -839,14 +835,12 @@ namespace Alloy.Api.Services
 
         private async Task<(CasterApiClient, TokenResponse)> RefreshClient(CasterApiClient clientObject, TokenResponse tokenResponse, IServiceProvider serviceProvider, CancellationToken ct)
         {
-            // TODO: check for token expiration also
-            if (clientObject == null || tokenResponse == null)
-            {
-                if (tokenResponse == null)
-                {
-                    tokenResponse = await ApiClientsExtensions.GetToken(serviceProvider);
-                }
+            // Check if token is null or expired
+            bool tokenExpired = tokenResponse != null && tokenResponse.ExpiresIn <= 60; // Refresh if less than 60 seconds left
 
+            if (clientObject == null || tokenResponse == null || tokenExpired)
+            {
+                tokenResponse = await ApiClientsExtensions.GetToken(serviceProvider);
                 clientObject = CasterApiExtensions.GetCasterApiClient(_httpClientFactory, _clientOptions.CurrentValue.urls.casterApi, tokenResponse);
             }
 
