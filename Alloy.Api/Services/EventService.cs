@@ -156,7 +156,7 @@ namespace Alloy.Api.Services
         {
             var userId = _user.GetId();
             var items = await _context.EventMemberships
-                .Where(x => x.UserId == userId && (x.Event.Status == EventStatus.Active || x.Event.Status == EventStatus.Paused))
+                .Where(x => x.UserId == userId)
                 .Select(m => m.Event)
                 .ToListAsync();
 
