@@ -345,6 +345,18 @@ namespace Alloy.Api.Services
 
         private async Task<bool> ResourcesAreAvailableAsync(Guid eventTemplateId, Guid userId, CancellationToken ct)
         {
+            // Check if user has ManageUsers permission - indicates Administrator role
+            // This checks both JWT token roles (if UseRolesFromIdP enabled) and database role
+            var hasManageUsersPermission = _user.HasClaim(
+                Infrastructure.Authorization.AuthorizationConstants.PermissionClaimType,
+                Data.SystemPermission.ManageUsers.ToString());
+
+            if (hasManageUsersPermission)
+            {
+                _logger.LogInformation($"User {userId} has ManageUsers permission, exempt from resource limits.");
+                return true;  // Skip all limit checks for users with admin permissions
+            }
+
             var resourcesAvailable = true;
             // check to see if this user already has this EventTemplate Implemented
             var notActiveStatuses = new List<EventStatus>() {
