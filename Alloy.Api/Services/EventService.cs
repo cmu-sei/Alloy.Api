@@ -353,7 +353,6 @@ namespace Alloy.Api.Services
             // This checks both JWT token roles (if UseRolesFromIdP enabled) and database role
             if (await _alloyAuthorizationService.AuthorizeAsync([Data.SystemPermission.ManageEvents], ct))
             {
-                _logger.LogInformation($"User {userId} has ManageEvents permission, exempt from resource limits.");
                 return true;  // Skip all limit checks for users with manage permissions
             }
 
