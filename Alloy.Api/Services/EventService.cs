@@ -31,7 +31,7 @@ namespace Alloy.Api.Services
         Task<IEnumerable<Event>> GetEventTemplateEventsAsync(Guid eventTemplateId, CancellationToken ct);
         Task<IEnumerable<Event>> GetMyEventTemplateEventsAsync(Guid eventTemplateId, bool includeInvites, CancellationToken ct);
         Task<IEnumerable<Event>> GetMyViewEventsAsync(Guid viewId, CancellationToken ct);
-        Task<IEnumerable<Event>> GetMyEventsAsync(CancellationToken ct);
+        Task<IEnumerable<Event>> GetMyEventsAsync(bool? includeEnded, int? days, CancellationToken ct);
         Task<Event> GetAsync(Guid id, CancellationToken ct);
         Task<Event> CreateAsync(Event eventx, CancellationToken ct);
         Task<Event> LaunchEventFromEventTemplateAsync(Guid eventTemplateId, Guid? userId, string username, List<Guid> additionalUserIds, CancellationToken ct);
@@ -152,13 +152,32 @@ namespace Alloy.Api.Services
             return _mapper.Map<IEnumerable<Event>>(items);
         }
 
-        public async Task<IEnumerable<Event>> GetMyEventsAsync(CancellationToken ct)
+        public async Task<IEnumerable<Event>> GetMyEventsAsync(bool? includeEnded, int? days, CancellationToken ct)
         {
             var userId = _user.GetId();
-            var items = await _context.EventMemberships
+            var query = _context.EventMemberships
                 .Where(x => x.UserId == userId)
-                .Select(m => m.Event)
-                .ToListAsync();
+                .Select(m => m.Event);
+
+            // Filter by status if specified
+            if (includeEnded == false)
+            {
+                var excludedStatuses = new List<EventStatus> {
+                    EventStatus.Ended,
+                    EventStatus.Failed,
+                    EventStatus.Expired
+                };
+                query = query.Where(e => !excludedStatuses.Contains(e.Status));
+            }
+
+            // Filter by date range if specified
+            if (days.HasValue)
+            {
+                var cutoffDate = DateTime.UtcNow.AddDays(-days.Value);
+                query = query.Where(e => e.DateCreated >= cutoffDate);
+            }
+
+            var items = await query.ToListAsync(ct);
 
             return _mapper.Map<IEnumerable<Event>>(items);
         }
