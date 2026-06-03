@@ -40,7 +40,7 @@ namespace Alloy.Api.Controllers
         [HttpGet("events")]
         [ProducesResponseType(typeof(IEnumerable<Event>), (int)HttpStatusCode.OK)]
         [SwaggerOperation(OperationId = "getEvents")]
-        public async Task<IActionResult> Get(CancellationToken ct)
+        public async Task<IActionResult> Get([FromQuery] bool? includeEnded, [FromQuery] int? days, CancellationToken ct)
         {
             IEnumerable<Event> list = new List<Event>();
             if (await _authorizationService.AuthorizeAsync([SystemPermission.ViewEvents], ct))
@@ -49,7 +49,7 @@ namespace Alloy.Api.Controllers
             }
             else
             {
-                list = await _eventService.GetMyEventsAsync(ct);
+                list = await _eventService.GetMyEventsAsync(includeEnded, days, ct);
             }
 
             // add this user's permissions for each event
@@ -127,9 +127,9 @@ namespace Alloy.Api.Controllers
         [HttpGet("events/mine")]
         [ProducesResponseType(typeof(IEnumerable<Event>), (int)HttpStatusCode.OK)]
         [SwaggerOperation(OperationId = "GetMyEvents")]
-        public async Task<IActionResult> GetMyEventsAsync(CancellationToken ct)
+        public async Task<IActionResult> GetMyEventsAsync([FromQuery] bool? includeEnded, [FromQuery] int? days, CancellationToken ct)
         {
-            var list = await _eventService.GetMyEventsAsync(ct);
+            var list = await _eventService.GetMyEventsAsync(includeEnded, days, ct);
             // add this user's permissions for each event
             AddPermissions(list);
 
