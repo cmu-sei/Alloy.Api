@@ -12,6 +12,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Alloy.Api.Data;
 using Alloy.Api.Data.Models;
+using Alloy.Api.Infrastructure.Authorization;
 using Alloy.Api.Infrastructure.Extensions;
 using Alloy.Api.Infrastructure.Exceptions;
 using Alloy.Api.Infrastructure.Options;
@@ -51,6 +52,7 @@ namespace Alloy.Api.Services
     {
         private readonly AlloyContext _context;
         private readonly IAuthorizationService _authorizationService;
+        private readonly IAlloyAuthorizationService _alloyAuthorizationService;
         private readonly ClaimsPrincipal _user;
         private readonly IMapper _mapper;
         private readonly ICasterService _casterService;
@@ -69,6 +71,7 @@ namespace Alloy.Api.Services
         public EventService(
             AlloyContext context,
             IAuthorizationService authorizationService,
+            IAlloyAuthorizationService alloyAuthorizationService,
             IPrincipal user,
             IMapper mapper,
             IPlayerService playerService,
@@ -85,6 +88,7 @@ namespace Alloy.Api.Services
         {
             _context = context;
             _authorizationService = authorizationService;
+            _alloyAuthorizationService = alloyAuthorizationService;
             _user = user as ClaimsPrincipal;
             _mapper = mapper;
             _casterService = casterService;
@@ -345,6 +349,13 @@ namespace Alloy.Api.Services
 
         private async Task<bool> ResourcesAreAvailableAsync(Guid eventTemplateId, Guid userId, CancellationToken ct)
         {
+            // Check if user has ManageEvents permission to bypass resource limits
+            // This checks both JWT token roles (if UseRolesFromIdP enabled) and database role
+            if (await _alloyAuthorizationService.AuthorizeAsync([Data.SystemPermission.ManageEvents], ct))
+            {
+                return true;  // Skip all limit checks for users with manage permissions
+            }
+
             var resourcesAvailable = true;
             // check to see if this user already has this EventTemplate Implemented
             var notActiveStatuses = new List<EventStatus>() {
