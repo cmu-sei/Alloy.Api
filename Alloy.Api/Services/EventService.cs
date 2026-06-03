@@ -327,6 +327,13 @@ namespace Alloy.Api.Services
                 username = _user.Claims.First(c => c.Type.ToLower() == "name").Value;
             }
 
+            // Get event template to set name and description
+            var eventTemplateEntity = await _context.EventTemplates.FindAsync(eventTemplateId);
+            if (eventTemplateEntity == null)
+            {
+                throw new EntityNotFoundException<EventTemplate>($"EventTemplate {eventTemplateId} was not found.");
+            }
+
             var eventEntity = new EventEntity()
             {
                 Id = Guid.NewGuid(),
@@ -334,6 +341,8 @@ namespace Alloy.Api.Services
                 UserId = userId,
                 Username = username,
                 EventTemplateId = eventTemplateId,
+                Name = $"{eventTemplateEntity.Name} - {username}",
+                Description = eventTemplateEntity.Description,
                 Status = EventStatus.Creating,
                 InternalStatus = InternalEventStatus.LaunchQueued
             };

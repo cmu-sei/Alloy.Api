@@ -257,8 +257,6 @@ namespace Alloy.Api.Services
                                                 {
                                                     // There is no Caster directory, so start the scenario
                                                     var launchDate = DateTime.UtcNow;
-                                                    eventEntity.Name = eventTemplateEntity.Name;
-                                                    eventEntity.Description = eventTemplateEntity.Description;
                                                     eventEntity.LaunchDate = launchDate;
                                                     eventEntity.ExpirationDate = launchDate.AddHours(eventTemplateEntity.DurationHours);
                                                     eventEntity.Status = EventStatus.Applying;
@@ -474,8 +472,6 @@ namespace Alloy.Api.Services
                                                 if (updateTheEntity)
                                                 {
                                                     var launchDate = DateTime.UtcNow;
-                                                    eventEntity.Name = eventTemplateEntity.Name;
-                                                    eventEntity.Description = eventTemplateEntity.Description;
                                                     eventEntity.LaunchDate = launchDate;
                                                     eventEntity.ExpirationDate = launchDate.AddHours(eventTemplateEntity.DurationHours);
                                                     eventEntity.Status = EventStatus.Active;
