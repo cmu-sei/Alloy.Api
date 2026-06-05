@@ -40,6 +40,22 @@ namespace Alloy.Api.Controllers
             return Ok(list);
         }
 
+        /// <summary>
+        /// Gets all Projects
+        /// </summary>
+        /// <remarks>
+        /// Returns a list of all of the Projects.
+        /// </remarks>
+        /// <returns></returns>
+        [HttpGet("projects")]
+        [ProducesResponseType(typeof(IEnumerable<Project>), (int)HttpStatusCode.OK)]
+        [SwaggerOperation(OperationId = "getProjects")]
+        public async Task<IActionResult> GetProjects(CancellationToken ct)
+        {
+            var list = await _casterService.GetProjectsAsync(ct);
+            return Ok(list);
+        }
+
         // /// <summary>
         // /// Gets all workspaces
         // /// </summary>

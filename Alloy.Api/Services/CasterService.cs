@@ -8,6 +8,8 @@ using Alloy.Api.Infrastructure.Options;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Net.Http;
+using System.Net.Http.Json;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -17,6 +19,7 @@ namespace Alloy.Api.Services
     {
         // Task<IEnumerable<View>> GetViewsAsync(CancellationToken ct);
         Task<IEnumerable<Directory>> GetDirectoriesAsync(CancellationToken ct);
+        Task<IEnumerable<Project>> GetProjectsAsync(CancellationToken ct);
         Task<IEnumerable<Resource>> GetWorkspaceResourcesAsync(Guid workspaceId, CancellationToken ct);
         Task<object> GetWorkspaceOutputsAsync(Guid workspaceId, CancellationToken ct);
         Task<Resource> RefreshResourceAsync(Guid workspaceId, Resource resource, CancellationToken ct);
@@ -27,14 +30,18 @@ namespace Alloy.Api.Services
     public class CasterService : ICasterService
     {
         private readonly ICasterApiClient _casterApiClient;
+        private readonly IHttpClientFactory _httpClientFactory;
+        private readonly ClientOptions _clientSettings;
         private readonly Guid _userId;
         private readonly string _userName;
 
-        public CasterService(IHttpContextAccessor httpContextAccessor, ClientOptions clientSettings, ICasterApiClient casterApiClient)
+        public CasterService(IHttpContextAccessor httpContextAccessor, ClientOptions clientSettings, ICasterApiClient casterApiClient, IHttpClientFactory httpClientFactory)
         {
             _userId = httpContextAccessor.HttpContext.User.GetId();
             _userName = httpContextAccessor.HttpContext.User.Claims.First(c => c.Type.ToLower() == "name").Value;
             _casterApiClient = casterApiClient;
+            _httpClientFactory = httpClientFactory;
+            _clientSettings = clientSettings;
         }
 
         // public async Task<IEnumerable<View>> GetViewsAsync(CancellationToken ct)
@@ -49,6 +56,16 @@ namespace Alloy.Api.Services
             var directories = await _casterApiClient.GetAllDirectoriesAsync(false, false, ct);
 
             return directories;
+        }
+
+        public async Task<IEnumerable<Project>> GetProjectsAsync(CancellationToken ct)
+        {
+            // Temporary HttpClient implementation until Caster.Api.Client 1.6.0 is published
+            var httpClient = _httpClientFactory.CreateClient();
+            var response = await httpClient.GetAsync($"{_clientSettings.urls.casterApi}/api/projects", ct);
+            response.EnsureSuccessStatusCode();
+            var projects = await response.Content.ReadFromJsonAsync<IEnumerable<Project>>(cancellationToken: ct);
+            return projects;
         }
 
         public async Task<IEnumerable<Resource>> GetWorkspaceResourcesAsync(Guid workspaceId, CancellationToken ct)
