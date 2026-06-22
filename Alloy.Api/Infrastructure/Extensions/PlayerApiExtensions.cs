@@ -30,7 +30,8 @@ namespace Alloy.Api.Infrastructure.Extensions
                 var body = new CloneViewCommand()
                 {
                     Name = $"{eventTemplateEntity.Name} - {eventEntity.Username}",
-                    Description = eventTemplateEntity.Description
+                    Description = eventTemplateEntity.Description,
+                    IsTemplate = false
                 };
                 clonedView = await playerApiClient.CloneViewAsync((Guid)eventTemplateEntity.ViewId, body, ct);
 
