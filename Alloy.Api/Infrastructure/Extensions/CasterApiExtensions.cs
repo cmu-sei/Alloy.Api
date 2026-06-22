@@ -126,7 +126,7 @@ namespace Alloy.Api.Infrastructure.Extensions
                 // if not there yet, pause before the next check
                 if (status == RunStatus.Planning || status == RunStatus.Queued)
                 {
-                    Thread.Sleep(TimeSpan.FromSeconds(loopIntervalSeconds));
+                    await Task.Delay(TimeSpan.FromSeconds(loopIntervalSeconds), ct);
                 }
             }
             if (status == RunStatus.Planned)
@@ -216,7 +216,7 @@ namespace Alloy.Api.Infrastructure.Extensions
                     status == RunStatus.Applied__State_Error ||
                     status == RunStatus.Failed__State_Error)
                 {
-                    Thread.Sleep(TimeSpan.FromSeconds(loopIntervalSeconds));
+                    await Task.Delay(TimeSpan.FromSeconds(loopIntervalSeconds), ct);
 
                     if (status == RunStatus.Applied__State_Error ||
                         status == RunStatus.Failed__State_Error)
