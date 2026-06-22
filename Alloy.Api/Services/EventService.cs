@@ -12,6 +12,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Alloy.Api.Data;
 using Alloy.Api.Data.Models;
+using Alloy.Api.Infrastructure.Authorization;
 using Alloy.Api.Infrastructure.Extensions;
 using Alloy.Api.Infrastructure.Exceptions;
 using Alloy.Api.Infrastructure.Options;
@@ -31,7 +32,7 @@ namespace Alloy.Api.Services
         Task<IEnumerable<Event>> GetEventTemplateEventsAsync(Guid eventTemplateId, CancellationToken ct);
         Task<IEnumerable<Event>> GetMyEventTemplateEventsAsync(Guid eventTemplateId, bool includeInvites, CancellationToken ct);
         Task<IEnumerable<Event>> GetMyViewEventsAsync(Guid viewId, CancellationToken ct);
-        Task<IEnumerable<Event>> GetMyEventsAsync(CancellationToken ct);
+        Task<IEnumerable<Event>> GetMyEventsAsync(bool? includeEnded, int? days, CancellationToken ct);
         Task<Event> GetAsync(Guid id, CancellationToken ct);
         Task<Event> CreateAsync(Event eventx, CancellationToken ct);
         Task<Event> LaunchEventFromEventTemplateAsync(Guid eventTemplateId, Guid? userId, string username, List<Guid> additionalUserIds, CancellationToken ct);
@@ -51,6 +52,7 @@ namespace Alloy.Api.Services
     {
         private readonly AlloyContext _context;
         private readonly IAuthorizationService _authorizationService;
+        private readonly IAlloyAuthorizationService _alloyAuthorizationService;
         private readonly ClaimsPrincipal _user;
         private readonly IMapper _mapper;
         private readonly ICasterService _casterService;
@@ -69,6 +71,7 @@ namespace Alloy.Api.Services
         public EventService(
             AlloyContext context,
             IAuthorizationService authorizationService,
+            IAlloyAuthorizationService alloyAuthorizationService,
             IPrincipal user,
             IMapper mapper,
             IPlayerService playerService,
@@ -85,6 +88,7 @@ namespace Alloy.Api.Services
         {
             _context = context;
             _authorizationService = authorizationService;
+            _alloyAuthorizationService = alloyAuthorizationService;
             _user = user as ClaimsPrincipal;
             _mapper = mapper;
             _casterService = casterService;
@@ -152,13 +156,32 @@ namespace Alloy.Api.Services
             return _mapper.Map<IEnumerable<Event>>(items);
         }
 
-        public async Task<IEnumerable<Event>> GetMyEventsAsync(CancellationToken ct)
+        public async Task<IEnumerable<Event>> GetMyEventsAsync(bool? includeEnded, int? days, CancellationToken ct)
         {
             var userId = _user.GetId();
-            var items = await _context.EventMemberships
-                .Where(x => x.UserId == userId && (x.Event.Status == EventStatus.Active || x.Event.Status == EventStatus.Paused))
-                .Select(m => m.Event)
-                .ToListAsync();
+            var query = _context.EventMemberships
+                .Where(x => x.UserId == userId)
+                .Select(m => m.Event);
+
+            // Filter by status if specified
+            if (includeEnded == false)
+            {
+                var excludedStatuses = new List<EventStatus> {
+                    EventStatus.Ended,
+                    EventStatus.Failed,
+                    EventStatus.Expired
+                };
+                query = query.Where(e => !excludedStatuses.Contains(e.Status));
+            }
+
+            // Filter by date range if specified
+            if (days.HasValue)
+            {
+                var cutoffDate = DateTime.UtcNow.AddDays(-days.Value);
+                query = query.Where(e => e.DateCreated >= cutoffDate);
+            }
+
+            var items = await query.ToListAsync(ct);
 
             return _mapper.Map<IEnumerable<Event>>(items);
         }
@@ -304,6 +327,13 @@ namespace Alloy.Api.Services
                 username = _user.Claims.First(c => c.Type.ToLower() == "name").Value;
             }
 
+            // Get event template to set name and description
+            var eventTemplateEntity = await _context.EventTemplates.FindAsync(eventTemplateId);
+            if (eventTemplateEntity == null)
+            {
+                throw new EntityNotFoundException<EventTemplate>($"EventTemplate {eventTemplateId} was not found.");
+            }
+
             var eventEntity = new EventEntity()
             {
                 Id = Guid.NewGuid(),
@@ -311,6 +341,8 @@ namespace Alloy.Api.Services
                 UserId = userId,
                 Username = username,
                 EventTemplateId = eventTemplateId,
+                Name = $"{eventTemplateEntity.Name} - {username}",
+                Description = eventTemplateEntity.Description,
                 Status = EventStatus.Creating,
                 InternalStatus = InternalEventStatus.LaunchQueued
             };
@@ -345,6 +377,13 @@ namespace Alloy.Api.Services
 
         private async Task<bool> ResourcesAreAvailableAsync(Guid eventTemplateId, Guid userId, CancellationToken ct)
         {
+            // Check if user has ManageEvents permission to bypass resource limits
+            // This checks both JWT token roles (if UseRolesFromIdP enabled) and database role
+            if (await _alloyAuthorizationService.AuthorizeAsync([Data.SystemPermission.ManageEvents], ct))
+            {
+                return true;  // Skip all limit checks for users with manage permissions
+            }
+
             var resourcesAvailable = true;
             // check to see if this user already has this EventTemplate Implemented
             var notActiveStatuses = new List<EventStatus>() {
