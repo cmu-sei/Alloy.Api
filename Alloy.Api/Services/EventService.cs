@@ -43,6 +43,7 @@ namespace Alloy.Api.Services
         Task<Event> RedeployAsync(Guid eventId, CancellationToken ct);
         Task<Event> CreateInviteAsync(Guid eventId, CancellationToken ct);
         Task<Event> EnlistAsync(string code, CancellationToken ct);
+        Task<Event> EnlistUserAsync(Guid eventId, Guid userId, string userName, CancellationToken ct);
         Task<IEnumerable<VirtualMachine>> GetEventVirtualMachinesAsync(Guid eventId, CancellationToken ct);
         Task<IEnumerable<QuestionView>> GetEventQuestionsAsync(Guid eventId, CancellationToken ct);
         Task<IEnumerable<QuestionView>> GradeEventAsync(Guid eventId, IEnumerable<string> answers, CancellationToken ct);
@@ -464,19 +465,41 @@ namespace Alloy.Api.Services
 
         public async Task<Event> EnlistAsync(string code, CancellationToken ct)
         {
-            var userId = _user.GetId();
+            var alloyEvent = await GetEventByShareCodeAsync(code, ct);
+
+            return await EnlistUserAsync(alloyEvent.Id, _user.GetId(), _user.FindFirst("Name").Value, ct);
+        }
+
+        public async Task<Event> EnlistUserAsync(Guid eventId, Guid userId, string userName, CancellationToken ct)
+        {
+            var user = await EnsureUserAsync(userId, userName, ct);
+
             // user may not have access to the player api, so we get the resource owner token
             var token = await ApiClientsExtensions.GetToken(_serviceProvider);
             var playerApiClient = PlayerApiExtensions.GetPlayerApiClient(_httpClientFactory, _clientOptions.urls.playerApi, token);
             var steamfitterApiClient = SteamfitterApiExtensions.GetSteamfitterApiClient(_httpClientFactory, _clientOptions.urls.steamfitterApi, token);
 
-            var alloyEvent = await GetEventByShareCodeAsync(code, ct);
+            var alloyEvent = await GetAsync(eventId, ct);
             if (alloyEvent.Status == EventStatus.Active || alloyEvent.Status == EventStatus.Paused)
             {
                 if (alloyEvent != null)
                 {
                     if (alloyEvent.ViewId.HasValue)
                     {
+                        try
+                        {
+                            var playerUser = await playerApiClient.GetUserAsync(user.Id, ct);
+                        }
+                        catch (Exception)
+                        {
+                            await playerApiClient.CreateUserAsync(
+                                new Player.Api.Client.CreateUserCommand
+                                {
+                                    Id = user.Id,
+                                    Name = user.Name
+                                });
+                        }
+
                         await PlayerApiExtensions.AddUserToViewTeamAsync(playerApiClient, alloyEvent.ViewId.Value, userId, ct);
                     }
 
@@ -484,14 +507,14 @@ namespace Alloy.Api.Services
                     {
                         try
                         {
-                            var user = await steamfitterApiClient.GetUserAsync(userId, ct);
+                            var steamfitterUser = await steamfitterApiClient.GetUserAsync(userId, ct);
                         }
                         catch (System.Exception)
                         {
                             var newUser = new Steamfitter.Api.Client.User()
                             {
                                 Id = userId,
-                                Name = _user.FindFirst("Name").Value
+                                Name = user.Name
                             };
                             await steamfitterApiClient.CreateUserAsync(newUser);
                         }
@@ -531,6 +554,30 @@ namespace Alloy.Api.Services
                 }
             }
             throw new InviteException($"Invite Failed, Event Status: {Enum.GetName(typeof(EventStatus), alloyEvent.Status)}");
+        }
+
+        private async Task<UserEntity> EnsureUserAsync(Guid userId, string userName, CancellationToken ct)
+        {
+            userName = string.IsNullOrWhiteSpace(userName) ? userId.ToString() : userName;
+
+            var user = await _context.Users.SingleOrDefaultAsync(u => u.Id == userId, ct);
+            if (user == null)
+            {
+                user = new UserEntity
+                {
+                    Id = userId,
+                    Name = userName
+                };
+                _context.Users.Add(user);
+                await _context.SaveChangesAsync(ct);
+            }
+            else if (string.IsNullOrWhiteSpace(user.Name))
+            {
+                user.Name = userName;
+                await _context.SaveChangesAsync(ct);
+            }
+
+            return user;
         }
 
         public async Task<IEnumerable<VirtualMachine>> GetEventVirtualMachinesAsync(Guid eventId, CancellationToken ct)
