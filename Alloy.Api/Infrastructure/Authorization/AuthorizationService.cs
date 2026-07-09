@@ -32,10 +32,17 @@ public interface IAlloyAuthorizationService
         EventTemplatePermission[] requiredEventTemplatePermissions,
         CancellationToken cancellationToken) where T : IAuthorizationType;
 
+    Task<bool> AuthorizeAsync<T>(
+        Guid? resourceId,
+        SystemPermission[] requiredSystemPermissions,
+        GroupPermission[] requiredGroupPermissions,
+        CancellationToken cancellationToken) where T : IAuthorizationType;
+
     IEnumerable<Guid> GetAuthorizedEventIds();
     IEnumerable<SystemPermission> GetSystemPermissions();
     IEnumerable<EventPermissionClaim> GetEventPermissions(Guid? eventId = null);
     IEnumerable<EventTemplatePermissionClaim> GetEventTemplatePermissions(Guid? eventTemplateId = null);
+    IEnumerable<GroupPermissionsClaim> GetGroupPermissions(Guid? groupId = null);
 }
 
 public class AuthorizationService(
@@ -102,6 +109,31 @@ public class AuthorizationService(
         return succeeded;
     }
 
+    public async Task<bool> AuthorizeAsync<T>(
+        Guid? resourceId,
+        SystemPermission[] requiredSystemPermissions,
+        GroupPermission[] requiredGroupPermissions,
+        CancellationToken cancellationToken) where T : IAuthorizationType
+    {
+        var claimsPrincipal = identityResolver.GetClaimsPrincipal();
+        bool succeeded = await HasSystemPermission<IAuthorizationType>(requiredSystemPermissions);
+
+        if (!succeeded && resourceId.HasValue)
+        {
+            var groupId = await GetGroupId<T>(resourceId.Value, cancellationToken);
+
+            if (groupId != null)
+            {
+                var groupPermissionRequirement = new GroupPermissionRequirement(requiredGroupPermissions, groupId.Value);
+                var groupPermissionResult = await authService.AuthorizeAsync(claimsPrincipal, null, groupPermissionRequirement);
+
+                succeeded = groupPermissionResult.Succeeded;
+            }
+        }
+
+        return succeeded;
+    }
+
     public IEnumerable<Guid> GetAuthorizedEventIds()
     {
         return identityResolver.GetClaimsPrincipal().Claims
@@ -157,6 +189,20 @@ public class AuthorizationService(
         return permissions;
     }
 
+    public IEnumerable<GroupPermissionsClaim> GetGroupPermissions(Guid? groupId = null)
+    {
+        var permissions = identityResolver.GetClaimsPrincipal().Claims
+           .Where(x => x.Type == AuthorizationConstants.GroupPermissionsClaimType)
+           .Select(x => GroupPermissionsClaim.FromString(x.Value));
+
+        if (groupId.HasValue)
+        {
+            permissions = permissions.Where(x => x.GroupId == groupId.Value);
+        }
+
+        return permissions;
+    }
+
     private async Task<bool> HasSystemPermission<T>(
         SystemPermission[] requiredSystemPermissions) where T : IAuthorizationType
     {
@@ -188,11 +234,29 @@ public class AuthorizationService(
         };
     }
 
+    private async Task<Guid?> GetGroupId<T>(Guid resourceId, CancellationToken cancellationToken)
+    {
+        return typeof(T) switch
+        {
+            var t when t == typeof(Group) => resourceId,
+            var t when t == typeof(GroupMembership) => await GetGroupIdFromGroupMembership(resourceId, cancellationToken),
+            _ => throw new NotImplementedException($"Group handler for type {typeof(T).Name} is not implemented.")
+        };
+    }
+
     private async Task<Guid> GetEventIdFromEventMembership(Guid id, CancellationToken cancellationToken)
     {
         return await dbContext.EventMemberships
             .Where(x => x.Id == id)
             .Select(x => x.EventId)
+            .FirstOrDefaultAsync(cancellationToken);
+    }
+
+    private async Task<Guid> GetGroupIdFromGroupMembership(Guid id, CancellationToken cancellationToken)
+    {
+        return await dbContext.GroupMemberships
+            .Where(x => x.Id == id)
+            .Select(x => x.GroupId)
             .FirstOrDefaultAsync(cancellationToken);
     }
 

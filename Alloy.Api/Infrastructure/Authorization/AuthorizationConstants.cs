@@ -8,4 +8,5 @@ public static class AuthorizationConstants
     public const string PermissionClaimType = "Permission";
     public const string EventPermissionClaimType = "EventPermission";
     public const string EventTemplatePermissionClaimType = "EventTemplatePermission";
+    public const string GroupPermissionsClaimType = "GroupPermission";
 }
