@@ -198,27 +198,24 @@ public class AuthorizationService(
         if (permissionResult.Succeeded)
             return true;
 
-        if (!resourceId.HasValue)
-            return false;
-
         if (requiredEventPermissions != null)
             return await AuthorizeEvent<T>(
                 claimsPrincipal,
-                resourceId.Value,
+                resourceId,
                 requiredEventPermissions,
                 cancellationToken);
 
         if (requiredEventTemplatePermissions != null)
             return await AuthorizeEventTemplate<T>(
                 claimsPrincipal,
-                resourceId.Value,
+                resourceId,
                 requiredEventTemplatePermissions,
                 cancellationToken);
 
         if (requiredGroupPermissions != null)
             return await AuthorizeGroup<T>(
                 claimsPrincipal,
-                resourceId.Value,
+                resourceId,
                 requiredGroupPermissions,
                 cancellationToken);
 
@@ -242,16 +239,15 @@ public class AuthorizationService(
 
     private async Task<bool> AuthorizeEvent<T>(
         ClaimsPrincipal claimsPrincipal,
-        Guid resourceId,
+        Guid? resourceId,
         EventPermission[] requiredEventPermissions,
         CancellationToken cancellationToken) where T : IAuthorizationType
     {
-        var eventId = await GetEventId<T>(resourceId, cancellationToken);
+        var eventId = resourceId.HasValue
+            ? await GetEventId<T>(resourceId.Value, cancellationToken)
+            : null;
 
-        if (eventId == null)
-            return false;
-
-        var eventPermissionRequirement = new EventPermissionRequirement(requiredEventPermissions, eventId.Value);
+        var eventPermissionRequirement = new EventPermissionRequirement(requiredEventPermissions, eventId);
         var eventPermissionResult = await authService.AuthorizeAsync(claimsPrincipal, null, eventPermissionRequirement);
 
         return eventPermissionResult.Succeeded;
@@ -259,16 +255,15 @@ public class AuthorizationService(
 
     private async Task<bool> AuthorizeEventTemplate<T>(
         ClaimsPrincipal claimsPrincipal,
-        Guid resourceId,
+        Guid? resourceId,
         EventTemplatePermission[] requiredEventTemplatePermissions,
         CancellationToken cancellationToken) where T : IAuthorizationType
     {
-        var eventTemplateId = await GetEventTemplateId<T>(resourceId, cancellationToken);
+        var eventTemplateId = resourceId.HasValue
+            ? await GetEventTemplateId<T>(resourceId.Value, cancellationToken)
+            : null;
 
-        if (eventTemplateId == null)
-            return false;
-
-        var eventTemplatePermissionRequirement = new EventTemplatePermissionRequirement(requiredEventTemplatePermissions, eventTemplateId.Value);
+        var eventTemplatePermissionRequirement = new EventTemplatePermissionRequirement(requiredEventTemplatePermissions, eventTemplateId);
         var eventTemplatePermissionResult = await authService.AuthorizeAsync(claimsPrincipal, null, eventTemplatePermissionRequirement);
 
         return eventTemplatePermissionResult.Succeeded;
@@ -276,16 +271,15 @@ public class AuthorizationService(
 
     private async Task<bool> AuthorizeGroup<T>(
         ClaimsPrincipal claimsPrincipal,
-        Guid resourceId,
+        Guid? resourceId,
         GroupPermission[] requiredGroupPermissions,
         CancellationToken cancellationToken) where T : IAuthorizationType
     {
-        var groupId = await GetGroupId<T>(resourceId, cancellationToken);
+        var groupId = resourceId.HasValue
+            ? await GetGroupId<T>(resourceId.Value, cancellationToken)
+            : null;
 
-        if (groupId == null)
-            return false;
-
-        var groupPermissionRequirement = new GroupPermissionRequirement(requiredGroupPermissions, groupId.Value);
+        var groupPermissionRequirement = new GroupPermissionRequirement(requiredGroupPermissions, groupId);
         var groupPermissionResult = await authService.AuthorizeAsync(claimsPrincipal, null, groupPermissionRequirement);
 
         return groupPermissionResult.Succeeded;
