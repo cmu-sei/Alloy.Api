@@ -4,6 +4,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Security.Claims;
 using System.Threading;
 using System.Threading.Tasks;
 using Alloy.Api.Data;
@@ -54,7 +55,13 @@ public class AuthorizationService(
         SystemPermission[] requiredSystemPermissions,
         CancellationToken cancellationToken)
     {
-        return await HasSystemPermission<IAuthorizationType>(requiredSystemPermissions);
+        return await Authorize<IAuthorizationType>(
+            null,
+            requiredSystemPermissions,
+            null,
+            null,
+            null,
+            cancellationToken);
     }
 
     public async Task<bool> AuthorizeAsync<T>(
@@ -63,24 +70,13 @@ public class AuthorizationService(
         EventPermission[] requiredEventPermissions,
         CancellationToken cancellationToken) where T : IAuthorizationType
     {
-        var claimsPrincipal = identityResolver.GetClaimsPrincipal();
-        bool succeeded = await HasSystemPermission<IAuthorizationType>(requiredSystemPermissions);
-
-        if (!succeeded && resourceId.HasValue)
-        {
-            var eventId = await GetEventId<T>(resourceId.Value, cancellationToken);
-
-            if (eventId != null)
-            {
-                var eventPermissionRequirement = new EventPermissionRequirement(requiredEventPermissions, eventId.Value);
-                var eventPermissionResult = await authService.AuthorizeAsync(claimsPrincipal, null, eventPermissionRequirement);
-
-                succeeded = eventPermissionResult.Succeeded;
-            }
-
-        }
-
-        return succeeded;
+        return await Authorize<T>(
+            resourceId,
+            requiredSystemPermissions,
+            requiredEventPermissions,
+            null,
+            null,
+            cancellationToken);
     }
 
     public async Task<bool> AuthorizeAsync<T>(
@@ -89,24 +85,13 @@ public class AuthorizationService(
         EventTemplatePermission[] requiredEventTemplatePermissions,
         CancellationToken cancellationToken) where T : IAuthorizationType
     {
-        var claimsPrincipal = identityResolver.GetClaimsPrincipal();
-        bool succeeded = await HasSystemPermission<IAuthorizationType>(requiredSystemPermissions);
-
-        if (!succeeded && resourceId.HasValue)
-        {
-            var eventTemplateId = await GetEventTemplateId<T>(resourceId.Value, cancellationToken);
-
-            if (eventTemplateId != null)
-            {
-                var eventTemplatePermissionRequirement = new EventTemplatePermissionRequirement(requiredEventTemplatePermissions, eventTemplateId.Value);
-                var eventTemplatePermissionResult = await authService.AuthorizeAsync(claimsPrincipal, null, eventTemplatePermissionRequirement);
-
-                succeeded = eventTemplatePermissionResult.Succeeded;
-            }
-
-        }
-
-        return succeeded;
+        return await Authorize<T>(
+            resourceId,
+            requiredSystemPermissions,
+            null,
+            requiredEventTemplatePermissions,
+            null,
+            cancellationToken);
     }
 
     public async Task<bool> AuthorizeAsync<T>(
@@ -115,23 +100,13 @@ public class AuthorizationService(
         GroupPermission[] requiredGroupPermissions,
         CancellationToken cancellationToken) where T : IAuthorizationType
     {
-        var claimsPrincipal = identityResolver.GetClaimsPrincipal();
-        bool succeeded = await HasSystemPermission<IAuthorizationType>(requiredSystemPermissions);
-
-        if (!succeeded && resourceId.HasValue)
-        {
-            var groupId = await GetGroupId<T>(resourceId.Value, cancellationToken);
-
-            if (groupId != null)
-            {
-                var groupPermissionRequirement = new GroupPermissionRequirement(requiredGroupPermissions, groupId.Value);
-                var groupPermissionResult = await authService.AuthorizeAsync(claimsPrincipal, null, groupPermissionRequirement);
-
-                succeeded = groupPermissionResult.Succeeded;
-            }
-        }
-
-        return succeeded;
+        return await Authorize<T>(
+            resourceId,
+            requiredSystemPermissions,
+            null,
+            null,
+            requiredGroupPermissions,
+            cancellationToken);
     }
 
     public IEnumerable<Guid> GetAuthorizedEventIds()
@@ -203,14 +178,117 @@ public class AuthorizationService(
         return permissions;
     }
 
-    private async Task<bool> HasSystemPermission<T>(
-        SystemPermission[] requiredSystemPermissions) where T : IAuthorizationType
+    private async Task<bool> Authorize<T>(
+        Guid? resourceId,
+        SystemPermission[] requiredSystemPermissions,
+        EventPermission[] requiredEventPermissions,
+        EventTemplatePermission[] requiredEventTemplatePermissions,
+        GroupPermission[] requiredGroupPermissions,
+        CancellationToken cancellationToken) where T : IAuthorizationType
     {
+        ValidateScopedPermissionTypes(
+            requiredEventPermissions,
+            requiredEventTemplatePermissions,
+            requiredGroupPermissions);
+
         var claimsPrincipal = identityResolver.GetClaimsPrincipal();
         var permissionRequirement = new SystemPermissionRequirement(requiredSystemPermissions);
         var permissionResult = await authService.AuthorizeAsync(claimsPrincipal, null, permissionRequirement);
 
-        return permissionResult.Succeeded;
+        if (permissionResult.Succeeded)
+            return true;
+
+        if (!resourceId.HasValue)
+            return false;
+
+        if (requiredEventPermissions != null)
+            return await AuthorizeEvent<T>(
+                claimsPrincipal,
+                resourceId.Value,
+                requiredEventPermissions,
+                cancellationToken);
+
+        if (requiredEventTemplatePermissions != null)
+            return await AuthorizeEventTemplate<T>(
+                claimsPrincipal,
+                resourceId.Value,
+                requiredEventTemplatePermissions,
+                cancellationToken);
+
+        if (requiredGroupPermissions != null)
+            return await AuthorizeGroup<T>(
+                claimsPrincipal,
+                resourceId.Value,
+                requiredGroupPermissions,
+                cancellationToken);
+
+        return false;
+    }
+
+    private static void ValidateScopedPermissionTypes(
+        EventPermission[] eventPermissions,
+        EventTemplatePermission[] eventTemplatePermissions,
+        GroupPermission[] groupPermissions)
+    {
+        var scopedPermissionTypeCount =
+            (eventPermissions != null ? 1 : 0) +
+            (eventTemplatePermissions != null ? 1 : 0) +
+            (groupPermissions != null ? 1 : 0);
+
+        if (scopedPermissionTypeCount > 1)
+            throw new InvalidOperationException(
+                "Only one scoped permission type can be provided for authorization.");
+    }
+
+    private async Task<bool> AuthorizeEvent<T>(
+        ClaimsPrincipal claimsPrincipal,
+        Guid resourceId,
+        EventPermission[] requiredEventPermissions,
+        CancellationToken cancellationToken) where T : IAuthorizationType
+    {
+        var eventId = await GetEventId<T>(resourceId, cancellationToken);
+
+        if (eventId == null)
+            return false;
+
+        var eventPermissionRequirement = new EventPermissionRequirement(requiredEventPermissions, eventId.Value);
+        var eventPermissionResult = await authService.AuthorizeAsync(claimsPrincipal, null, eventPermissionRequirement);
+
+        return eventPermissionResult.Succeeded;
+    }
+
+    private async Task<bool> AuthorizeEventTemplate<T>(
+        ClaimsPrincipal claimsPrincipal,
+        Guid resourceId,
+        EventTemplatePermission[] requiredEventTemplatePermissions,
+        CancellationToken cancellationToken) where T : IAuthorizationType
+    {
+        var eventTemplateId = await GetEventTemplateId<T>(resourceId, cancellationToken);
+
+        if (eventTemplateId == null)
+            return false;
+
+        var eventTemplatePermissionRequirement = new EventTemplatePermissionRequirement(requiredEventTemplatePermissions, eventTemplateId.Value);
+        var eventTemplatePermissionResult = await authService.AuthorizeAsync(claimsPrincipal, null, eventTemplatePermissionRequirement);
+
+        return eventTemplatePermissionResult.Succeeded;
+    }
+
+    private async Task<bool> AuthorizeGroup<T>(
+        ClaimsPrincipal claimsPrincipal,
+        Guid resourceId,
+        GroupPermission[] requiredGroupPermissions,
+        CancellationToken cancellationToken) where T : IAuthorizationType
+    {
+        var groupId = await GetGroupId<T>(resourceId, cancellationToken);
+
+        if (groupId == null)
+            return false;
+
+        var groupPermissionRequirement = new GroupPermissionRequirement(requiredGroupPermissions, groupId.Value);
+        var groupPermissionResult = await authService.AuthorizeAsync(claimsPrincipal, null, groupPermissionRequirement);
+
+        return groupPermissionResult.Succeeded;
     }
 
     private async Task<Guid?> GetEventId<T>(Guid resourceId, CancellationToken cancellationToken)
@@ -244,19 +322,19 @@ public class AuthorizationService(
         };
     }
 
-    private async Task<Guid> GetEventIdFromEventMembership(Guid id, CancellationToken cancellationToken)
+    private async Task<Guid?> GetEventIdFromEventMembership(Guid id, CancellationToken cancellationToken)
     {
         return await dbContext.EventMemberships
             .Where(x => x.Id == id)
-            .Select(x => x.EventId)
+            .Select(x => (Guid?)x.EventId)
             .FirstOrDefaultAsync(cancellationToken);
     }
 
-    private async Task<Guid> GetGroupIdFromGroupMembership(Guid id, CancellationToken cancellationToken)
+    private async Task<Guid?> GetGroupIdFromGroupMembership(Guid id, CancellationToken cancellationToken)
     {
         return await dbContext.GroupMemberships
             .Where(x => x.Id == id)
-            .Select(x => x.GroupId)
+            .Select(x => (Guid?)x.GroupId)
             .FirstOrDefaultAsync(cancellationToken);
     }
 
@@ -268,19 +346,19 @@ public class AuthorizationService(
             .FirstOrDefaultAsync(cancellationToken);
     }
 
-    private async Task<Guid> GetEventTemplateIdFromEvent(Guid id, CancellationToken cancellationToken)
+    private async Task<Guid?> GetEventTemplateIdFromEvent(Guid id, CancellationToken cancellationToken)
     {
-        return (Guid)await dbContext.Events
+        return await dbContext.Events
             .Where(x => x.Id == id)
             .Select(x => x.EventTemplateId)
             .FirstOrDefaultAsync(cancellationToken);
     }
 
-    private async Task<Guid> GetEventTemplateIdFromEventTemplateMembership(Guid id, CancellationToken cancellationToken)
+    private async Task<Guid?> GetEventTemplateIdFromEventTemplateMembership(Guid id, CancellationToken cancellationToken)
     {
         return await dbContext.EventTemplateMemberships
             .Where(x => x.Id == id)
-            .Select(x => x.EventTemplateId)
+            .Select(x => (Guid?)x.EventTemplateId)
             .FirstOrDefaultAsync(cancellationToken);
     }
 
