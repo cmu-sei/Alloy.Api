@@ -20,6 +20,7 @@ namespace Alloy.Api.Services
     public interface IGroupService
     {
         STT.Task<IEnumerable<Group>> GetAsync(CancellationToken ct);
+        STT.Task<IEnumerable<Group>> GetAsync(IEnumerable<Guid> ids, CancellationToken ct);
         STT.Task<Group> GetAsync(Guid id, CancellationToken ct);
         STT.Task<Group> CreateAsync(Group group, CancellationToken ct);
         STT.Task<Group> UpdateAsync(Guid id, Group groupForm, CancellationToken ct);
@@ -27,6 +28,7 @@ namespace Alloy.Api.Services
         STT.Task<GroupMembership> GetMembershipAsync(Guid id, CancellationToken ct);
         STT.Task<IEnumerable<GroupMembership>> GetMembershipsForGroupAsync(Guid groupId, CancellationToken ct);
         STT.Task<GroupMembership> CreateMembershipAsync(GroupMembership groupMembership, CancellationToken ct);
+        STT.Task<GroupMembership> UpdateMembershipAsync(Guid id, GroupMembership groupMembership, CancellationToken ct);
         STT.Task DeleteMembershipAsync(Guid id, CancellationToken ct);
     }
 
@@ -48,6 +50,15 @@ namespace Alloy.Api.Services
         public async STT.Task<IEnumerable<Group>> GetAsync(CancellationToken ct)
         {
             var items = await _context.Groups.ToListAsync(ct);
+
+            return _mapper.Map<IEnumerable<Group>>(items);
+        }
+
+        public async STT.Task<IEnumerable<Group>> GetAsync(IEnumerable<Guid> ids, CancellationToken ct)
+        {
+            var items = await _context.Groups
+                .Where(x => ids.Contains(x.Id))
+                .ToListAsync(ct);
 
             return _mapper.Map<IEnumerable<Group>>(items);
         }
@@ -114,6 +125,18 @@ namespace Alloy.Api.Services
             groupMembership = await GetMembershipAsync(groupMembershipEntity.Id, ct);
 
             return groupMembership;
+        }
+
+        public async STT.Task<GroupMembership> UpdateMembershipAsync(Guid id, GroupMembership groupMembership, CancellationToken ct)
+        {
+            var groupMembershipToUpdate = await _context.GroupMemberships.SingleOrDefaultAsync(v => v.Id == id, ct);
+            if (groupMembershipToUpdate == null)
+                throw new EntityNotFoundException<GroupMembership>();
+
+            groupMembershipToUpdate.Role = groupMembership.Role;
+            await _context.SaveChangesAsync(ct);
+
+            return _mapper.Map<GroupMembership>(groupMembershipToUpdate);
         }
 
         public async STT.Task DeleteMembershipAsync(Guid id, CancellationToken ct)
