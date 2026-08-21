@@ -235,16 +235,17 @@ namespace Alloy.Api.Services
                                                 }
                                                 else
                                                 {
-                                                    (steamfitterApiClient, tokenResponse) = await RefreshClient(steamfitterApiClient, tokenResponse, scope.ServiceProvider, ct);
-                                                    var scenario = await SteamfitterApiExtensions.CreateSteamfitterScenarioAsync(steamfitterApiClient, eventEntity, (Guid)eventTemplateEntity.ScenarioTemplateId, ct);
-                                                    if (scenario != null)
+                                                    try
                                                     {
+                                                        (steamfitterApiClient, tokenResponse) = await RefreshClient(steamfitterApiClient, tokenResponse, scope.ServiceProvider, ct);
+                                                        var scenario = await SteamfitterApiExtensions.CreateSteamfitterScenarioAsync(steamfitterApiClient, eventEntity, (Guid)eventTemplateEntity.ScenarioTemplateId, ct);
                                                         eventEntity.ScenarioId = scenario.Id;
                                                         eventEntity.InternalStatus = InternalEventStatus.CreatingWorkspace;
                                                         updateTheEntity = true;
                                                     }
-                                                    else
+                                                    catch (Exception ex)
                                                     {
+                                                        _logger.LogError(ex, $"Error creating the Steamfitter Scenario for Event {eventEntity.Id}.");
                                                         retry = true;
                                                         tokenResponse = null;
                                                     }
@@ -462,7 +463,7 @@ namespace Alloy.Api.Services
                                                 if (eventEntity.ScenarioId != null)
                                                 {
                                                     (steamfitterApiClient, tokenResponse) = await RefreshClient(steamfitterApiClient, tokenResponse, scope.ServiceProvider, ct);
-                                                    updateTheEntity = await SteamfitterApiExtensions.StartSteamfitterScenarioAsync(steamfitterApiClient, (Guid)eventEntity.ScenarioId, ct);
+                                                    updateTheEntity = await SteamfitterApiExtensions.StartSteamfitterScenarioAsync(steamfitterApiClient, (Guid)eventEntity.ScenarioId, _logger, ct);
                                                 }
                                                 else
                                                 {
@@ -634,7 +635,7 @@ namespace Alloy.Api.Services
                                                 if (eventEntity.ViewId != null)
                                                 {
                                                     (playerApiClient, tokenResponse) = await RefreshClient(playerApiClient, tokenResponse, scope.ServiceProvider, ct);
-                                                    updateTheEntity = await PlayerApiExtensions.DeletePlayerViewAsync(_clientOptions.CurrentValue.urls.playerApi, eventEntity.ViewId, playerApiClient, ct);
+                                                    updateTheEntity = await PlayerApiExtensions.DeletePlayerViewAsync(eventEntity.ViewId, playerApiClient, ct);
                                                 }
                                                 else
                                                 {
@@ -657,7 +658,7 @@ namespace Alloy.Api.Services
                                                 if (eventEntity.ScenarioId != null)
                                                 {
                                                     (steamfitterApiClient, tokenResponse) = await RefreshClient(steamfitterApiClient, tokenResponse, scope.ServiceProvider, ct);
-                                                    updateTheEntity = await SteamfitterApiExtensions.EndSteamfitterScenarioAsync(_clientOptions.CurrentValue.urls.steamfitterApi, eventEntity.ScenarioId, steamfitterApiClient, ct);
+                                                    updateTheEntity = await SteamfitterApiExtensions.EndSteamfitterScenarioAsync(eventEntity.ScenarioId, steamfitterApiClient, _logger, ct);
                                                 }
                                                 else
                                                 {
