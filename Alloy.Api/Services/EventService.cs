@@ -335,6 +335,17 @@ namespace Alloy.Api.Services
                 throw new EntityNotFoundException<EventTemplate>($"EventTemplate {eventTemplateId} was not found.");
             }
 
+            // Event memberships have a foreign key to Users, and an Event can be launched on behalf of
+            // a user who has never signed in to Alloy, so make sure each member has a User record first.
+            await EnsureUserAsync(userId, username, ct);
+            if (additionalUserIds != null)
+            {
+                foreach (var additionalUserId in additionalUserIds.Where(m => m != userId))
+                {
+                    await EnsureUserAsync(additionalUserId, null, ct);
+                }
+            }
+
             var eventEntity = new EventEntity()
             {
                 Id = Guid.NewGuid(),
