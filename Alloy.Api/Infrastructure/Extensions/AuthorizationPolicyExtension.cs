@@ -24,6 +24,7 @@ namespace Alloy.Api.Infrastructure.Extensions
             services.AddSingleton<IAuthorizationHandler, SystemPermissionHandler>();
             services.AddSingleton<IAuthorizationHandler, EventPermissionHandler>();
             services.AddSingleton<IAuthorizationHandler, EventTemplatePermissionHandler>();
+            services.AddSingleton<IAuthorizationHandler, GroupPermissionsHandler>();
         }
 
 

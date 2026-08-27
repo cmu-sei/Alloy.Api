@@ -99,7 +99,7 @@ namespace Alloy.Api.Infrastructure.Extensions
             }
         }
 
-        public static async Task<bool> DeletePlayerViewAsync(string playerApiUrl, Guid? viewId, PlayerApiClient playerApiClient, CancellationToken ct)
+        public static async Task<bool> DeletePlayerViewAsync(Guid? viewId, PlayerApiClient playerApiClient, CancellationToken ct)
         {
             // no view to delete
             if (viewId == null)

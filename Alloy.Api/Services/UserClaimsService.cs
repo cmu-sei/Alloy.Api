@@ -292,6 +292,23 @@ namespace Alloy.Api.Services
                 claims.Add(new Claim(AuthorizationConstants.EventTemplatePermissionClaimType, permissionsClaim.ToString()));
             }
 
+            // Get Group Permissions for Groups the user is a Manager of.
+            var managedGroupIds = await _context.GroupMemberships
+                .Where(x => x.UserId == userId && x.Role == GroupMembershipRole.Manager)
+                .Select(x => x.GroupId)
+                .ToListAsync();
+
+            foreach (var groupId in managedGroupIds)
+            {
+                var permissionsClaim = new GroupPermissionsClaim
+                {
+                    GroupId = groupId,
+                    Permissions = [GroupPermission.ManageMembership]
+                };
+
+                claims.Add(new Claim(AuthorizationConstants.GroupPermissionsClaimType, permissionsClaim.ToString()));
+            }
+
             return claims;
         }
 
