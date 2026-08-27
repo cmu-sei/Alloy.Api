@@ -14,11 +14,14 @@ namespace Alloy.Api.Services
         void Add(EventEntity eventEntity);
 
         EventEntity Take(CancellationToken cancellationToken);
+
+        void Complete(EventEntity eventEntity);
     }
 
     public class AlloyEventQueue : IAlloyEventQueue
     {
         private BlockingCollection<EventEntity> _eventQueue = new BlockingCollection<EventEntity>();
+        private ConcurrentDictionary<Guid, byte> _queuedOrProcessingEventIds = new ConcurrentDictionary<Guid, byte>();
 
         public void Add(EventEntity eventEntity)
         {
@@ -26,12 +29,24 @@ namespace Alloy.Api.Services
             {
                 throw new ArgumentNullException(nameof(eventEntity));
             }
-            _eventQueue.Add(eventEntity);
+
+            if (_queuedOrProcessingEventIds.TryAdd(eventEntity.Id, 0))
+            {
+                _eventQueue.Add(eventEntity);
+            }
         }
 
         public EventEntity Take(CancellationToken cancellationToken)
         {
             return _eventQueue.Take(cancellationToken);
+        }
+
+        public void Complete(EventEntity eventEntity)
+        {
+            if (eventEntity != null)
+            {
+                _queuedOrProcessingEventIds.TryRemove(eventEntity.Id, out _);
+            }
         }
     }
 

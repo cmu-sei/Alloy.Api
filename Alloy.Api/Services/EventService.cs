@@ -255,13 +255,19 @@ namespace Alloy.Api.Services
             try
             {
                 var eventEntity = await GetTheEventAsync(eventId, ct);
-                if (eventEntity.Status != EventStatus.Failed && eventEntity.EndDate != null)
+                if (eventEntity.Status == EventStatus.Ended || eventEntity.Status == EventStatus.Expired)
                 {
-                    var msg = $"Event {eventEntity.Id} has already been ended";
-                    _logger.LogError(msg);
-                    throw new Exception(msg);
+                    _logger.LogInformation("Event {EventId} has already completed ending.", eventEntity.Id);
+                    return await GetAsync(eventId, ct);
                 }
-                eventEntity.EndDate = DateTime.UtcNow;
+
+                if (eventEntity.Status == EventStatus.Ending)
+                {
+                    _logger.LogInformation("Event {EventId} is already ending.", eventEntity.Id);
+                    return await GetAsync(eventId, ct);
+                }
+
+                eventEntity.EndDate ??= DateTime.UtcNow;
                 eventEntity.Status = EventStatus.Ending;
                 eventEntity.InternalStatus = InternalEventStatus.EndQueued;
                 await _context.SaveChangesAsync(ct);

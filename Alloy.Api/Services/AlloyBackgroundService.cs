@@ -172,6 +172,14 @@ namespace Alloy.Api.Services
                     eventEntity.Status == EventStatus.Applying ||
                     eventEntity.Status == EventStatus.Ending)
                 {
+                    // Another request can transition this Event while a long-running
+                    // launch operation is in flight. Always begin the next state
+                    // transition from the persisted state.
+                    await alloyContext.Entry(eventEntity).ReloadAsync(ct);
+                    var processingLaunch = eventEntity.Status == EventStatus.Creating ||
+                        eventEntity.Status == EventStatus.Planning ||
+                        eventEntity.Status == EventStatus.Applying;
+
                     try
                     {
                         // the updateTheEntity flag is used to indicate if the event entity state should be updated at the end of this loop
@@ -744,8 +752,18 @@ namespace Alloy.Api.Services
                         // update the entity in the context, if we are moving on
                         if (updateTheEntity)
                         {
-                            eventEntity.StatusDate = DateTime.UtcNow;
-                            await alloyContext.SaveChangesAsync(ct);
+                            // Do not let a launch worker overwrite an end request that
+                            // was persisted while it was waiting on an external service.
+                            if (processingLaunch && await IsEndingAsync(alloyContext, eventEntity.Id, ct))
+                            {
+                                _logger.LogInformation("Event {EventId} changed to ending while launch processing was in progress.", eventEntity.Id);
+                                await alloyContext.Entry(eventEntity).ReloadAsync(ct);
+                            }
+                            else
+                            {
+                                eventEntity.StatusDate = DateTime.UtcNow;
+                                await alloyContext.SaveChangesAsync(ct);
+                            }
                         }
                     }
                 }
@@ -757,6 +775,22 @@ namespace Alloy.Api.Services
             {
                 _logger.LogError(ex, $"Error processing event {eventEntity.Id}. Terminating");
             }
+            finally
+            {
+                _eventQueue.Complete(eventEntity);
+            }
+        }
+
+        private static async Task<bool> IsEndingAsync(AlloyContext alloyContext, Guid eventId, CancellationToken ct)
+        {
+            return await alloyContext.Events
+                .AsNoTracking()
+                .AnyAsync(x => x.Id == eventId &&
+                    x.EndDate != null &&
+                    (x.Status == EventStatus.Ending ||
+                     x.Status == EventStatus.Ended ||
+                     x.Status == EventStatus.Expired ||
+                     x.Status == EventStatus.Failed), ct);
         }
 
         private async Task<(PlayerApiClient, TokenResponse)> RefreshClient(PlayerApiClient clientObject, TokenResponse tokenResponse, IServiceProvider serviceProvider, CancellationToken ct)
