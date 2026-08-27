@@ -90,6 +90,18 @@ namespace Alloy.Api.Hubs
             {
                 await Groups.AddToGroupAsync(Context.ConnectionId, ADMIN_GROUP_GROUP);
             }
+            else
+            {
+                var groupIds = _authorizationService.GetGroupPermissions()
+                    .Where(x => x.Permissions.Contains(GroupPermission.ManageMembership))
+                    .Select(x => x.GroupId)
+                    .ToList();
+
+                foreach (var item in groupIds)
+                {
+                    await Groups.AddToGroupAsync(Context.ConnectionId, item.ToString());
+                }
+            }
             if (await _authorizationService.AuthorizeAsync([SystemPermission.ViewRoles], ct))
             {
                 await Groups.AddToGroupAsync(Context.ConnectionId, ADMIN_ROLE_GROUP);
@@ -134,6 +146,18 @@ namespace Alloy.Api.Hubs
                 }
             }
             await Groups.RemoveFromGroupAsync(Context.ConnectionId, ADMIN_GROUP_GROUP);
+            if (!await _authorizationService.AuthorizeAsync([SystemPermission.ViewGroups], ct))
+            {
+                var groupIds = _authorizationService.GetGroupPermissions()
+                    .Where(x => x.Permissions.Contains(GroupPermission.ManageMembership))
+                    .Select(x => x.GroupId)
+                    .ToList();
+
+                foreach (var item in groupIds)
+                {
+                    await Groups.RemoveFromGroupAsync(Context.ConnectionId, item.ToString());
+                }
+            }
             await Groups.RemoveFromGroupAsync(Context.ConnectionId, ADMIN_ROLE_GROUP);
             await Groups.RemoveFromGroupAsync(Context.ConnectionId, ADMIN_USER_GROUP);
         }

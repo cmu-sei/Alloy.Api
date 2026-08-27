@@ -21,12 +21,15 @@ public class GroupMembershipEntity
     public Guid UserId { get; set; }
     public virtual UserEntity User { get; set; }
 
+    public GroupMembershipRole Role { get; set; } = GroupMembershipRole.Member;
+
     public GroupMembershipEntity() { }
 
-    public GroupMembershipEntity(Guid groupId, Guid userId)
+    public GroupMembershipEntity(Guid groupId, Guid userId, GroupMembershipRole role = GroupMembershipRole.Member)
     {
         GroupId = groupId;
         UserId = userId;
+        Role = role;
     }
 
     public class GroupMembershipEntityConfiguration : IEntityTypeConfiguration<GroupMembershipEntity>
@@ -34,6 +37,7 @@ public class GroupMembershipEntity
         public void Configure(EntityTypeBuilder<GroupMembershipEntity> builder)
         {
             builder.HasIndex(e => new { e.GroupId, e.UserId }).IsUnique();
+            builder.Property(e => e.Role).HasDefaultValue(GroupMembershipRole.Member);
 
             builder
                 .HasOne(tu => tu.Group)

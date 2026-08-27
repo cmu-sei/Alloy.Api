@@ -375,6 +375,19 @@ namespace Alloy.Api.Controllers
             return CreatedAtAction(nameof(this.Get), enlistedUser);
         }
 
+        [HttpPost("events/{id}/enlist/{userId}")]
+        [ProducesResponseType(typeof(Event), (int)HttpStatusCode.Created)]
+        [SwaggerOperation(OperationId = "enlistUser")]
+        public async Task<ActionResult> EnlistUser(Guid id, Guid userId, [FromBody] EnlistUserCommand command, CancellationToken ct)
+        {
+            if (!await _authorizationService.AuthorizeAsync([SystemPermission.ManageEvents], ct))
+                throw new ForbiddenException();
+
+            var enlistedUser = await _eventService.EnlistUserAsync(id, userId, command?.UserName, ct);
+
+            return CreatedAtAction(nameof(this.Get), enlistedUser);
+        }
+
         /// <summary>
         /// Gets all virtual machines for an event
         /// </summary>
