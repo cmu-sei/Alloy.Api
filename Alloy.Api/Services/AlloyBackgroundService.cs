@@ -125,9 +125,8 @@ namespace Alloy.Api.Services
                         _logger.LogDebug("The AlloyBackgroundService is ready to process events.");
                         // _implementatioQueue is a BlockingCollection, so this loop will sleep if nothing is in the queue
                         var eventEntity = _eventQueue.Take(new CancellationToken());
-                        // process the eventEntity on a new thread
-                        var newThread = new Thread(ProcessTheEvent);
-                        newThread.Start(eventEntity);
+                        // process the eventEntity on a thread pool task (fire-and-forget)
+                        _ = Task.Run(() => ProcessTheEvent(eventEntity));
                     }
                     catch (Exception ex)
                     {
@@ -137,7 +136,7 @@ namespace Alloy.Api.Services
             });
         }
 
-        private async void ProcessTheEvent(Object eventEntityAsObject)
+        private async Task ProcessTheEvent(Object eventEntityAsObject)
         {
             var ct = new CancellationToken();
             var eventEntity = eventEntityAsObject == null ? (EventEntity)null : (EventEntity)eventEntityAsObject;
@@ -600,7 +599,7 @@ namespace Alloy.Api.Services
                                                             // try the whole process again after a wait
                                                             eventEntity.InternalStatus = InternalEventStatus.PlanningDestroy;
                                                             resourceRetryCount++;
-                                                            Thread.Sleep(TimeSpan.FromMinutes(_clientOptions.CurrentValue.CasterDestroyRetryDelayMinutes));
+                                                            await Task.Delay(TimeSpan.FromMinutes(_clientOptions.CurrentValue.CasterDestroyRetryDelayMinutes), ct);
                                                         }
                                                         else
                                                         {
@@ -732,7 +731,7 @@ namespace Alloy.Api.Services
                             }
                             else
                             {
-                                Thread.Sleep(TimeSpan.FromSeconds(_clientOptions.CurrentValue.ApiClientRetryIntervalSeconds));
+                                await Task.Delay(TimeSpan.FromSeconds(_clientOptions.CurrentValue.ApiClientRetryIntervalSeconds), ct);
                             }
 
                         }
