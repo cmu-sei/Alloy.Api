@@ -51,6 +51,10 @@ namespace Alloy.Api.Migrations.PostgreSQL.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("end_date");
 
+                    b.Property<string>("ErrorDetail")
+                        .HasColumnType("text")
+                        .HasColumnName("error_detail");
+
                     b.Property<string>("ErrorMessage")
                         .HasColumnType("text")
                         .HasColumnName("error_message");

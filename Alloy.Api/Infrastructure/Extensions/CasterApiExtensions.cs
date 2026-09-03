@@ -2,15 +2,15 @@
 // Released under a MIT (SEI)-style license. See LICENSE.md in the project root for license information.
 
 using System;
+using System.Net;
 using System.Net.Http;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
-using IdentityModel.Client;
 using Alloy.Api.Data.Models;
-using Microsoft.Extensions.Logging;
-using System.Net;
 using Caster.Api.Client;
+using IdentityModel.Client;
+using Microsoft.Extensions.Logging;
 using Player.Api.Client;
 
 namespace Alloy.Api.Infrastructure.Extensions
@@ -24,7 +24,7 @@ namespace Alloy.Api.Infrastructure.Extensions
             return apiClient;
         }
 
-        public static async Task<Guid?> CreateCasterWorkspaceAsync(CasterApiClient casterApiClient, EventEntity eventEntity, Guid directoryId, string varsFileContent, bool useDynamicHost, CancellationToken ct)
+        public static async Task<ApiCallResult<Guid>> CreateCasterWorkspaceAsync(CasterApiClient casterApiClient, EventEntity eventEntity, Guid directoryId, string varsFileContent, bool useDynamicHost, ILogger logger, CancellationToken ct)
         {
             try
             {
@@ -47,23 +47,23 @@ namespace Alloy.Api.Infrastructure.Extensions
                     Content = varsFileContent
                 };
                 await casterApiClient.CreateFileAsync(createFileCommand, ct);
-                return workspaceId;
+                return ApiCallResult<Guid>.Ok(workspaceId);
             }
-            catch (Exception)
+            catch (Exception ex)
             {
-                return null;
+                logger.LogError(ex, "Error creating the Caster workspace for Event {EventId} in Directory {DirectoryId}", eventEntity.Id, directoryId);
+                return ex.Classify<Guid>("prepare the infrastructure workspace");
             }
         }
 
-        public static async Task<string> GetCasterVarsFileContentAsync(EventEntity eventEntity, PlayerApiClient playerApiClient, CancellationToken ct)
+        public static async Task<ApiCallResult<string>> GetCasterVarsFileContentAsync(EventEntity eventEntity, PlayerApiClient playerApiClient, ILogger logger, CancellationToken ct)
         {
             try
             {
-                var varsFileContent = "";
                 var view = await playerApiClient.GetViewAsync((Guid)eventEntity.ViewId, ct);
 
                 // TODO: exercise_id is deprecated. Remove when no longer in use
-                varsFileContent = $"exercise_id = \"{view.Id}\"\r\nview_id = \"{view.Id}\"\r\nuser_id = \"{eventEntity.UserId}\"\r\nusername = \"{eventEntity.Username}\"\r\n";
+                var varsFileContent = $"exercise_id = \"{view.Id}\"\r\nview_id = \"{view.Id}\"\r\nuser_id = \"{eventEntity.UserId}\"\r\nusername = \"{eventEntity.Username}\"\r\n";
                 var teams = await playerApiClient.GetViewTeamsAsync((Guid)view.Id, ct);
 
                 foreach (var team in teams)
@@ -72,15 +72,16 @@ namespace Alloy.Api.Infrastructure.Extensions
                     varsFileContent += $"{cleanTeamName} = \"{team.Id}\"\r\n";
                 }
 
-                return varsFileContent;
+                return ApiCallResult<string>.Ok(varsFileContent);
             }
-            catch (Exception)
+            catch (Exception ex)
             {
-                return "";
+                logger.LogError(ex, "Error building the Caster variables file for Event {EventId} from View {ViewId}", eventEntity.Id, eventEntity.ViewId);
+                return ex.Classify<string>("read the virtual environment configuration");
             }
         }
 
-        public static async Task<(Guid? runId, string errorMessage)> CreateRunAsync(
+        public static async Task<ApiCallResult<Guid>> CreateRunAsync(
             EventEntity eventEntity,
             CasterApiClient casterApiClient,
             bool isDestroy,
@@ -95,29 +96,18 @@ namespace Alloy.Api.Infrastructure.Extensions
             try
             {
                 var casterRun = await casterApiClient.CreateRunAsync(runCommand, ct);
-                return (casterRun.Id, null);
-            }
-            catch (Caster.Api.Client.ApiException apiEx)
-            {
-                logger.LogError(apiEx, "Error Creating Run - API Exception");
-                var errorMessage = $"Failed to create Caster run: HTTP {apiEx.StatusCode}";
-                if (!string.IsNullOrWhiteSpace(apiEx.Response))
-                {
-                    errorMessage += $" - {apiEx.Response}";
-                }
-                return (null, errorMessage);
+                return ApiCallResult<Guid>.Ok(casterRun.Id);
             }
             catch (Exception ex)
             {
-                logger.LogError(ex, "Error Creating Run");
-                var errorMessage = ex.InnerException != null
-                    ? $"Failed to create Caster run: {ex.Message} ({ex.InnerException.Message})"
-                    : $"Failed to create Caster run: {ex.Message}";
-                return (null, errorMessage);
+                logger.LogError(ex, "Error creating a Caster run for Event {EventId} in Workspace {WorkspaceId} (isDestroy: {IsDestroy})", eventEntity.Id, eventEntity.WorkspaceId, isDestroy);
+                return ex.Classify<Guid>(isDestroy
+                    ? "start tearing down the infrastructure"
+                    : "start building the infrastructure");
             }
         }
 
-        public static async Task<(bool success, string errorMessage)> WaitForRunToBePlannedAsync(
+        public static async Task<ApiCallResult> WaitForRunToBePlannedAsync(
             EventEntity eventEntity,
             CasterApiClient casterApiClient,
             int loopIntervalSeconds,
@@ -127,7 +117,7 @@ namespace Alloy.Api.Infrastructure.Extensions
         {
             if (eventEntity.RunId == null)
             {
-                return (false, null);
+                return ApiCallResult.Permanent("The infrastructure run is missing and cannot be planned.");
             }
             var endTime = DateTime.UtcNow.AddMinutes(maxWaitMinutes);
             var status = RunStatus.Planning;
@@ -135,79 +125,95 @@ namespace Alloy.Api.Infrastructure.Extensions
 
             while ((status == RunStatus.Queued || status == RunStatus.Planning) && DateTime.UtcNow < endTime)
             {
-                casterRun = await casterApiClient.GetRunAsync((Guid)eventEntity.RunId, true, false);
+                try
+                {
+                    // include the plan so its output is on hand if this run turns out to have failed
+                    casterRun = await casterApiClient.GetRunAsync((Guid)eventEntity.RunId, true, false, ct);
+                }
+                catch (Exception ex)
+                {
+                    logger.LogError(ex, "Error reading Caster run {RunId} while waiting for it to be planned", eventEntity.RunId);
+                    return ex.Classify("plan the infrastructure");
+                }
+
                 status = casterRun.Status;
                 // if not there yet, pause before the next check
                 if (status == RunStatus.Planning || status == RunStatus.Queued)
                 {
-                    Thread.Sleep(TimeSpan.FromSeconds(loopIntervalSeconds));
+                    await Task.Delay(TimeSpan.FromSeconds(loopIntervalSeconds), ct);
                 }
             }
+
             if (status == RunStatus.Planned)
             {
-                return (true, null);
+                return ApiCallResult.Ok();
             }
-            else if (status == RunStatus.Failed)
+
+            if (status == RunStatus.Failed || status == RunStatus.Rejected)
             {
                 var output = casterRun?.Plan?.Output ?? "No output available";
-                // Strip ANSI escape codes
-                output = System.Text.RegularExpressions.Regex.Replace(output, @"\x1B\[[0-9;]*[mGKH]", "");
-                var errorMessage = $"Terraform plan failed: {output}";
-                logger.LogError($"Run {eventEntity.RunId} failed during planning: {errorMessage}");
-                return (false, errorMessage);
+                logger.LogError("Caster run {RunId} for Event {EventId} ended planning with status {Status}. Output: {Output}", eventEntity.RunId, eventEntity.Id, status, output);
+                return ApiCallResult.Permanent(
+                    "Infrastructure deployment failed while planning the changes.",
+                    output);
             }
-            else
-            {
-                var errorMessage = $"Run did not reach Planned status. Current status: {status}";
-                logger.LogWarning($"Run {eventEntity.RunId} timed out or entered unexpected status: {status}");
-                return (false, errorMessage);
-            }
+
+            // Still queued or planning means the wait simply ran out; any other status means Caster
+            // moved the run somewhere unexpected. Either way it is worth another pass - the caller's
+            // retry ceiling is what guarantees this terminates.
+            logger.LogWarning("Caster run {RunId} for Event {EventId} did not reach Planned within {MaxWaitMinutes} minutes; last status was {Status}", eventEntity.RunId, eventEntity.Id, maxWaitMinutes, status);
+            return ApiCallResult.Transient(
+                "Infrastructure planning is taking longer than expected; retrying.",
+                $"Run {eventEntity.RunId} did not reach Planned within {maxWaitMinutes} minutes. Last status: {status}");
         }
 
-        public static async Task<bool> ApplyRunAsync(
+        public static async Task<ApiCallResult> ApplyRunAsync(
             EventEntity eventEntity,
             CasterApiClient casterApiClient,
+            ILogger logger,
             CancellationToken ct)
         {
-            var initialInternalStatus = eventEntity.InternalStatus;
-            // if status is Planned or Applying
             try
             {
                 await casterApiClient.ApplyRunAsync((Guid)eventEntity.RunId, ct);
-                return true;
+                return ApiCallResult.Ok();
             }
-            catch (Exception)
+            catch (Exception ex)
             {
-                return false;
+                logger.LogError(ex, "Error applying Caster run {RunId} for Event {EventId}", eventEntity.RunId, eventEntity.Id);
+                return ex.Classify("apply the infrastructure changes");
             }
         }
 
-        public static async Task<bool> DeleteCasterWorkspaceAsync(EventEntity eventEntity,
-            CasterApiClient casterApiClient, TokenResponse tokenResponse, CancellationToken ct)
+        public static async Task<ApiCallResult> DeleteCasterWorkspaceAsync(EventEntity eventEntity,
+            CasterApiClient casterApiClient, ILogger logger, CancellationToken ct)
         {
+            // no workspace to delete
+            if (eventEntity.WorkspaceId == null)
+            {
+                return ApiCallResult.Ok();
+            }
             try
             {
                 await casterApiClient.DeleteWorkspaceAsync((Guid)eventEntity.WorkspaceId, ct);
-                return true;
+                return ApiCallResult.Ok();
             }
-            catch (Caster.Api.Client.ApiException ex)
+            catch (Caster.Api.Client.ApiException ex) when (
+                ex.StatusCode == (int)HttpStatusCode.NotFound ||
+                ex.StatusCode == (int)HttpStatusCode.NoContent)
             {
-                if (ex.StatusCode == (int)HttpStatusCode.NotFound || ex.StatusCode == (int)HttpStatusCode.NoContent)
-                {
-                    return true;
-                }
-                else
-                {
-                    return false;
-                }
+                // there is no Workspace left to delete, so don't hold the Event open retrying
+                logger.LogInformation("Caster returned {StatusCode} deleting Workspace {WorkspaceId}, which no longer exists. Treating it as deleted.", ex.StatusCode, eventEntity.WorkspaceId);
+                return ApiCallResult.Ok();
             }
-            catch (Exception)
+            catch (Exception ex)
             {
-                return false;
+                logger.LogError(ex, "Error deleting Caster Workspace {WorkspaceId} for Event {EventId}", eventEntity.WorkspaceId, eventEntity.Id);
+                return ex.Classify("delete the infrastructure workspace");
             }
         }
 
-        public static async Task<bool> WaitForRunToBeAppliedAsync(
+        public static async Task<ApiCallResult> WaitForRunToBeAppliedAsync(
             EventEntity eventEntity,
             CasterApiClient casterApiClient,
             int loopIntervalSeconds,
@@ -217,75 +223,126 @@ namespace Alloy.Api.Infrastructure.Extensions
         {
             if (eventEntity.RunId == null)
             {
-                return false;
+                return ApiCallResult.Permanent("The infrastructure run is missing and cannot be applied.");
             }
             var endTime = DateTime.UtcNow.AddMinutes(maxWaitMinutes);
             var status = RunStatus.Applying;
 
-            while ((status == RunStatus.Applying ||
-                    status == RunStatus.ApplyQueued ||
-                    status == RunStatus.Planned ||
-                    status == RunStatus.Queued ||
-                    status == RunStatus.Applied__State_Error ||
-                    status == RunStatus.Failed__State_Error)
-                    && DateTime.UtcNow < endTime)
+            while (IsStillWorking(status) && DateTime.UtcNow < endTime)
             {
-                var casterRun = await casterApiClient.GetRunAsync((Guid)eventEntity.RunId, false, false);
-                status = casterRun.Status;
-
-                // if not there yet, pause before the next check
-                if (status == RunStatus.Applying ||
-                    status == RunStatus.ApplyQueued ||
-                    status == RunStatus.Planned ||
-                    status == RunStatus.Queued ||
-                    status == RunStatus.Applied__State_Error ||
-                    status == RunStatus.Failed__State_Error)
+                try
                 {
-                    Thread.Sleep(TimeSpan.FromSeconds(loopIntervalSeconds));
+                    // the apply output is deliberately not requested here: this loop can run for
+                    // hours, and dragging the whole apply log down on every poll is a real load
+                    // problem for Caster. It is fetched once below, only if the run failed.
+                    var casterRun = await casterApiClient.GetRunAsync((Guid)eventEntity.RunId, false, false, ct);
+                    status = casterRun.Status;
 
-                    if (status == RunStatus.Applied__State_Error ||
-                        status == RunStatus.Failed__State_Error)
+                    // if not there yet, pause before the next check
+                    if (IsStillWorking(status))
                     {
-                        await casterApiClient.SaveStateAsync(eventEntity.RunId.Value);
+                        await Task.Delay(TimeSpan.FromSeconds(loopIntervalSeconds), ct);
+
+                        if (status == RunStatus.Applied__State_Error ||
+                            status == RunStatus.Failed__State_Error)
+                        {
+                            await casterApiClient.SaveStateAsync(eventEntity.RunId.Value, ct);
+                        }
                     }
                 }
+                catch (Exception ex)
+                {
+                    logger.LogError(ex, "Error reading Caster run {RunId} while waiting for it to be applied", eventEntity.RunId);
+                    return ex.Classify("build the infrastructure");
+                }
             }
+
             if (status == RunStatus.Applied)
             {
-                return true;
+                return ApiCallResult.Ok();
             }
-            else
+
+            if (status == RunStatus.Failed || status == RunStatus.Rejected)
             {
-                return false;
+                // Now, and only now, pull the apply output so there is something to show for it.
+                var output = await GetApplyOutputAsync(eventEntity, casterApiClient, logger, ct);
+                logger.LogError("Caster run {RunId} for Event {EventId} ended with status {Status}. Output: {Output}", eventEntity.RunId, eventEntity.Id, status, output);
+                return ApiCallResult.Permanent(
+                    "Infrastructure deployment failed while building the virtual environment.",
+                    output);
             }
+
+            logger.LogWarning("Caster run {RunId} for Event {EventId} did not reach Applied within {MaxWaitMinutes} minutes; last status was {Status}", eventEntity.RunId, eventEntity.Id, maxWaitMinutes, status);
+            return ApiCallResult.Transient(
+                "Building the virtual environment is taking longer than expected; retrying.",
+                $"Run {eventEntity.RunId} did not reach Applied within {maxWaitMinutes} minutes. Last status: {status}");
         }
 
-        public static async Task<bool> IsWorkspaceEmpty(
+        /// <summary>
+        /// Statuses that mean the apply has not settled one way or the other yet.
+        /// </summary>
+        private static bool IsStillWorking(RunStatus status)
+        {
+            return status == RunStatus.Applying ||
+                   status == RunStatus.ApplyQueued ||
+                   status == RunStatus.Planned ||
+                   status == RunStatus.Queued ||
+                   status == RunStatus.Applied__State_Error ||
+                   status == RunStatus.Failed__State_Error;
+        }
+
+        private static async Task<string> GetApplyOutputAsync(
             EventEntity eventEntity,
             CasterApiClient casterApiClient,
             ILogger logger,
             CancellationToken ct)
         {
-            var isEmpty = true;
-
-            if (eventEntity.WorkspaceId.HasValue)
+            try
             {
-                try
-                {
-                    var resources = await casterApiClient.GetResourcesByWorkspaceAsync(eventEntity.WorkspaceId.Value);
-                    if (resources.Count > 0)
-                    {
-                        isEmpty = false;
-                    }
-                }
-                catch (Exception ex)
-                {
-                    isEmpty = false;
-                    logger.LogError(ex, $"Error checking Resources for Workspace {eventEntity.WorkspaceId} in Event {eventEntity.Id}");
-                }
+                var casterRun = await casterApiClient.GetRunAsync((Guid)eventEntity.RunId, false, true, ct);
+                return casterRun?.Apply?.Output ?? "No output available";
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Error reading the apply output for Caster run {RunId}", eventEntity.RunId);
+                return "The output of the failed run could not be retrieved.";
+            }
+        }
+
+        /// <summary>
+        /// How many resources Caster still holds in the Event's Workspace.
+        /// <para>
+        /// A Workspace that Caster no longer knows about counts as empty. There is nothing left to
+        /// destroy, and retrying a 404 until the teardown ceiling would strand the Event in Failed
+        /// with a WorkspaceId that can never be cleared.
+        /// </para>
+        /// </summary>
+        public static async Task<ApiCallResult<int>> GetWorkspaceResourceCountAsync(
+            EventEntity eventEntity,
+            CasterApiClient casterApiClient,
+            ILogger logger,
+            CancellationToken ct)
+        {
+            if (!eventEntity.WorkspaceId.HasValue)
+            {
+                return ApiCallResult<int>.Ok(0);
             }
 
-            return isEmpty;
+            try
+            {
+                var resources = await casterApiClient.GetResourcesByWorkspaceAsync(eventEntity.WorkspaceId.Value, ct);
+                return ApiCallResult<int>.Ok(resources.Count);
+            }
+            catch (Caster.Api.Client.ApiException ex) when (ex.StatusCode == (int)HttpStatusCode.NotFound)
+            {
+                logger.LogInformation("Caster no longer has Workspace {WorkspaceId} for Event {EventId}. Treating it as empty.", eventEntity.WorkspaceId, eventEntity.Id);
+                return ApiCallResult<int>.Ok(0);
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Error checking Resources for Workspace {WorkspaceId} in Event {EventId}", eventEntity.WorkspaceId, eventEntity.Id);
+                return ex.Classify<int>("check the infrastructure workspace");
+            }
         }
     }
 }

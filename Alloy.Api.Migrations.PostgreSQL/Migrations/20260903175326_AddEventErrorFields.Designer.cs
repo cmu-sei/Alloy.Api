@@ -12,8 +12,8 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Alloy.Api.Migrations.PostgreSQL.Migrations
 {
     [DbContext(typeof(AlloyContext))]
-    [Migration("20260311135509_AddEventErrorMessage")]
-    partial class AddEventErrorMessage
+    [Migration("20260903175326_AddEventErrorFields")]
+    partial class AddEventErrorFields
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -53,6 +53,10 @@ namespace Alloy.Api.Migrations.PostgreSQL.Migrations
                     b.Property<DateTime?>("EndDate")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("end_date");
+
+                    b.Property<string>("ErrorDetail")
+                        .HasColumnType("text")
+                        .HasColumnName("error_detail");
 
                     b.Property<string>("ErrorMessage")
                         .HasColumnType("text")
@@ -468,6 +472,12 @@ namespace Alloy.Api.Migrations.PostgreSQL.Migrations
                     b.Property<Guid>("GroupId")
                         .HasColumnType("uuid")
                         .HasColumnName("group_id");
+
+                    b.Property<int>("Role")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0)
+                        .HasColumnName("role");
 
                     b.Property<Guid>("UserId")
                         .HasColumnType("uuid")

@@ -34,6 +34,7 @@ namespace Alloy.Api.Services
         Task<IEnumerable<Event>> GetMyViewEventsAsync(Guid viewId, CancellationToken ct);
         Task<IEnumerable<Event>> GetMyEventsAsync(bool? includeEnded, int? days, CancellationToken ct);
         Task<Event> GetAsync(Guid id, CancellationToken ct);
+        Task<EventErrorDetail> GetErrorDetailAsync(Guid id, CancellationToken ct);
         Task<Event> CreateAsync(Event eventx, CancellationToken ct);
         Task<Event> LaunchEventFromEventTemplateAsync(Guid eventTemplateId, Guid? userId, string username, List<Guid> additionalUserIds, CancellationToken ct);
         Task<Event> LaunchEventFromEventTemplateAsync(CreateEventCommand command, CancellationToken ct);
@@ -194,6 +195,18 @@ namespace Alloy.Api.Services
             return _mapper.Map<Event>(item);
         }
 
+        public async Task<EventErrorDetail> GetErrorDetailAsync(Guid id, CancellationToken ct)
+        {
+            var item = await GetTheEventAsync(id, ct);
+
+            return new EventErrorDetail
+            {
+                EventId = item.Id,
+                ErrorMessage = item.ErrorMessage,
+                ErrorDetail = item.ErrorDetail
+            };
+        }
+
         public async Task<Event> CreateAsync(Event eventx, CancellationToken ct)
         {
             eventx.CreatedBy = _user.GetId();
@@ -255,6 +268,11 @@ namespace Alloy.Api.Services
             try
             {
                 var eventEntity = await GetTheEventAsync(eventId, ct);
+                // The Failed check is deliberate, not a stray condition: a launch that failed
+                // already has an EndDate, and this is the only supported way to retry the teardown
+                // of the resources it left behind. Removing it strands orphaned Caster workspaces,
+                // Player views and Steamfitter scenarios. The UI relies on this too - "End Event
+                // Now" stays enabled for a Failed Event for exactly this reason.
                 if (eventEntity.Status != EventStatus.Failed && eventEntity.EndDate != null)
                 {
                     var msg = $"Event {eventEntity.Id} has already been ended";
@@ -304,6 +322,8 @@ namespace Alloy.Api.Services
                     throw new Exception(msg);
                 }
 
+                // A redeploy starts over, so the previous failure no longer describes this Event.
+                eventEntity.ClearFailureState();
                 eventEntity.Status = EventStatus.Planning;
                 eventEntity.InternalStatus = InternalEventStatus.PlanningRedeploy;
                 await _context.SaveChangesAsync(ct);
@@ -527,7 +547,7 @@ namespace Alloy.Api.Services
                             });
                     }
 
-                    await PlayerApiExtensions.AddUserToViewTeamAsync(playerApiClient, alloyEvent.ViewId.Value, userId, ct);
+                    await PlayerApiExtensions.AddUserToViewTeamAsync(playerApiClient, alloyEvent.ViewId.Value, userId, _logger, ct);
                 }
 
                 if (alloyEvent.ScenarioId.HasValue)
