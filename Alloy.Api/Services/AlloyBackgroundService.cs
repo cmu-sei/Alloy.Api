@@ -176,6 +176,13 @@ namespace Alloy.Api.Services
                     // launch operation is in flight. Always begin the next state
                     // transition from the persisted state.
                     await alloyContext.Entry(eventEntity).ReloadAsync(ct);
+
+                    if (await AdoptPendingEndAsync(alloyContext, eventEntity, ct))
+                    {
+                        // ending gets its own retry budget
+                        retryCount = 0;
+                    }
+
                     var processingLaunch = eventEntity.Status == EventStatus.Creating ||
                         eventEntity.Status == EventStatus.Planning ||
                         eventEntity.Status == EventStatus.Applying;
@@ -752,17 +759,17 @@ namespace Alloy.Api.Services
                         // update the entity in the context, if we are moving on
                         if (updateTheEntity)
                         {
-                            // Do not let a launch worker overwrite an end request that
-                            // was persisted while it was waiting on an external service.
-                            if (processingLaunch && await IsEndingAsync(alloyContext, eventEntity.Id, ct))
+                            eventEntity.StatusDate = DateTime.UtcNow;
+                            await alloyContext.SaveChangesAsync(ct);
+
+                            // An end request can be persisted while this launch step is
+                            // saving, which overwrites the end status. Save first so that
+                            // anything the launch just created is recorded, then pick the
+                            // end request back up.
+                            if (processingLaunch && await AdoptPendingEndAsync(alloyContext, eventEntity, ct))
                             {
-                                _logger.LogInformation("Event {EventId} changed to ending while launch processing was in progress.", eventEntity.Id);
-                                await alloyContext.Entry(eventEntity).ReloadAsync(ct);
-                            }
-                            else
-                            {
-                                eventEntity.StatusDate = DateTime.UtcNow;
-                                await alloyContext.SaveChangesAsync(ct);
+                                // ending gets its own retry budget
+                                retryCount = 0;
                             }
                         }
                     }
@@ -781,16 +788,44 @@ namespace Alloy.Api.Services
             }
         }
 
-        private static async Task<bool> IsEndingAsync(AlloyContext alloyContext, Guid eventId, CancellationToken ct)
+        /// <summary>
+        /// Moves an Event that is launching or launched into the ending flow if an end
+        /// request was persisted while this thread was working. EndDate is only ever set
+        /// by an end or expiration request, so a launch state with an EndDate means an end
+        /// request has not been acted on. Anything the launch already created stays on the
+        /// Event so the ending flow can tear it down.
+        /// </summary>
+        private async Task<bool> AdoptPendingEndAsync(AlloyContext alloyContext, EventEntity eventEntity, CancellationToken ct)
         {
-            return await alloyContext.Events
+            if (eventEntity.Status != EventStatus.Creating &&
+                eventEntity.Status != EventStatus.Planning &&
+                eventEntity.Status != EventStatus.Applying &&
+                eventEntity.Status != EventStatus.Active)
+            {
+                return false;
+            }
+
+            var endDate = await alloyContext.Events
                 .AsNoTracking()
-                .AnyAsync(x => x.Id == eventId &&
-                    x.EndDate != null &&
-                    (x.Status == EventStatus.Ending ||
-                     x.Status == EventStatus.Ended ||
-                     x.Status == EventStatus.Expired ||
-                     x.Status == EventStatus.Failed), ct);
+                .Where(x => x.Id == eventEntity.Id)
+                .Select(x => x.EndDate)
+                .FirstOrDefaultAsync(ct);
+
+            if (endDate == null)
+            {
+                return false;
+            }
+
+            _logger.LogInformation("Event {EventId} was ended while it was in status {Status} - {InternalStatus}. Ending it.",
+                eventEntity.Id, eventEntity.Status, eventEntity.InternalStatus);
+
+            eventEntity.EndDate = endDate;
+            eventEntity.Status = EventStatus.Ending;
+            eventEntity.InternalStatus = InternalEventStatus.EndQueued;
+            eventEntity.StatusDate = DateTime.UtcNow;
+            await alloyContext.SaveChangesAsync(ct);
+
+            return true;
         }
 
         private async Task<(PlayerApiClient, TokenResponse)> RefreshClient(PlayerApiClient clientObject, TokenResponse tokenResponse, IServiceProvider serviceProvider, CancellationToken ct)

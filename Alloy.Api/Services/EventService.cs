@@ -264,6 +264,8 @@ namespace Alloy.Api.Services
                 if (eventEntity.Status == EventStatus.Ending)
                 {
                     _logger.LogInformation("Event {EventId} is already ending.", eventEntity.Id);
+                    // queueing is idempotent, so re-queue in case the end was abandoned
+                    _alloyEventQueue.Add(eventEntity);
                     return await GetAsync(eventId, ct);
                 }
 
