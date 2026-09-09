@@ -834,6 +834,12 @@ namespace Alloy.Api.Services
                                                     {
                                                         eventEntity.Status = EventStatus.Ended;
                                                         eventEntity.InternalStatus = InternalEventStatus.Ended;
+
+                                                        // Teardown that had to retry left a "Cleanup failed" note behind on
+                                                        // its way here. It succeeded in the end, so drop it: leaving it set
+                                                        // would brand a cleanly Ended Event as failed in the admin list for
+                                                        // good, with nothing left running that could ever clear it.
+                                                        eventEntity.ClearFailureState();
                                                     }
                                                     updateTheEntity = true;
                                                 }
@@ -1000,7 +1006,7 @@ namespace Alloy.Api.Services
         // Failure bookkeeping.
         //
         // EventEntity.ErrorMessage and EventEntity.ErrorDetail are written in exactly the four
-        // helpers below, and cleared in exactly the three places that call ClearFailureState(). Nothing else
+        // helpers below, and cleared in exactly the four places that call ClearFailureState(). Nothing else
         // in the codebase assigns them, which is what makes the state reachable from a failure
         // reviewable: `grep -n 'ErrorMessage =' Alloy.Api/` should only ever find this block.
         //
