@@ -56,7 +56,15 @@ namespace Alloy.Api.Infrastructure.Extensions
                 return str;
             }
 
-            var keep = Math.Max(0, maxLength - TruncationSuffix.Length);
+            // A cap smaller than the marker itself cannot carry the marker without breaking the
+            // very limit the caller asked for, so in that degenerate case the raw text is simply
+            // cut to length instead.
+            if (maxLength < TruncationSuffix.Length)
+            {
+                return str.Substring(0, Math.Max(0, maxLength));
+            }
+
+            var keep = maxLength - TruncationSuffix.Length;
             return str.Substring(0, keep) + TruncationSuffix;
         }
 
@@ -71,7 +79,16 @@ namespace Alloy.Api.Infrastructure.Extensions
                 return str;
             }
 
-            var keep = Math.Max(0, maxLength - TruncationPrefix.Length);
+            // As above, a cap too small for the marker gets a plain cut of the text rather than a
+            // marker that would exceed the limit; here the tail is kept, since that is the part
+            // this method exists to preserve.
+            if (maxLength < TruncationPrefix.Length)
+            {
+                var tail = Math.Max(0, maxLength);
+                return str.Substring(str.Length - tail);
+            }
+
+            var keep = maxLength - TruncationPrefix.Length;
             return TruncationPrefix + str.Substring(str.Length - keep);
         }
     }

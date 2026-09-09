@@ -246,6 +246,31 @@ namespace Alloy.Api.Services
         {
             var eventEntity = await GetTheEventAsync(id, ct);
             eventx.ModifiedBy = _user.GetId();
+
+            // The whole view model is mapped onto the entity below, and EditEvent is not an admin
+            // gate: CreateEventEntityAsync grants an Event's own launcher the Manager role on it, so
+            // an ordinary self-service owner reaches this method. Everything the launch and teardown
+            // state machine relies on is therefore pinned to what is already persisted before the
+            // map runs, leaving Name, Description and ExpirationDate - the only fields the admin
+            // edit dialog leaves enabled - as the editable surface.
+            // Status matters most: EndAsync treats Ended and Expired as terminal and returns without
+            // tearing anything down, so a PUT of status: Ended on an Active Event would strand its
+            // Player View, Caster Workspace and Steamfitter Scenario with nothing left to reclaim
+            // them. ViewId is the only record of the View teardown has to delete, EndDate is what
+            // AdoptPendingEndAsync acts on, and Id would repoint a tracked entity's primary key.
+            // EventProfile ignores the rest of the internal state; these fields cannot be ignored
+            // there because CreateAsync seeds them through the same reverse map.
+            eventx.Id = eventEntity.Id;
+            eventx.UserId = eventEntity.UserId;
+            eventx.Username = eventEntity.Username;
+            eventx.EventTemplateId = eventEntity.EventTemplateId;
+            eventx.ShareCode = eventEntity.ShareCode;
+            eventx.Status = eventEntity.Status;
+            eventx.ViewId = eventEntity.ViewId;
+            eventx.LaunchDate = eventEntity.LaunchDate;
+            eventx.EndDate = eventEntity.EndDate;
+            eventx.StatusDate = eventEntity.StatusDate;
+
             _mapper.Map(eventx, eventEntity);
 
             _context.Events.Update(eventEntity);

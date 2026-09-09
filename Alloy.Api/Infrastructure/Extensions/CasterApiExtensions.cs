@@ -26,6 +26,7 @@ namespace Alloy.Api.Infrastructure.Extensions
 
         public static async Task<ApiCallResult<Guid>> CreateCasterWorkspaceAsync(CasterApiClient casterApiClient, EventEntity eventEntity, Guid directoryId, string varsFileContent, bool useDynamicHost, ILogger logger, CancellationToken ct)
         {
+            Guid? createdWorkspaceId = null;
             try
             {
                 // remove special characters from the user name, use lower case and replace spaces with underscores
@@ -38,6 +39,7 @@ namespace Alloy.Api.Infrastructure.Extensions
                     DynamicHost = useDynamicHost
                 };
                 var workspaceId = (await casterApiClient.CreateWorkspaceAsync(workspaceCommand, ct)).Id;
+                createdWorkspaceId = workspaceId;
                 // create the workspace variable file
                 var createFileCommand = new CreateFileCommand()
                 {
@@ -52,6 +54,21 @@ namespace Alloy.Api.Infrastructure.Extensions
             catch (Exception ex)
             {
                 logger.LogError(ex, "Error creating the Caster workspace for Event {EventId} in Directory {DirectoryId}", eventEntity.Id, directoryId);
+
+                // The Workspace id never reaches the Event, so nothing would ever clean this one up.
+                // Drop it now rather than leave an orphan behind for every attempt.
+                if (createdWorkspaceId.HasValue)
+                {
+                    try
+                    {
+                        await casterApiClient.DeleteWorkspaceAsync(createdWorkspaceId.Value, ct);
+                    }
+                    catch (Exception deleteEx)
+                    {
+                        logger.LogError(deleteEx, "Error cleaning up the partially created Caster Workspace {WorkspaceId} for Event {EventId}", createdWorkspaceId, eventEntity.Id);
+                    }
+                }
+
                 return ex.Classify<Guid>("prepare the infrastructure workspace");
             }
         }
@@ -112,6 +129,7 @@ namespace Alloy.Api.Infrastructure.Extensions
             CasterApiClient casterApiClient,
             int loopIntervalSeconds,
             int maxWaitMinutes,
+            bool isDestroy,
             ILogger logger,
             CancellationToken ct)
         {
@@ -121,14 +139,16 @@ namespace Alloy.Api.Infrastructure.Extensions
             }
             var endTime = DateTime.UtcNow.AddMinutes(maxWaitMinutes);
             var status = RunStatus.Planning;
-            Run casterRun = null;
 
             while ((status == RunStatus.Queued || status == RunStatus.Planning) && DateTime.UtcNow < endTime)
             {
                 try
                 {
-                    // include the plan so its output is on hand if this run turns out to have failed
-                    casterRun = await casterApiClient.GetRunAsync((Guid)eventEntity.RunId, true, false, ct);
+                    // the plan output is deliberately not requested here: this loop can poll for
+                    // many minutes, and dragging the whole plan down on every pass is a real load
+                    // problem for Caster. It is fetched once below, only if the run failed.
+                    var casterRun = await casterApiClient.GetRunAsync((Guid)eventEntity.RunId, false, false, ct);
+                    status = casterRun.Status;
                 }
                 catch (Exception ex)
                 {
@@ -136,7 +156,6 @@ namespace Alloy.Api.Infrastructure.Extensions
                     return ex.Classify("plan the infrastructure");
                 }
 
-                status = casterRun.Status;
                 // if not there yet, pause before the next check
                 if (status == RunStatus.Planning || status == RunStatus.Queued)
                 {
@@ -151,10 +170,13 @@ namespace Alloy.Api.Infrastructure.Extensions
 
             if (status == RunStatus.Failed || status == RunStatus.Rejected)
             {
-                var output = casterRun?.Plan?.Output ?? "No output available";
+                // Now, and only now, pull the plan output so there is something to show for it.
+                var output = await GetPlanOutputAsync(eventEntity, casterApiClient, logger, ct);
                 logger.LogError("Caster run {RunId} for Event {EventId} ended planning with status {Status}. Output: {Output}", eventEntity.RunId, eventEntity.Id, status, output);
                 return ApiCallResult.Permanent(
-                    "Infrastructure deployment failed while planning the changes.",
+                    isDestroy
+                        ? "Infrastructure teardown failed while planning the removal."
+                        : "Infrastructure deployment failed while planning the changes.",
                     output);
             }
 
@@ -218,6 +240,7 @@ namespace Alloy.Api.Infrastructure.Extensions
             CasterApiClient casterApiClient,
             int loopIntervalSeconds,
             int maxWaitMinutes,
+            bool isDestroy,
             ILogger logger,
             CancellationToken ct)
         {
@@ -253,7 +276,9 @@ namespace Alloy.Api.Infrastructure.Extensions
                 catch (Exception ex)
                 {
                     logger.LogError(ex, "Error reading Caster run {RunId} while waiting for it to be applied", eventEntity.RunId);
-                    return ex.Classify("build the infrastructure");
+                    return ex.Classify(isDestroy
+                        ? "tear down the infrastructure"
+                        : "build the infrastructure");
                 }
             }
 
@@ -268,13 +293,17 @@ namespace Alloy.Api.Infrastructure.Extensions
                 var output = await GetApplyOutputAsync(eventEntity, casterApiClient, logger, ct);
                 logger.LogError("Caster run {RunId} for Event {EventId} ended with status {Status}. Output: {Output}", eventEntity.RunId, eventEntity.Id, status, output);
                 return ApiCallResult.Permanent(
-                    "Infrastructure deployment failed while building the virtual environment.",
+                    isDestroy
+                        ? "Infrastructure teardown failed while removing the virtual environment."
+                        : "Infrastructure deployment failed while building the virtual environment.",
                     output);
             }
 
             logger.LogWarning("Caster run {RunId} for Event {EventId} did not reach Applied within {MaxWaitMinutes} minutes; last status was {Status}", eventEntity.RunId, eventEntity.Id, maxWaitMinutes, status);
             return ApiCallResult.Transient(
-                "Building the virtual environment is taking longer than expected; retrying.",
+                isDestroy
+                    ? "Removing the virtual environment is taking longer than expected; retrying."
+                    : "Building the virtual environment is taking longer than expected; retrying.",
                 $"Run {eventEntity.RunId} did not reach Applied within {maxWaitMinutes} minutes. Last status: {status}");
         }
 
@@ -289,6 +318,24 @@ namespace Alloy.Api.Infrastructure.Extensions
                    status == RunStatus.Queued ||
                    status == RunStatus.Applied__State_Error ||
                    status == RunStatus.Failed__State_Error;
+        }
+
+        private static async Task<string> GetPlanOutputAsync(
+            EventEntity eventEntity,
+            CasterApiClient casterApiClient,
+            ILogger logger,
+            CancellationToken ct)
+        {
+            try
+            {
+                var casterRun = await casterApiClient.GetRunAsync((Guid)eventEntity.RunId, true, false, ct);
+                return casterRun?.Plan?.Output ?? "No output available";
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Error reading the plan output for Caster run {RunId}", eventEntity.RunId);
+                return "The output of the failed run could not be retrieved.";
+            }
         }
 
         private static async Task<string> GetApplyOutputAsync(
