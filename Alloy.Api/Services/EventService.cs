@@ -268,18 +268,28 @@ namespace Alloy.Api.Services
             try
             {
                 var eventEntity = await GetTheEventAsync(eventId, ct);
-                // The Failed check is deliberate, not a stray condition: a launch that failed
-                // already has an EndDate, and this is the only supported way to retry the teardown
-                // of the resources it left behind. Removing it strands orphaned Caster workspaces,
-                // Player views and Steamfitter scenarios. The UI relies on this too - "End Event
-                // Now" stays enabled for a Failed Event for exactly this reason.
-                if (eventEntity.Status != EventStatus.Failed && eventEntity.EndDate != null)
+                // Only Ended and Expired are terminal here. Failed is deliberately excluded, and
+                // an existing EndDate is deliberately not enough on its own: a Failed Event can
+                // still hold external resources, and ending it is the only supported way to retry
+                // the teardown of what it left behind. Treating it as already ended strands
+                // orphaned Caster Workspaces, Player Views and Steamfitter Scenarios. The UI
+                // relies on this too - "End Event Now" stays enabled for a Failed Event for
+                // exactly this reason.
+                if (eventEntity.Status == EventStatus.Ended || eventEntity.Status == EventStatus.Expired)
                 {
-                    var msg = $"Event {eventEntity.Id} has already been ended";
-                    _logger.LogError(msg);
-                    throw new Exception(msg);
+                    _logger.LogInformation("Event {EventId} has already completed ending.", eventEntity.Id);
+                    return await GetAsync(eventId, ct);
                 }
-                eventEntity.EndDate = DateTime.UtcNow;
+
+                if (eventEntity.Status == EventStatus.Ending)
+                {
+                    _logger.LogInformation("Event {EventId} is already ending.", eventEntity.Id);
+                    // queueing is idempotent, so re-queue in case the end was abandoned
+                    _alloyEventQueue.Add(eventEntity);
+                    return await GetAsync(eventId, ct);
+                }
+
+                eventEntity.EndDate ??= DateTime.UtcNow;
                 eventEntity.Status = EventStatus.Ending;
                 eventEntity.InternalStatus = InternalEventStatus.EndQueued;
                 await _context.SaveChangesAsync(ct);

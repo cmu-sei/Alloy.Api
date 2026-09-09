@@ -242,6 +242,21 @@ namespace Alloy.Api.Services
                     eventEntity.Status == EventStatus.Applying ||
                     eventEntity.Status == EventStatus.Ending)
                 {
+                    // Another request can transition this Event while a long-running
+                    // launch operation is in flight. Always begin the next state
+                    // transition from the persisted state.
+                    await alloyContext.Entry(eventEntity).ReloadAsync(ct);
+
+                    if (await AdoptPendingEndAsync(alloyContext, eventEntity, ct))
+                    {
+                        // ending gets its own retry budget
+                        retryCount = 0;
+                    }
+
+                    var processingLaunch = eventEntity.Status == EventStatus.Creating ||
+                        eventEntity.Status == EventStatus.Planning ||
+                        eventEntity.Status == EventStatus.Applying;
+
                     try
                     {
                         // the updateTheEntity flag is used to indicate if the event entity state should be updated at the end of this loop
@@ -914,6 +929,16 @@ namespace Alloy.Api.Services
                         {
                             eventEntity.StatusDate = DateTime.UtcNow;
                             await alloyContext.SaveChangesAsync(ct);
+
+                            // An end request can be persisted while this launch step is
+                            // saving, which overwrites the end status. Save first so that
+                            // anything the launch just created is recorded, then pick the
+                            // end request back up.
+                            if (processingLaunch && await AdoptPendingEndAsync(alloyContext, eventEntity, ct))
+                            {
+                                // ending gets its own retry budget
+                                retryCount = 0;
+                            }
                         }
                     }
                 }
@@ -925,6 +950,50 @@ namespace Alloy.Api.Services
             {
                 _logger.LogError(ex, $"Error processing event {eventEntity.Id}. Terminating");
             }
+            finally
+            {
+                _eventQueue.Complete(eventEntity);
+            }
+        }
+
+        /// <summary>
+        /// Moves an Event that is launching or launched into the ending flow if an end
+        /// request was persisted while this thread was working. EndDate is only ever set
+        /// by an end or expiration request, so a launch state with an EndDate means an end
+        /// request has not been acted on. Anything the launch already created stays on the
+        /// Event so the ending flow can tear it down.
+        /// </summary>
+        private async Task<bool> AdoptPendingEndAsync(AlloyContext alloyContext, EventEntity eventEntity, CancellationToken ct)
+        {
+            if (eventEntity.Status != EventStatus.Creating &&
+                eventEntity.Status != EventStatus.Planning &&
+                eventEntity.Status != EventStatus.Applying &&
+                eventEntity.Status != EventStatus.Active)
+            {
+                return false;
+            }
+
+            var endDate = await alloyContext.Events
+                .AsNoTracking()
+                .Where(x => x.Id == eventEntity.Id)
+                .Select(x => x.EndDate)
+                .FirstOrDefaultAsync(ct);
+
+            if (endDate == null)
+            {
+                return false;
+            }
+
+            _logger.LogInformation("Event {EventId} was ended while it was in status {Status} - {InternalStatus}. Ending it.",
+                eventEntity.Id, eventEntity.Status, eventEntity.InternalStatus);
+
+            eventEntity.EndDate = endDate;
+            eventEntity.Status = EventStatus.Ending;
+            eventEntity.InternalStatus = InternalEventStatus.EndQueued;
+            eventEntity.StatusDate = DateTime.UtcNow;
+            await alloyContext.SaveChangesAsync(ct);
+
+            return true;
         }
 
         // ---------------------------------------------------------------------------------------
