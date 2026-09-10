@@ -23,7 +23,10 @@ namespace Alloy.Api.Infrastructure
         /// at an object that has been deleted, invalid Terraform, a rejected run. The caller gives
         /// up immediately and records why.
         /// </summary>
-        Permanent
+        Permanent,
+
+        /// <summary>Launch polling yielded to a user/expiration end request; not a failure.</summary>
+        EndRequested
     }
 
     /// <summary>
@@ -60,8 +63,10 @@ namespace Alloy.Api.Infrastructure
         public bool IsSuccess => Kind == FailureKind.None;
         public bool IsTransient => Kind == FailureKind.Transient;
         public bool IsPermanent => Kind == FailureKind.Permanent;
+        public bool IsEndRequested => Kind == FailureKind.EndRequested;
 
         public static ApiCallResult Ok() => new(FailureKind.None, null, null);
+        public static ApiCallResult EndRequested() => new(FailureKind.EndRequested, null, null);
 
         public static ApiCallResult Transient(string summary, string detail = null) =>
             new(FailureKind.Transient, summary, detail);

@@ -2,6 +2,8 @@
 // Released under a MIT (SEI)-style license. See LICENSE.md in the project root for license information.
 
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Text.RegularExpressions;
@@ -112,12 +114,26 @@ namespace Alloy.Api.Infrastructure.Extensions
             };
             try
             {
+                // A previous create may have succeeded even if its response was lost.
+                var pending = (await casterApiClient.GetRunsByWorkspaceIdAsync(
+                    runCommand.WorkspaceId, null, false, false, ct))
+                    .FirstOrDefault(x => !IsTerminal(x.Status));
+                if (pending != null)
+                {
+                    return pending.IsDestroy == isDestroy
+                        ? ApiCallResult<Guid>.Ok(pending.Id)
+                        : ApiCallResult<Guid>.Transient("Another infrastructure run must finish before this operation can start.");
+                }
                 var casterRun = await casterApiClient.CreateRunAsync(runCommand, ct);
                 return ApiCallResult<Guid>.Ok(casterRun.Id);
             }
             catch (Exception ex)
             {
                 logger.LogError(ex, "Error creating a Caster run for Event {EventId} in Workspace {WorkspaceId} (isDestroy: {IsDestroy})", eventEntity.Id, eventEntity.WorkspaceId, isDestroy);
+                if (ex is Caster.Api.Client.ApiException { StatusCode: 409 })
+                {
+                    return ApiCallResult<Guid>.Transient("The infrastructure workspace is busy; checking its current run again.", ex.ToString());
+                }
                 return ex.Classify<Guid>(isDestroy
                     ? "start tearing down the infrastructure"
                     : "start building the infrastructure");
@@ -131,7 +147,8 @@ namespace Alloy.Api.Infrastructure.Extensions
             int maxWaitMinutes,
             bool isDestroy,
             ILogger logger,
-            CancellationToken ct)
+            CancellationToken ct,
+            Func<Task<bool>> endRequested = null)
         {
             if (eventEntity.RunId == null)
             {
@@ -142,6 +159,8 @@ namespace Alloy.Api.Infrastructure.Extensions
 
             while ((status == RunStatus.Queued || status == RunStatus.Planning) && DateTime.UtcNow < endTime)
             {
+                if (!isDestroy && endRequested != null && await endRequested())
+                    return ApiCallResult.EndRequested();
                 try
                 {
                     // the plan output is deliberately not requested here: this loop can poll for
@@ -163,7 +182,13 @@ namespace Alloy.Api.Infrastructure.Extensions
                 }
             }
 
-            if (status == RunStatus.Planned)
+            if (!isDestroy && endRequested != null && await endRequested())
+                return ApiCallResult.EndRequested();
+
+            // An apply may already exist after recovery of an uncertain operation.
+            if (status == RunStatus.Planned || status == RunStatus.ApplyQueued ||
+                status == RunStatus.Applying || status == RunStatus.Applied ||
+                status == RunStatus.Applied__State_Error || status == RunStatus.Failed__State_Error)
             {
                 return ApiCallResult.Ok();
             }
@@ -197,12 +222,25 @@ namespace Alloy.Api.Infrastructure.Extensions
         {
             try
             {
+                var run = await casterApiClient.GetRunAsync((Guid)eventEntity.RunId, false, false, ct);
+                if (run.ApplyId != null || run.Status == RunStatus.ApplyQueued ||
+                    run.Status == RunStatus.Applying || run.Status == RunStatus.Applied ||
+                    run.Status == RunStatus.Applied__State_Error || run.Status == RunStatus.Failed__State_Error)
+                {
+                    // The apply was accepted previously. Observe its result instead of
+                    // submitting it twice and interpreting the resulting 409 as failure.
+                    return ApiCallResult.Ok();
+                }
                 await casterApiClient.ApplyRunAsync((Guid)eventEntity.RunId, ct);
                 return ApiCallResult.Ok();
             }
             catch (Exception ex)
             {
                 logger.LogError(ex, "Error applying Caster run {RunId} for Event {EventId}", eventEntity.RunId, eventEntity.Id);
+                if (ex is Caster.Api.Client.ApiException { StatusCode: 409 })
+                {
+                    return ApiCallResult.Transient("The infrastructure run changed; checking its current apply again.", ex.ToString());
+                }
                 return ex.Classify("apply the infrastructure changes");
             }
         }
@@ -242,7 +280,8 @@ namespace Alloy.Api.Infrastructure.Extensions
             int maxWaitMinutes,
             bool isDestroy,
             ILogger logger,
-            CancellationToken ct)
+            CancellationToken ct,
+            Func<Task<bool>> endRequested = null)
         {
             if (eventEntity.RunId == null)
             {
@@ -253,6 +292,8 @@ namespace Alloy.Api.Infrastructure.Extensions
 
             while (IsStillWorking(status) && DateTime.UtcNow < endTime)
             {
+                if (!isDestroy && endRequested != null && await endRequested())
+                    return ApiCallResult.EndRequested();
                 try
                 {
                     // the apply output is deliberately not requested here: this loop can run for
@@ -281,6 +322,9 @@ namespace Alloy.Api.Infrastructure.Extensions
                         : "build the infrastructure");
                 }
             }
+
+            if (!isDestroy && endRequested != null && await endRequested())
+                return ApiCallResult.EndRequested();
 
             if (status == RunStatus.Applied)
             {
@@ -318,6 +362,82 @@ namespace Alloy.Api.Infrastructure.Extensions
                    status == RunStatus.Queued ||
                    status == RunStatus.Applied__State_Error ||
                    status == RunStatus.Failed__State_Error;
+        }
+
+        internal static bool IsTerminal(RunStatus status) =>
+            status == RunStatus.Applied || status == RunStatus.Failed || status == RunStatus.Rejected;
+
+        /// <summary>
+        /// Settle launch runs before teardown. A returned destroy run should be resumed,
+        /// never cancelled. The caller retains the deadline across transient API retries.
+        /// </summary>
+        internal static async Task<ApiCallResult<Run>> SettleLaunchRunsAsync(
+            EventEntity eventEntity, CasterApiClient client, int intervalSeconds,
+            DateTime deadline, ILogger logger, CancellationToken ct)
+        {
+            if (eventEntity.WorkspaceId == null)
+                return ApiCallResult<Run>.Ok(null);
+
+            var cancellationSent = new HashSet<Guid>();
+            try
+            {
+                while (true)
+                {
+                    var pending = (await client.GetRunsByWorkspaceIdAsync(
+                        eventEntity.WorkspaceId.Value, null, false, false, ct))
+                        .Where(x => !IsTerminal(x.Status)).ToList();
+                    var launchRuns = pending.Where(x => !x.IsDestroy).ToList();
+                    if (launchRuns.Count == 0)
+                        return ApiCallResult<Run>.Ok(pending.FirstOrDefault());
+
+                    if (DateTime.UtcNow >= deadline)
+                        return ApiCallResult<Run>.Permanent(
+                            "The infrastructure run did not stop in time. Cleanup can be retried by an administrator.",
+                            $"Workspace {eventEntity.WorkspaceId} still has unfinished launch runs: {string.Join(", ", launchRuns.Select(x => x.Id))}.");
+
+                    foreach (var run in launchRuns)
+                    {
+                        try
+                        {
+                            switch (run.Status)
+                            {
+                                case RunStatus.Planned:
+                                    await client.RejectRunAsync(run.Id, ct);
+                                    break;
+                                case RunStatus.Queued:
+                                case RunStatus.Planning:
+                                case RunStatus.ApplyQueued:
+                                case RunStatus.Applying:
+                                    if (cancellationSent.Add(run.Id))
+                                        await client.CancelRunAsync(run.Id, new CancelRunCommand { Force = false }, ct);
+                                    break;
+                                case RunStatus.Applied__State_Error:
+                                case RunStatus.Failed__State_Error:
+                                    await client.SaveStateAsync(run.Id, ct);
+                                    break;
+                            }
+                        }
+                        catch (Caster.Api.Client.ApiException ex) when (
+                            ex.StatusCode == 400 || ex.StatusCode == 404 || ex.StatusCode == 409)
+                        {
+                            // Completion can race cancellation/rejection. Re-read rather
+                            // than inferring success or treating the race as a launch failure.
+                            cancellationSent.Remove(run.Id);
+                            logger.LogDebug(ex, "Caster run {RunId} changed while settling it.", run.Id);
+                        }
+                    }
+                    await Task.Delay(TimeSpan.FromSeconds(intervalSeconds), ct);
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Could not settle launch runs for Event {EventId}.", eventEntity.Id);
+                // A missing workspace must be confirmed by the caller's resource/deletion
+                // checks. Other failures use the existing end retry budget.
+                if (ex is Caster.Api.Client.ApiException { StatusCode: 404 })
+                    return ApiCallResult<Run>.Ok(null);
+                return ex.Classify<Run>("stop the infrastructure run");
+            }
         }
 
         private static async Task<string> GetPlanOutputAsync(
