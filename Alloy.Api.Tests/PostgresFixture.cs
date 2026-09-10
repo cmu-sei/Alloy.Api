@@ -11,7 +11,7 @@ public sealed class PostgresCollection : ICollectionFixture<PostgresFixture> { }
 
 public sealed class PostgresFixture : IAsyncLifetime
 {
-    // Match the development AppHost's PostgreSQL version. Each test gets its own database.
+    // Each test gets its own database.
     private readonly PostgreSqlContainer container = new PostgreSqlBuilder("postgres:17.6").Build();
 
     public Task InitializeAsync() => container.StartAsync();
@@ -34,7 +34,8 @@ public sealed class TestDatabase : IDisposable
         command.ExecuteNonQuery();
         ConnectionString = new NpgsqlConnectionStringBuilder(adminConnectionString)
         {
-            Database = name, Pooling = false
+            Database = name,
+            Pooling = false
         }.ConnectionString;
     }
 
