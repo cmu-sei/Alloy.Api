@@ -94,6 +94,19 @@ If there is an `active` event, then present option to rejoin and skip launch.
 
 The entire **Launch** and **End** processes will be single background tasks that poll the Caster API for each status change, update the event database record appropriately, and then move on to the next step in the process.
 
+## Event request models
+
+Direct event creation (`POST /events`) accepts `CreateEventRequest`; editing an
+event (`PUT /events/{id}`) accepts `UpdateEventRequest`, containing only `Name`,
+`Description`, and `ExpirationDate`. Both endpoints continue returning `Event`.
+Template launches continue using `CreateEventCommand`.
+
+Existing JSON payloads may still include additional response fields; those fields
+are ignored when reading requests. Audit fields, end-request tracking, errors,
+retry history, and workspace/run/scenario IDs remain server-owned.
+Regenerated clients use the new request types for `createEvent` and
+`updateEvent`, so callers must use those types when upgrading generated clients.
+
 ## Reporting bugs and requesting features
 
 Think you found a bug? Please report all Crucible bugs - including bugs for the individual Crucible apps - in the [cmu-sei/crucible issue tracker](https://github.com/cmu-sei/crucible/issues). 

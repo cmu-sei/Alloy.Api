@@ -310,7 +310,18 @@ namespace Alloy.Api.Infrastructure.Extensions
                         if (status == RunStatus.Applied__State_Error ||
                             status == RunStatus.Failed__State_Error)
                         {
-                            await casterApiClient.SaveStateAsync(eventEntity.RunId.Value, ct);
+                            try
+                            {
+                                await casterApiClient.SaveStateAsync(eventEntity.RunId.Value, ct);
+                            }
+                            catch (Caster.Api.Client.ApiException ex) when (ex.StatusCode == 409)
+                            {
+                                // The workspace may be locked, or another caller already saved the state.
+                                // Recheck this run using the caller's existing retry budget.
+                                logger.LogDebug(ex, "Conflict saving state for Caster run {RunId}; rechecking the run.", eventEntity.RunId);
+                                return ApiCallResult.Transient(
+                                    "The infrastructure state could not be saved yet; checking the run again.", ex.ToString());
+                            }
                         }
                     }
                 }

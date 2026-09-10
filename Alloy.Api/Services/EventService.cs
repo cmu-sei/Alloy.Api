@@ -35,10 +35,10 @@ namespace Alloy.Api.Services
         Task<IEnumerable<Event>> GetMyEventsAsync(bool? includeEnded, int? days, CancellationToken ct);
         Task<Event> GetAsync(Guid id, CancellationToken ct);
         Task<EventErrorDetail> GetErrorDetailAsync(Guid id, CancellationToken ct);
-        Task<Event> CreateAsync(Event eventx, CancellationToken ct);
+        Task<Event> CreateAsync(CreateEventRequest request, CancellationToken ct);
         Task<Event> LaunchEventFromEventTemplateAsync(Guid eventTemplateId, Guid? userId, string username, List<Guid> additionalUserIds, CancellationToken ct);
         Task<Event> LaunchEventFromEventTemplateAsync(CreateEventCommand command, CancellationToken ct);
-        Task<Event> UpdateAsync(Guid id, Event eventx, CancellationToken ct);
+        Task<Event> UpdateAsync(Guid id, UpdateEventRequest request, CancellationToken ct);
         Task<bool> DeleteAsync(Guid id, CancellationToken ct);
         Task<Event> EndAsync(Guid eventId, CancellationToken ct);
         Task<Event> RedeployAsync(Guid eventId, CancellationToken ct);
@@ -207,10 +207,26 @@ namespace Alloy.Api.Services
             };
         }
 
-        public async Task<Event> CreateAsync(Event eventx, CancellationToken ct)
+        public async Task<Event> CreateAsync(CreateEventRequest request, CancellationToken ct)
         {
-            eventx.CreatedBy = _user.GetId();
-            var eventEntity = _mapper.Map<EventEntity>(eventx);
+            var eventEntity = new EventEntity
+            {
+                Id = request.Id,
+                UserId = request.UserId,
+                Username = request.Username,
+                EventTemplateId = request.EventTemplateId,
+                ViewId = request.ViewId,
+                Name = request.Name,
+                Description = request.Description,
+                ShareCode = request.ShareCode,
+                Status = request.Status,
+                InternalStatus = request.InternalStatus,
+                StatusDate = request.StatusDate,
+                LaunchDate = request.LaunchDate,
+                EndDate = request.EndDate,
+                ExpirationDate = request.ExpirationDate,
+                CreatedBy = _user.GetId()
+            };
 
             _context.Events.Add(eventEntity);
             await _context.SaveChangesAsync(ct);
@@ -242,18 +258,18 @@ namespace Alloy.Api.Services
             return _mapper.Map<Event>(eventEntity);
         }
 
-        public async Task<Event> UpdateAsync(Guid id, Event eventx, CancellationToken ct)
+        public async Task<Event> UpdateAsync(Guid id, UpdateEventRequest request, CancellationToken ct)
         {
             var eventEntity = await GetTheEventAsync(id, ct);
             // Only mark editable properties as changed; a full Update would overwrite
             // lifecycle changes committed since this entity was read.
-            eventEntity.Name = eventx.Name;
-            eventEntity.Description = eventx.Description;
-            eventEntity.ExpirationDate = eventx.ExpirationDate;
+            eventEntity.Name = request.Name;
+            eventEntity.Description = request.Description;
+            eventEntity.ExpirationDate = request.ExpirationDate;
             eventEntity.ModifiedBy = _user.GetId();
             await _context.SaveChangesAsync(ct);
 
-            return _mapper.Map(eventEntity, eventx);
+            return _mapper.Map<Event>(eventEntity);
         }
 
         public async Task<bool> DeleteAsync(Guid id, CancellationToken ct)

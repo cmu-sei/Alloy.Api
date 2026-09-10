@@ -215,7 +215,7 @@ namespace Alloy.Api.Controllers
         [HttpPost("events")]
         [ProducesResponseType(typeof(Event), (int)HttpStatusCode.Created)]
         [SwaggerOperation(OperationId = "createEvent")]
-        public async Task<IActionResult> Create([FromBody] Event eventx, CancellationToken ct)
+        public async Task<IActionResult> Create([FromBody] CreateEventRequest eventx, CancellationToken ct)
         {
             if (!await _authorizationService.AuthorizeAsync([SystemPermission.CreateEvents], ct))
                 throw new ForbiddenException();
@@ -305,7 +305,7 @@ namespace Alloy.Api.Controllers
         [HttpPut("events/{id}")]
         [ProducesResponseType(typeof(Event), (int)HttpStatusCode.OK)]
         [SwaggerOperation(OperationId = "updateEvent")]
-        public async Task<IActionResult> Update([FromRoute] Guid id, [FromBody] Event eventx, CancellationToken ct)
+        public async Task<IActionResult> Update([FromRoute] Guid id, [FromBody] UpdateEventRequest eventx, CancellationToken ct)
         {
             if (!await _authorizationService.AuthorizeAsync<Event>(id, [SystemPermission.EditEvents], [EventPermission.EditEvent], ct))
                 throw new ForbiddenException();

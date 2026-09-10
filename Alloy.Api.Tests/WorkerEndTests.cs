@@ -25,6 +25,49 @@ public class WorkerEndTests(PostgresFixture postgres)
         await env.Worker().ProcessEventAsync(entity, timeout.Token).WaitAsync(timeout.Token);
     }
 
+    [Fact]
+    public async Task ConcurrentStateSaveCompletionDoesNotTearDownASuccessfulLaunch()
+    {
+        using var env = new TestEnvironment(postgres);
+        var entity = await env.Seed(EventStatus.Applying, InternalEventStatus.AppliedLaunch);
+        var workspaceId = Guid.NewGuid();
+        var run = new Run { Id = Guid.NewGuid(), Status = RunStatus.Applied__State_Error };
+        using (var db = env.Context())
+        {
+            var row = await db.Events.SingleAsync();
+            row.WorkspaceId = workspaceId;
+            row.RunId = run.Id;
+            await db.SaveChangesAsync();
+        }
+        var saves = 0;
+        env.Http.Handle = request =>
+        {
+            var path = request.RequestUri.AbsolutePath;
+            if (path.EndsWith("/actions/save-state"))
+            {
+                saves++;
+                // Another caller saved the state after our poll, so Caster rejects this request.
+                run.Status = RunStatus.Applied;
+                return Task.FromResult(FakeHttp.Json(new { error = "state already saved" }, HttpStatusCode.Conflict));
+            }
+            Assert.Equal(HttpMethod.Get, request.Method);
+            Assert.EndsWith($"/runs/{run.Id}", path);
+            return Task.FromResult(FakeHttp.Json(run));
+        };
+
+        await Process(env, entity);
+        var saved = await env.Read(entity.Id);
+        Assert.Equal(EventStatus.Active, saved.Status);
+        Assert.Equal(InternalEventStatus.Launched, saved.InternalStatus);
+        Assert.Equal(workspaceId, saved.WorkspaceId);
+        Assert.Equal(run.Id, saved.RunId);
+        Assert.Null(saved.EndDate);
+        Assert.Null(saved.ErrorMessage);
+        Assert.Equal(0, saved.FailureCount);
+        Assert.Equal(1, saves);
+        Assert.DoesNotContain(env.Http.Requests, r => r.StartsWith("DELETE") || r.Contains("/cancel"));
+    }
+
     [Theory]
     [InlineData(false, HttpStatusCode.OK)]
     [InlineData(true, HttpStatusCode.ServiceUnavailable)]

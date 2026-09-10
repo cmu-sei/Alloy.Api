@@ -1,10 +1,14 @@
 using System;
 using System.Linq;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
 using Alloy.Api.Data;
 using Alloy.Api.Data.Models;
+using Alloy.Api.Infrastructure.JsonConverters;
 using Alloy.Api.Services;
+using Alloy.Api.ViewModels;
 using Microsoft.EntityFrameworkCore;
 using Xunit;
 
@@ -13,6 +17,63 @@ namespace Alloy.Api.Tests;
 [Collection("Postgres")]
 public class EventLifecycleTests(PostgresFixture postgres)
 {
+    [Fact]
+    public async Task CreatePreservesTheSuppliedInternalStatus()
+    {
+        using var env = new TestEnvironment(postgres);
+        using var db = env.Context();
+        var created = await env.EventService(db).CreateAsync(new CreateEventRequest
+        {
+            Name = "New event", UserId = Guid.NewGuid(), Status = EventStatus.Creating,
+            InternalStatus = InternalEventStatus.LaunchQueued
+        }, default);
+        var saved = await env.Read(created.Id);
+        Assert.Equal(EventStatus.Creating, saved.Status);
+        Assert.Equal(InternalEventStatus.LaunchQueued, created.InternalStatus);
+        Assert.Equal(InternalEventStatus.LaunchQueued, saved.InternalStatus);
+    }
+
+    [Fact]
+    public async Task LegacyCreatePayloadPreservesSetupAndIgnoresServerOwnedFields()
+    {
+        using var env = new TestEnvironment(postgres);
+        var seed = await env.Seed();
+        var date = new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc);
+        var payload = new Event
+        {
+            Id = Guid.NewGuid(), UserId = Guid.NewGuid(), Username = "owner",
+            EventTemplateId = seed.EventTemplateId, ViewId = Guid.NewGuid(),
+            Name = "Imported event", Description = "Description", ShareCode = "invite",
+            Status = EventStatus.Ended, InternalStatus = InternalEventStatus.Ended,
+            StatusDate = date, LaunchDate = date, EndDate = date.AddHours(1), ExpirationDate = date.AddHours(2),
+            CreatedBy = Guid.NewGuid(), DateCreated = date, ModifiedBy = Guid.NewGuid(), DateModified = date,
+            EndRequestedAt = date, ErrorMessage = "Injected error", FailureCount = 99,
+            LastLaunchStatus = EventStatus.Failed, LastLaunchInternalStatus = InternalEventStatus.FailedLaunch,
+            LastEndStatus = EventStatus.Failed, LastEndInternalStatus = InternalEventStatus.FailedDestroy,
+            WorkspaceId = Guid.NewGuid(), RunId = Guid.NewGuid(), ScenarioId = Guid.NewGuid()
+        };
+        var request = ReadRequest<CreateEventRequest>(payload);
+        using var db = env.Context();
+        var created = await env.EventService(db).CreateAsync(request, default);
+        var saved = await env.Read(created.Id);
+        Assert.Equivalent(request, created);
+        Assert.Equivalent(request, saved);
+        Assert.NotEqual(payload.CreatedBy, saved.CreatedBy);
+        Assert.True(saved.DateCreated > date);
+        Assert.Null(saved.ModifiedBy);
+        Assert.Null(saved.DateModified);
+        Assert.Null(saved.EndRequestedAt);
+        Assert.Null(saved.ErrorMessage);
+        Assert.Equal(0, saved.FailureCount);
+        Assert.Equal(default, saved.LastLaunchStatus);
+        Assert.Equal(default, saved.LastLaunchInternalStatus);
+        Assert.Equal(default, saved.LastEndStatus);
+        Assert.Equal(default, saved.LastEndInternalStatus);
+        Assert.Null(saved.WorkspaceId);
+        Assert.Null(saved.RunId);
+        Assert.Null(saved.ScenarioId);
+    }
+
     [Theory]
     [InlineData(EventStatus.Creating)]
     [InlineData(EventStatus.Planning)]
@@ -66,16 +127,23 @@ public class EventLifecycleTests(PostgresFixture postgres)
         }
         await env.RequestEnd(entity.Id);
         var before = await env.Read(entity.Id);
-        await env.EventService(edit).UpdateAsync(entity.Id, new Alloy.Api.ViewModels.Event
+        var request = ReadRequest<UpdateEventRequest>(new Event
         {
             Name = "Edited", Description = "Description", Status = EventStatus.Ended,
-            EndRequestedAt = null, WorkspaceId = null
-        }, default);
+            InternalStatus = InternalEventStatus.Ended,
+            EndRequestedAt = null, WorkspaceId = null, CreatedBy = Guid.NewGuid(),
+            DateCreated = new DateTime(2000, 1, 1, 0, 0, 0, DateTimeKind.Utc)
+        });
+        var updated = await env.EventService(edit).UpdateAsync(entity.Id, request, default);
         var after = await env.Read(entity.Id);
+        Assert.Equal(entity.Id, updated.Id);
         Assert.Equal("Edited", after.Name);
         Assert.Equal(before.WorkspaceId, after.WorkspaceId);
         Assert.Equal(before.EndRequestedAt, after.EndRequestedAt);
         Assert.Equal(EventStatus.Applying, after.Status);
+        Assert.Equal(before.InternalStatus, after.InternalStatus);
+        Assert.Equal(before.CreatedBy, after.CreatedBy);
+        Assert.Equal(before.DateCreated, after.DateCreated);
     }
 
     [Fact]
@@ -143,12 +211,20 @@ public class EventLifecycleTests(PostgresFixture postgres)
     }
 
     [Fact]
-    public void EndRequestedAtIsReadableButCannotBeMappedFromAnInput()
+    public void EndRequestedAtIsIncludedInTheResponse()
     {
         using var env = new TestEnvironment(postgres);
         var timestamp = DateTime.UtcNow;
         var model = env.Mapper.Map<Alloy.Api.ViewModels.Event>(new EventEntity { EndRequestedAt = timestamp });
         Assert.Equal(timestamp, model.EndRequestedAt);
-        Assert.Null(env.Mapper.Map<EventEntity>(model).EndRequestedAt);
+    }
+
+    private static T ReadRequest<T>(Event payload)
+    {
+        var options = new JsonSerializerOptions(JsonSerializerDefaults.Web)
+        {
+            Converters = { new JsonNullableGuidConverter(), new JsonStringEnumConverter(), new JsonDateTimeConverter() }
+        };
+        return JsonSerializer.Deserialize<T>(JsonSerializer.Serialize(payload, options), options);
     }
 }

@@ -20,6 +20,46 @@ public class CasterCancellationTests
     }
 
     [Theory]
+    [InlineData(false, RunStatus.Applied__State_Error, RunStatus.Applied)]
+    [InlineData(true, RunStatus.Applied__State_Error, RunStatus.Applied)]
+    [InlineData(false, RunStatus.Failed__State_Error, RunStatus.Failed)]
+    [InlineData(true, RunStatus.Failed__State_Error, RunStatus.Failed)]
+    public async Task StateSaveLockConflictRetriesTheSameRun(bool isDestroy, RunStatus initial, RunStatus terminal)
+    {
+        using var http = new FakeHttp();
+        var run = new Run { Id = Guid.NewGuid(), Status = initial, IsDestroy = isDestroy };
+        var saves = 0;
+        http.Handle = request =>
+        {
+            if (request.RequestUri.AbsolutePath.EndsWith("/actions/save-state"))
+            {
+                Assert.Contains(run.Id.ToString(), request.RequestUri.AbsolutePath);
+                if (++saves == 1)
+                    return Task.FromResult(FakeHttp.Json(new { error = "workspace locked" }, HttpStatusCode.Conflict));
+                run.Status = terminal;
+            }
+            else
+            {
+                Assert.Equal(HttpMethod.Get, request.Method);
+                Assert.EndsWith($"/runs/{run.Id}", request.RequestUri.AbsolutePath);
+            }
+            return Task.FromResult(FakeHttp.Json(run));
+        };
+        var entity = new EventEntity { RunId = run.Id };
+        var client = Client(http);
+        var first = await CasterApiExtensions.WaitForRunToBeAppliedAsync(
+            entity, client, 0, 1, isDestroy, NullLogger.Instance, default);
+        Assert.True(first.IsTransient);
+        Assert.Equal(run.Id, entity.RunId);
+        var second = await CasterApiExtensions.WaitForRunToBeAppliedAsync(
+            entity, client, 0, 1, isDestroy, NullLogger.Instance, default);
+        Assert.Equal(terminal == RunStatus.Applied, second.IsSuccess);
+        Assert.Equal(terminal == RunStatus.Failed, second.IsPermanent);
+        Assert.Equal(2, saves);
+        Assert.Equal(run.Id, entity.RunId);
+    }
+
+    [Theory]
     [InlineData(RunStatus.Queued)]
     [InlineData(RunStatus.Planning)]
     [InlineData(RunStatus.ApplyQueued)]
