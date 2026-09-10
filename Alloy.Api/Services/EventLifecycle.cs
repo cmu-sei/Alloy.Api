@@ -14,6 +14,16 @@ namespace Alloy.Api.Services
 {
     internal static class EventLifecycle
     {
+        private static readonly EventStatus[] LaunchingStatuses =
+            [EventStatus.Creating, EventStatus.Planning, EventStatus.Applying];
+
+        private static readonly EventStatus[] EndAdoptionStatuses =
+            [.. LaunchingStatuses, EventStatus.Active, EventStatus.Paused];
+
+        public static bool IsLaunching(EventStatus status) => LaunchingStatuses.Contains(status);
+
+        public static bool CanAdoptEnd(EventStatus status) => EndAdoptionStatuses.Contains(status);
+
         // These conditional updates touch only command-owned fields. They must not save
         // a stale snapshot of the worker's status or the resources it just acquired.
         public static async Task<bool> RequestEndAsync(
@@ -69,16 +79,12 @@ namespace Alloy.Api.Services
 
         public static IQueryable<EventEntity> UnfinishedEvents(AlloyContext context) =>
             context.Events.Where(x =>
-                x.Status == EventStatus.Creating || x.Status == EventStatus.Planning ||
-                x.Status == EventStatus.Applying || x.Status == EventStatus.Ending ||
+                LaunchingStatuses.Contains(x.Status) || x.Status == EventStatus.Ending ||
                 ((x.Status == EventStatus.Active || x.Status == EventStatus.Paused) &&
                     x.EndRequestedAt != null && x.EndDate == null));
 
         public static IQueryable<EventEntity> ExpiredEvents(AlloyContext context, DateTime now) =>
             context.Events.Where(x => x.EndRequestedAt == null && x.EndDate == null &&
-                x.ExpirationDate < now &&
-                (x.Status == EventStatus.Active || x.Status == EventStatus.Paused ||
-                 x.Status == EventStatus.Creating || x.Status == EventStatus.Planning ||
-                 x.Status == EventStatus.Applying));
+                x.ExpirationDate < now && EndAdoptionStatuses.Contains(x.Status));
     }
 }

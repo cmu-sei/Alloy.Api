@@ -272,10 +272,7 @@ namespace Alloy.Api.Services
                     .AnyAsync(x => x.Id == eventEntity.Id && x.EndRequestedAt != null, ct);
 
                 // LOOP until this thread's process is complete
-                while (eventEntity.Status == EventStatus.Creating ||
-                    eventEntity.Status == EventStatus.Planning ||
-                    eventEntity.Status == EventStatus.Applying ||
-                    eventEntity.Status == EventStatus.Ending)
+                while (EventLifecycle.IsLaunching(eventEntity.Status) || eventEntity.Status == EventStatus.Ending)
                 {
                     // A failure before reload must not trigger post-launch end adoption.
                     var processingLaunch = false;
@@ -297,9 +294,7 @@ namespace Alloy.Api.Services
                             retryCount = 0;
                         }
 
-                        processingLaunch = eventEntity.Status == EventStatus.Creating ||
-                            eventEntity.Status == EventStatus.Planning ||
-                            eventEntity.Status == EventStatus.Applying;
+                        processingLaunch = EventLifecycle.IsLaunching(eventEntity.Status);
 
                         // each time through the loop, one state (case) is handled based on Status and InternalStatus.  This allows for retries of a failed state.
                         switch (eventEntity.Status)
@@ -893,9 +888,7 @@ namespace Alloy.Api.Services
                                     "The infrastructure run could not be confirmed stopped in time. Cleanup can be retried by an administrator.",
                                     lastTransientFailure?.Detail), ref retryCount);
                             }
-                            else if ((eventEntity.Status == EventStatus.Creating ||
-                                    eventEntity.Status == EventStatus.Planning ||
-                                    eventEntity.Status == EventStatus.Applying) &&
+                            else if (EventLifecycle.IsLaunching(eventEntity.Status) &&
                                 retryCount >= launchMaxRetries && launchMaxRetries > 0)
                             {
                                 // Same state as a permanent launch failure, by construction: the
@@ -978,9 +971,7 @@ namespace Alloy.Api.Services
             CancellationToken ct, bool allowFailed = false)
         {
             if (eventEntity.EndDate != null ||
-                (eventEntity.Status != EventStatus.Creating && eventEntity.Status != EventStatus.Planning &&
-                 eventEntity.Status != EventStatus.Applying && eventEntity.Status != EventStatus.Active &&
-                 eventEntity.Status != EventStatus.Paused && !(allowFailed && eventEntity.Status == EventStatus.Failed)))
+                (!EventLifecycle.CanAdoptEnd(eventEntity.Status) && !(allowFailed && eventEntity.Status == EventStatus.Failed)))
                 return false;
 
             var requestedAt = await alloyContext.Events.AsNoTracking()
