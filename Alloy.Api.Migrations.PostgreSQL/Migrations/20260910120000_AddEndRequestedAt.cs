@@ -27,7 +27,12 @@ namespace Alloy.Api.Migrations.PostgreSQL.Migrations
 
         protected override void Down(MigrationBuilder migrationBuilder)
         {
+            // Older workers recover Ending events, but do not recover pending Active/Paused requests.
+            // Translate live requests before restoring EndDate; leave existing cleanup progress intact.
             migrationBuilder.Sql("""
+                UPDATE events SET status = 11, internal_status = 21
+                WHERE end_date IS NULL AND end_requested_at IS NOT NULL
+                  AND status IN (1, 2, 3, 6, 8);
                 UPDATE events SET end_date = end_requested_at
                 WHERE end_date IS NULL AND end_requested_at IS NOT NULL;
                 """);
