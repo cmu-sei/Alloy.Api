@@ -6,15 +6,8 @@ namespace Alloy.Api.Data.Models
     public static class EventEntityExtensions
     {
         /// <summary>
-        /// Forgets everything recorded about a previous failure. Called from exactly four places -
-        /// a successful launch, a successful redeploy, the start of a redeploy, and a teardown that
-        /// ends normally after having to retry - so that an old error cannot outlive the problem it
-        /// described.
-        /// <para>
-        /// LastLaunchStatus/LastLaunchInternalStatus are cleared too, because
-        /// AlloyBackgroundService reads them to tell a failed launch's teardown apart from a normal
-        /// end. Leaving them set would make the next normal end report itself as Failed.
-        /// </para>
+        /// Clears previous errors and the launch-failure markers, so a later normal end
+        /// is not reported as a failed launch.
         /// </summary>
         public static void ClearFailureState(this EventEntity eventEntity)
         {

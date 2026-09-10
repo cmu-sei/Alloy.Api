@@ -12,16 +12,13 @@ namespace Alloy.Api.Infrastructure
         None = 0,
 
         /// <summary>
-        /// The call may well succeed if it is tried again - a network blip, an expired token,
-        /// a 5xx, or an operation that is simply not finished yet. The caller retries until it
-        /// runs out of its retry budget.
+        /// The call can be retried within the caller's retry budget.
         /// </summary>
         Transient,
 
         /// <summary>
-        /// The call will never succeed no matter how many times it is tried - a template pointing
-        /// at an object that has been deleted, invalid Terraform, a rejected run. The caller gives
-        /// up immediately and records why.
+        /// The operation should not be retried automatically. Launch failures enter cleanup;
+        /// teardown uses its own retry policy.
         /// </summary>
         Permanent,
 
@@ -31,11 +28,6 @@ namespace Alloy.Api.Infrastructure
 
     /// <summary>
     /// The outcome of a call to an external Crucible API (Player, Caster, Steamfitter).
-    /// <para>
-    /// This is a class rather than a tuple or a record struct on purpose: a default-constructed
-    /// struct would have <see cref="FailureKind.None"/> and so would read as success, which is
-    /// exactly the mistake this type exists to prevent.
-    /// </para>
     /// </summary>
     public class ApiCallResult
     {

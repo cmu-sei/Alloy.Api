@@ -2,6 +2,7 @@ using System;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Alloy.Api.Data;
@@ -22,6 +23,101 @@ public class WorkerEndTests(PostgresFixture postgres)
     {
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
         await env.Worker().ProcessEventAsync(entity, timeout.Token).WaitAsync(timeout.Token);
+    }
+
+    [Theory]
+    [InlineData(false, HttpStatusCode.OK)]
+    [InlineData(true, HttpStatusCode.ServiceUnavailable)]
+    [InlineData(true, HttpStatusCode.NotFound)]
+    public async Task WorkspacePreparationHandlesMissingAndFailingPlayerViews(bool hasView, HttpStatusCode firstReadStatus)
+    {
+        using var env = new TestEnvironment(postgres);
+        var entity = await env.Seed(EventStatus.Creating, InternalEventStatus.CreatingWorkspace);
+        var viewId = Guid.NewGuid();
+        var workspaceId = Guid.NewGuid();
+        using (var db = env.Context())
+        {
+            (await db.EventTemplates.SingleAsync()).DirectoryId = Guid.NewGuid();
+            (await db.Events.SingleAsync()).ViewId = hasView ? viewId : null;
+            await db.SaveChangesAsync();
+        }
+
+        var viewReads = 0;
+        var workspaceCreates = 0;
+        var viewDeleted = false;
+        var workspaceDeleted = false;
+        string variables = null;
+        env.Http.Handle = async request =>
+        {
+            var path = request.RequestUri.AbsolutePath.ToLowerInvariant();
+            if (request.RequestUri.Host == "player.test")
+            {
+                Assert.True(hasView);
+                if (request.Method == HttpMethod.Delete)
+                {
+                    Assert.EndsWith($"/views/{viewId}", path);
+                    viewDeleted = true;
+                    return new(HttpStatusCode.NoContent);
+                }
+                if (path.EndsWith("/teams"))
+                    return FakeHttp.Json(Array.Empty<object>());
+                Assert.EndsWith($"/views/{viewId}", path);
+                if (++viewReads == 1)
+                    return FakeHttp.Json(new { message = "Configuration unavailable" }, firstReadStatus);
+                return FakeHttp.Json(new { id = viewId });
+            }
+            Assert.Equal("caster.test", request.RequestUri.Host);
+            if (request.Method == HttpMethod.Post && path.EndsWith("/workspaces"))
+            {
+                workspaceCreates++;
+                return FakeHttp.Json(new { id = workspaceId }, HttpStatusCode.Created);
+            }
+            if (request.Method == HttpMethod.Post && path.EndsWith("/files"))
+            {
+                using var body = JsonDocument.Parse(await request.Content.ReadAsStringAsync());
+                variables = body.RootElement.GetProperty("content").GetString();
+                // End after workspace preparation to isolate this state from launch polling.
+                await env.RequestEnd(entity.Id);
+                return FakeHttp.Json(new { id = Guid.NewGuid() }, HttpStatusCode.Created);
+            }
+            if (request.Method == HttpMethod.Get && (path.EndsWith("/runs") || path.EndsWith("/resources")))
+                return FakeHttp.Json(Array.Empty<object>());
+            Assert.Equal(HttpMethod.Delete, request.Method);
+            Assert.EndsWith($"/workspaces/{workspaceId}", path);
+            workspaceDeleted = true;
+            return new(HttpStatusCode.NoContent);
+        };
+
+        await Process(env, entity);
+        var saved = await env.Read(entity.Id);
+        Assert.Equal(hasView, viewDeleted);
+        Assert.Null(saved.ViewId);
+        Assert.Null(saved.WorkspaceId);
+        Assert.NotNull(saved.EndDate);
+        if (firstReadStatus == HttpStatusCode.NotFound)
+        {
+            Assert.Equal(1, viewReads);
+            Assert.Equal(0, workspaceCreates);
+            Assert.False(workspaceDeleted);
+            Assert.Null(variables);
+            Assert.Equal(EventStatus.Failed, saved.Status);
+            Assert.Equal(InternalEventStatus.FailedLaunch, saved.InternalStatus);
+            Assert.Equal(InternalEventStatus.CreatingWorkspace, saved.LastLaunchInternalStatus);
+            Assert.Contains("read the virtual environment configuration", saved.ErrorMessage);
+        }
+        else
+        {
+            Assert.Equal(hasView ? 2 : 0, viewReads);
+            Assert.Equal(1, workspaceCreates);
+            Assert.True(workspaceDeleted);
+            if (hasView)
+                Assert.Contains($"view_id = \"{viewId}\"", variables);
+            else
+                Assert.Equal(string.Empty, variables);
+            Assert.Equal(EventStatus.Ended, saved.Status);
+            Assert.Equal(default, saved.LastLaunchInternalStatus);
+            Assert.Null(saved.ErrorMessage);
+        }
     }
 
     [Theory]
