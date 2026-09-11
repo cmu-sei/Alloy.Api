@@ -3,6 +3,7 @@ using System;
 using Alloy.Api.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Alloy.Api.Migrations.PostgreSQL.Migrations
 {
     [DbContext(typeof(AlloyContext))]
-    partial class AlloyContextModelSnapshot : ModelSnapshot
+    [Migration("20260903175326_AddEventErrorFields")]
+    partial class AddEventErrorFields
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -50,10 +53,6 @@ namespace Alloy.Api.Migrations.PostgreSQL.Migrations
                     b.Property<DateTime?>("EndDate")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("end_date");
-
-                    b.Property<DateTime?>("EndRequestedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("end_requested_at");
 
                     b.Property<string>("ErrorDetail")
                         .HasColumnType("text")

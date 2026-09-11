@@ -167,6 +167,42 @@ namespace Alloy.Api.Controllers
         }
 
         /// <summary>
+        /// Gets the full diagnostic detail behind a failed Event
+        /// </summary>
+        /// <remarks>
+        /// Returns the short error summary plus the untruncated-as-stored diagnostic text - the
+        /// Terraform plan/apply output or upstream API response body that explains the failure.
+        /// <para />
+        /// Deliberately separate from getEvent: this text can name internal hostnames, addresses and
+        /// variable values, so it is restricted to Users holding the system-wide ManageEvents
+        /// permission, while the summary on the Event itself is safe for any member to see.
+        /// <para />
+        /// The Event-scoped ManageEvent permission is deliberately NOT accepted here.
+        /// CreateEventEntityAsync gives every launching User the Manager role on their own Event
+        /// (EventRoleDefaults.EventCreatorRoleId, AllPermissions = true), so honouring it would hand
+        /// the raw infrastructure output to the ordinary self-service User this split exists to
+        /// shield.
+        /// </remarks>
+        /// <param name="id">The id of the Event</param>
+        /// <param name="ct"></param>
+        /// <returns></returns>
+        [HttpGet("events/{id}/error-detail")]
+        [ProducesResponseType(typeof(EventErrorDetail), (int)HttpStatusCode.OK)]
+        [SwaggerOperation(OperationId = "getEventErrorDetail")]
+        public async Task<IActionResult> GetErrorDetail(Guid id, CancellationToken ct)
+        {
+            if (!await _authorizationService.AuthorizeAsync([SystemPermission.ManageEvents], ct))
+                throw new ForbiddenException();
+
+            var detail = await _eventService.GetErrorDetailAsync(id, ct);
+
+            if (detail == null)
+                throw new EntityNotFoundException<Event>();
+
+            return Ok(detail);
+        }
+
+        /// <summary>
         /// Creates a new Event
         /// </summary>
         /// <remarks>
@@ -179,7 +215,7 @@ namespace Alloy.Api.Controllers
         [HttpPost("events")]
         [ProducesResponseType(typeof(Event), (int)HttpStatusCode.Created)]
         [SwaggerOperation(OperationId = "createEvent")]
-        public async Task<IActionResult> Create([FromBody] Event eventx, CancellationToken ct)
+        public async Task<IActionResult> Create([FromBody] CreateEventRequest eventx, CancellationToken ct)
         {
             if (!await _authorizationService.AuthorizeAsync([SystemPermission.CreateEvents], ct))
                 throw new ForbiddenException();
@@ -269,7 +305,7 @@ namespace Alloy.Api.Controllers
         [HttpPut("events/{id}")]
         [ProducesResponseType(typeof(Event), (int)HttpStatusCode.OK)]
         [SwaggerOperation(OperationId = "updateEvent")]
-        public async Task<IActionResult> Update([FromRoute] Guid id, [FromBody] Event eventx, CancellationToken ct)
+        public async Task<IActionResult> Update([FromRoute] Guid id, [FromBody] UpdateEventRequest eventx, CancellationToken ct)
         {
             if (!await _authorizationService.AuthorizeAsync<Event>(id, [SystemPermission.EditEvents], [EventPermission.EditEvent], ct))
                 throw new ForbiddenException();

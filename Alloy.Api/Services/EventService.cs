@@ -34,10 +34,11 @@ namespace Alloy.Api.Services
         Task<IEnumerable<Event>> GetMyViewEventsAsync(Guid viewId, CancellationToken ct);
         Task<IEnumerable<Event>> GetMyEventsAsync(bool? includeEnded, int? days, CancellationToken ct);
         Task<Event> GetAsync(Guid id, CancellationToken ct);
-        Task<Event> CreateAsync(Event eventx, CancellationToken ct);
+        Task<EventErrorDetail> GetErrorDetailAsync(Guid id, CancellationToken ct);
+        Task<Event> CreateAsync(CreateEventRequest request, CancellationToken ct);
         Task<Event> LaunchEventFromEventTemplateAsync(Guid eventTemplateId, Guid? userId, string username, List<Guid> additionalUserIds, CancellationToken ct);
         Task<Event> LaunchEventFromEventTemplateAsync(CreateEventCommand command, CancellationToken ct);
-        Task<Event> UpdateAsync(Guid id, Event eventx, CancellationToken ct);
+        Task<Event> UpdateAsync(Guid id, UpdateEventRequest request, CancellationToken ct);
         Task<bool> DeleteAsync(Guid id, CancellationToken ct);
         Task<Event> EndAsync(Guid eventId, CancellationToken ct);
         Task<Event> RedeployAsync(Guid eventId, CancellationToken ct);
@@ -194,10 +195,38 @@ namespace Alloy.Api.Services
             return _mapper.Map<Event>(item);
         }
 
-        public async Task<Event> CreateAsync(Event eventx, CancellationToken ct)
+        public async Task<EventErrorDetail> GetErrorDetailAsync(Guid id, CancellationToken ct)
         {
-            eventx.CreatedBy = _user.GetId();
-            var eventEntity = _mapper.Map<EventEntity>(eventx);
+            var item = await GetTheEventAsync(id, ct);
+
+            return new EventErrorDetail
+            {
+                EventId = item.Id,
+                ErrorMessage = item.ErrorMessage,
+                ErrorDetail = item.ErrorDetail
+            };
+        }
+
+        public async Task<Event> CreateAsync(CreateEventRequest request, CancellationToken ct)
+        {
+            var eventEntity = new EventEntity
+            {
+                Id = request.Id,
+                UserId = request.UserId,
+                Username = request.Username,
+                EventTemplateId = request.EventTemplateId,
+                ViewId = request.ViewId,
+                Name = request.Name,
+                Description = request.Description,
+                ShareCode = request.ShareCode,
+                Status = request.Status,
+                InternalStatus = request.InternalStatus,
+                StatusDate = request.StatusDate,
+                LaunchDate = request.LaunchDate,
+                EndDate = request.EndDate,
+                ExpirationDate = request.ExpirationDate,
+                CreatedBy = _user.GetId()
+            };
 
             _context.Events.Add(eventEntity);
             await _context.SaveChangesAsync(ct);
@@ -229,16 +258,18 @@ namespace Alloy.Api.Services
             return _mapper.Map<Event>(eventEntity);
         }
 
-        public async Task<Event> UpdateAsync(Guid id, Event eventx, CancellationToken ct)
+        public async Task<Event> UpdateAsync(Guid id, UpdateEventRequest request, CancellationToken ct)
         {
             var eventEntity = await GetTheEventAsync(id, ct);
-            eventx.ModifiedBy = _user.GetId();
-            _mapper.Map(eventx, eventEntity);
-
-            _context.Events.Update(eventEntity);
+            // Only mark editable properties as changed; a full Update would overwrite
+            // lifecycle changes committed since this entity was read.
+            eventEntity.Name = request.Name;
+            eventEntity.Description = request.Description;
+            eventEntity.ExpirationDate = request.ExpirationDate;
+            eventEntity.ModifiedBy = _user.GetId();
             await _context.SaveChangesAsync(ct);
 
-            return _mapper.Map(eventEntity, eventx);
+            return _mapper.Map<Event>(eventEntity);
         }
 
         public async Task<bool> DeleteAsync(Guid id, CancellationToken ct)
@@ -255,18 +286,11 @@ namespace Alloy.Api.Services
             try
             {
                 var eventEntity = await GetTheEventAsync(eventId, ct);
-                if (eventEntity.Status != EventStatus.Failed && eventEntity.EndDate != null)
+                if (await EventLifecycle.RequestEndAsync(_context, eventEntity, DateTime.UtcNow, ct))
                 {
-                    var msg = $"Event {eventEntity.Id} has already been ended";
-                    _logger.LogError(msg);
-                    throw new Exception(msg);
+                    // Failed cleanup can be retried explicitly; the worker owns the transition.
+                    _alloyEventQueue.Add(eventEntity);
                 }
-                eventEntity.EndDate = DateTime.UtcNow;
-                eventEntity.Status = EventStatus.Ending;
-                eventEntity.InternalStatus = InternalEventStatus.EndQueued;
-                await _context.SaveChangesAsync(ct);
-                // add the event to the event queue for AlloyBackgrounsService to process the caster destroy.
-                _alloyEventQueue.Add(eventEntity);
             }
             catch (Exception ex)
             {
@@ -282,7 +306,7 @@ namespace Alloy.Api.Services
             try
             {
                 var eventEntity = await GetTheEventAsync(eventId, ct);
-                if (eventEntity.Status != EventStatus.Active)
+                if (eventEntity.Status != EventStatus.Active || eventEntity.EndRequestedAt != null || eventEntity.EndDate != null)
                 {
                     var msg = $"Only an Active Event can be redeployed";
                     _logger.LogError(msg);
@@ -304,10 +328,11 @@ namespace Alloy.Api.Services
                     throw new Exception(msg);
                 }
 
-                eventEntity.Status = EventStatus.Planning;
-                eventEntity.InternalStatus = InternalEventStatus.PlanningRedeploy;
-                await _context.SaveChangesAsync(ct);
-                // add the event to the event queue for AlloyBackgrounsService to process the caster destroy.
+                // Tainting is an external call. An end may have arrived while it ran.
+                if (!await EventLifecycle.ScheduleRedeployAsync(_context, eventEntity, ct))
+                {
+                    throw new InvalidOperationException("The event is no longer active or ending has been requested.");
+                }
                 _alloyEventQueue.Add(eventEntity);
             }
             catch (Exception ex)
@@ -527,7 +552,7 @@ namespace Alloy.Api.Services
                             });
                     }
 
-                    await PlayerApiExtensions.AddUserToViewTeamAsync(playerApiClient, alloyEvent.ViewId.Value, userId, ct);
+                    await PlayerApiExtensions.AddUserToViewTeamAsync(playerApiClient, alloyEvent.ViewId.Value, userId, _logger, ct);
                 }
 
                 if (alloyEvent.ScenarioId.HasValue)

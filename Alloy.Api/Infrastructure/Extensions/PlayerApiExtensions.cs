@@ -4,11 +4,14 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Net;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
 using Alloy.Api.Data.Models;
+using Alloy.Api.Infrastructure.Exceptions;
 using IdentityModel.Client;
+using Microsoft.Extensions.Logging;
 using Player.Api.Client;
 
 namespace Alloy.Api.Infrastructure.Extensions
@@ -22,7 +25,7 @@ namespace Alloy.Api.Infrastructure.Extensions
             return apiClient;
         }
 
-        public static async Task<Guid?> CreatePlayerViewAsync(PlayerApiClient playerApiClient, EventEntity eventEntity, EventTemplateEntity eventTemplateEntity, List<UserEntity> userList, CancellationToken ct)
+        public static async Task<ApiCallResult<Guid>> CreatePlayerViewAsync(PlayerApiClient playerApiClient, EventEntity eventEntity, EventTemplateEntity eventTemplateEntity, List<UserEntity> userList, ILogger logger, CancellationToken ct)
         {
             View clonedView = null;
             try
@@ -36,100 +39,109 @@ namespace Alloy.Api.Infrastructure.Extensions
                 clonedView = await playerApiClient.CloneViewAsync((Guid)eventTemplateEntity.ViewId, body, ct);
 
                 // add user to default team or first non-admin team
-                var roles = await playerApiClient.GetTeamRolesAsync(ct);
-                var teams = await playerApiClient.GetViewTeamsAsync(clonedView.Id, ct);
-
                 var defaultTeamId = await GetDefaultTeamId(playerApiClient, clonedView, ct);
 
-                try
-                {
-                    var owner = await playerApiClient.GetUserAsync(eventEntity.UserId, ct);
-                }
-                catch (Exception)
-                {
-                    await playerApiClient.CreateUserAsync(
-                        new CreateUserCommand
-                        {
-                            Id = eventEntity.UserId,
-                            Name = eventEntity.Username
-                        });
-                }
-
+                await EnsurePlayerUserAsync(playerApiClient, eventEntity.UserId, eventEntity.Username, ct);
                 await playerApiClient.AddUserToTeamAsync(defaultTeamId, eventEntity.UserId, ct);
 
                 foreach (var user in userList)
                 {
                     if (user.Id != eventEntity.UserId)
                     {
-                        try
-                        {
-                            var playerUser = await playerApiClient.GetUserAsync(user.Id, ct);
-                        }
-                        catch (Exception)
-                        {
-                            await playerApiClient.CreateUserAsync(
-                                new CreateUserCommand
-                                {
-                                    Id = user.Id,
-                                    Name = user.Name
-                                });
-                        }
-
+                        await EnsurePlayerUserAsync(playerApiClient, user.Id, user.Name, ct);
                         await playerApiClient.AddUserToTeamAsync(defaultTeamId, user.Id, ct);
                     }
                 }
 
-                return clonedView.Id;
+                return ApiCallResult<Guid>.Ok(clonedView.Id);
             }
-            catch (Exception)
+            catch (Exception ex)
             {
-                try
+                logger.LogError(ex, "Error creating the Player View for Event {EventId} from View {TemplateViewId}", eventEntity.Id, eventTemplateEntity.ViewId);
+
+                // Don't leave a half-built View behind for the caller to trip over on the next pass.
+                if (clonedView != null)
                 {
-                    if (clonedView != null)
+                    try
                     {
-                        await playerApiClient.DeleteViewAsync(clonedView.Id);
+                        await playerApiClient.DeleteViewAsync(clonedView.Id, ct);
+                    }
+                    catch (Exception deleteEx)
+                    {
+                        logger.LogError(deleteEx, "Error cleaning up the partially created Player View {ViewId} for Event {EventId}", clonedView.Id, eventEntity.Id);
                     }
                 }
-                catch (Exception)
-                {
-                    return null;
-                }
 
-                return null;
+                return ex.Classify<Guid>("create the virtual environment");
             }
         }
 
-        public static async Task<bool> DeletePlayerViewAsync(Guid? viewId, PlayerApiClient playerApiClient, CancellationToken ct)
+        public static async Task<ApiCallResult> DeletePlayerViewAsync(Guid? viewId, PlayerApiClient playerApiClient, ILogger logger, CancellationToken ct)
         {
             // no view to delete
             if (viewId == null)
             {
-                return true;
+                return ApiCallResult.Ok();
             }
             // try to delete the view
             try
             {
                 await playerApiClient.DeleteViewAsync((Guid)viewId, ct);
-                return true;
+                return ApiCallResult.Ok();
             }
-            catch (Exception)
+            catch (Player.Api.Client.ApiException ex) when (
+                ex.StatusCode == (int)HttpStatusCode.NotFound ||
+                ex.StatusCode == (int)HttpStatusCode.NoContent)
             {
-                return false;
+                // there is no View left to delete, so don't hold the Event open retrying
+                logger.LogInformation("Player returned {StatusCode} deleting View {ViewId}, which no longer exists. Treating it as deleted.", ex.StatusCode, viewId);
+                return ApiCallResult.Ok();
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Error deleting Player View {ViewId}", viewId);
+                return ex.Classify("delete the virtual environment");
             }
         }
 
-        public static async Task<bool> AddUserToViewTeamAsync(PlayerApiClient playerApiClient, Guid viewId, Guid userId, CancellationToken ct)
+        public static async Task<ApiCallResult> AddUserToViewTeamAsync(PlayerApiClient playerApiClient, Guid viewId, Guid userId, ILogger logger, CancellationToken ct)
         {
             try
             {
                 var teamId = await GetDefaultTeamId(playerApiClient, viewId, ct);
                 await playerApiClient.AddUserToTeamAsync(teamId, userId, ct);
-                return true;
+                return ApiCallResult.Ok();
             }
-            catch (Exception)
+            catch (Exception ex)
             {
-                return false;
+                logger.LogError(ex, "Error adding User {UserId} to a Team in Player View {ViewId}", userId, viewId);
+                return ex.Classify("add the user to the virtual environment");
             }
+        }
+
+        /// <summary>
+        /// Player needs a User record before anyone can be put on a Team, and an Event owner may
+        /// never have signed in to Player.
+        /// </summary>
+        private static async Task EnsurePlayerUserAsync(PlayerApiClient playerApiClient, Guid userId, string username, CancellationToken ct)
+        {
+            try
+            {
+                await playerApiClient.GetUserAsync(userId, ct);
+                return;
+            }
+            catch (Player.Api.Client.ApiException ex) when (ex.StatusCode == (int)HttpStatusCode.NotFound)
+            {
+                // fall through and create the user
+            }
+
+            await playerApiClient.CreateUserAsync(
+                new CreateUserCommand
+                {
+                    Id = userId,
+                    Name = username
+                },
+                ct);
         }
 
         private static async Task<Guid> GetDefaultTeamId(PlayerApiClient playerApiClient, Guid viewId, CancellationToken ct)
@@ -162,7 +174,10 @@ namespace Alloy.Api.Infrastructure.Extensions
                     {
                         var role = roles.Where(r => r.Id == team.RoleId).FirstOrDefault();
 
-                        if (role != null && role.AllPermissions || role.Permissions.Where(p => p.Name.Contains("Manage")).Any())
+                        // Parenthesised deliberately: without the outer group, && binds tighter than
+                        // || and a team whose RoleId is not in GetTeamRolesAsync() dereferences null.
+                        if (role != null &&
+                            (role.AllPermissions || role.Permissions.Where(p => p.Name.Contains("Manage")).Any()))
                             continue;
                     }
 
@@ -172,7 +187,8 @@ namespace Alloy.Api.Infrastructure.Extensions
             }
 
             if (!defaultTeamId.HasValue)
-                throw new Exception("No useable Team found");
+                throw new PermanentFailureException(
+                    $"Player View {view.Id} has no team that a participant can be added to.");
 
             return defaultTeamId.Value;
         }
