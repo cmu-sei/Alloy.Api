@@ -12,7 +12,7 @@ namespace Alloy.Api.Services
 
     public interface IAlloyEventQueue
     {
-        void Add(EventEntity eventEntity);
+        void Add(EventEntity eventEntity, bool requeueIfProcessing = true);
 
         EventEntity Take(CancellationToken cancellationToken);
 
@@ -28,7 +28,7 @@ namespace Alloy.Api.Services
         private readonly Dictionary<Guid, EventEntity> _inFlightEvents = new Dictionary<Guid, EventEntity>();
         private readonly object _inFlightLock = new object();
 
-        public void Add(EventEntity eventEntity)
+        public void Add(EventEntity eventEntity, bool requeueIfProcessing = true)
         {
             if (eventEntity == null)
             {
@@ -42,7 +42,8 @@ namespace Alloy.Api.Services
                     // Only one thread works an Event at a time. Hold this request so that
                     // Complete re-queues it, since the thread that is already running may
                     // be too far along to observe it.
-                    _inFlightEvents[eventEntity.Id] = eventEntity;
+                    if (requeueIfProcessing)
+                        _inFlightEvents[eventEntity.Id] = eventEntity;
                     return;
                 }
 

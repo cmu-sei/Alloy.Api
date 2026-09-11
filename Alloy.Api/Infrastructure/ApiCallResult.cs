@@ -12,27 +12,22 @@ namespace Alloy.Api.Infrastructure
         None = 0,
 
         /// <summary>
-        /// The call may well succeed if it is tried again - a network blip, an expired token,
-        /// a 5xx, or an operation that is simply not finished yet. The caller retries until it
-        /// runs out of its retry budget.
+        /// The call can be retried within the caller's retry budget.
         /// </summary>
         Transient,
 
         /// <summary>
-        /// The call will never succeed no matter how many times it is tried - a template pointing
-        /// at an object that has been deleted, invalid Terraform, a rejected run. The caller gives
-        /// up immediately and records why.
+        /// The operation should not be retried automatically. Launch failures enter cleanup;
+        /// teardown uses its own retry policy.
         /// </summary>
-        Permanent
+        Permanent,
+
+        /// <summary>Launch polling yielded to a user/expiration end request; not a failure.</summary>
+        EndRequested
     }
 
     /// <summary>
     /// The outcome of a call to an external Crucible API (Player, Caster, Steamfitter).
-    /// <para>
-    /// This is a class rather than a tuple or a record struct on purpose: a default-constructed
-    /// struct would have <see cref="FailureKind.None"/> and so would read as success, which is
-    /// exactly the mistake this type exists to prevent.
-    /// </para>
     /// </summary>
     public class ApiCallResult
     {
@@ -60,8 +55,10 @@ namespace Alloy.Api.Infrastructure
         public bool IsSuccess => Kind == FailureKind.None;
         public bool IsTransient => Kind == FailureKind.Transient;
         public bool IsPermanent => Kind == FailureKind.Permanent;
+        public bool IsEndRequested => Kind == FailureKind.EndRequested;
 
         public static ApiCallResult Ok() => new(FailureKind.None, null, null);
+        public static ApiCallResult EndRequested() => new(FailureKind.EndRequested, null, null);
 
         public static ApiCallResult Transient(string summary, string detail = null) =>
             new(FailureKind.Transient, summary, detail);

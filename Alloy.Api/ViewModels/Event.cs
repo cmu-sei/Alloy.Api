@@ -41,7 +41,10 @@ namespace Alloy.Api.ViewModels
 
         public DateTime StatusDate { get; set; }
         public DateTime? LaunchDate { get; set; }
+        /// <summary>When cleanup completed successfully. Historical values are preserved.</summary>
         public DateTime? EndDate { get; set; }
+        /// <summary>When ending was requested. EndDate records successful cleanup.</summary>
+        public DateTime? EndRequestedAt { get; set; }
         public DateTime? ExpirationDate { get; set; }
         public IEnumerable<string> EventPermissions { get; set; }
     }

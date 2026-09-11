@@ -70,10 +70,7 @@ namespace Alloy.Api.Services
         }
 
         /// <summary>
-        /// The retry ceilings in the finally block only apply when they are greater than zero, so a
-        /// value of zero means "retry forever" - an Event that cannot be launched then sits in
-        /// Planning indefinitely and never reports why. Say so at startup rather than letting an
-        /// operator discover it from a stuck Event.
+        /// Warn when non-positive retry limits allow failures to be retried indefinitely.
         /// </summary>
         private void WarnOnUnboundedRetries()
         {
@@ -113,12 +110,9 @@ namespace Alloy.Api.Services
                                         o.Status != EventStatus.Failed &&
                                         o.Status != EventStatus.Ended &&
                                         o.Status != EventStatus.Expired) ||
-                                    // A Failed Event that still holds external resources has orphans
-                                    // out there: nothing else reclaims it, because AlloyQueryService
-                                    // only expires Events with an ExpirationDate, and a launch that
-                                    // failed never got one. Give teardown another chance rather than
-                                    // leaking a Player View, a Steamfitter Scenario and a Caster
-                                    // Workspace forever. Self-limiting, since FailureCount only grows.
+                                    ((o.Status == EventStatus.Active || o.Status == EventStatus.Paused) &&
+                                        o.EndRequestedAt != null && o.EndDate == null) ||
+                                    // Retry failed cleanup with remaining resources and retry budget.
                                     (o.Status == EventStatus.Failed &&
                                         (o.WorkspaceId != null || o.ViewId != null || o.ScenarioId != null) &&
                                         o.FailureCount < maxEndRetries))
@@ -181,8 +175,16 @@ namespace Alloy.Api.Services
                         // _implementatioQueue is a BlockingCollection, so this loop will sleep if nothing is in the queue
                         var eventEntity = _eventQueue.Take(new CancellationToken());
                         // process the eventEntity on a new thread
-                        var newThread = new Thread(ProcessTheEvent);
-                        newThread.Start(eventEntity);
+                        try
+                        {
+                            var newThread = new Thread(ProcessTheEvent);
+                            newThread.Start(eventEntity);
+                        }
+                        catch
+                        {
+                            _eventQueue.Complete(eventEntity);
+                            throw;
+                        }
                     }
                     catch (Exception ex)
                     {
@@ -192,11 +194,15 @@ namespace Alloy.Api.Services
             });
         }
 
-        private async void ProcessTheEvent(Object eventEntityAsObject)
+        private async void ProcessTheEvent(Object eventEntityAsObject) =>
+            await ProcessEventAsync((EventEntity)eventEntityAsObject, CancellationToken.None);
+
+        internal async Task ProcessEventAsync(EventEntity eventEntity, CancellationToken ct)
         {
-            var ct = new CancellationToken();
-            var eventEntity = eventEntityAsObject == null ? (EventEntity)null : (EventEntity)eventEntityAsObject;
             _logger.LogDebug($"Processing Event {eventEntity.Id} for status '{eventEntity.Status}'.");
+            // A recovery scan may have read this row just before another worker failed.
+            // Only an explicit request queued from Failed may restart failed cleanup.
+            var retryFailed = eventEntity.Status == EventStatus.Failed;
 
             try
             {
@@ -207,10 +213,11 @@ namespace Alloy.Api.Services
                 var resourceCount = int.MaxValue;
                 var resourceRetryCount = 0;
                 var resetRetries = true;
+                DateTime? settleDeadline = null;
 
                 // get the alloy context entities required
                 eventEntity = await alloyContext.Events
-                    .FirstAsync(x => x.Id == eventEntity.Id);
+                    .FirstAsync(x => x.Id == eventEntity.Id, ct);
                 var eventTemplateEntity = alloyContext.EventTemplates.First(x => x.Id == eventEntity.EventTemplateId);
 
                 TokenResponse tokenResponse = null;
@@ -221,14 +228,10 @@ namespace Alloy.Api.Services
                 var updateTheEntity = false;
                 var retry = false;
 
-                // The most recent transient failure. Transient arms deliberately record nothing on
-                // the Event - a failure the next pass recovers from is not something anyone should
-                // have to read about - but if the retries run out then this is the only account of
-                // what actually went wrong, so the ceiling in the finally block reports it.
+                // Retain the last failure for diagnostics if the retry budget runs out.
                 ApiCallResult lastTransientFailure = null;
 
-                // What every transient arm does: remember the reason, discard the resource-owner
-                // token in case it was the problem, and go round again.
+                // Refresh authorization on retry in case the token caused the failure.
                 void RetryAfter(ApiCallResult result)
                 {
                     lastTransientFailure = result;
@@ -236,36 +239,53 @@ namespace Alloy.Api.Services
                     retry = true;
                 }
 
-                // LOOP until this thread's process is complete
-                while (eventEntity.Status == EventStatus.Creating ||
-                    eventEntity.Status == EventStatus.Planning ||
-                    eventEntity.Status == EventStatus.Applying ||
-                    eventEntity.Status == EventStatus.Ending)
+                void HandleLaunchFailure(ApiCallResult result)
                 {
-                    // The finally block reads this, so it has to live outside the try. It starts
-                    // out false so that a failure before it is known cannot make the finally act
-                    // as though a launch step had just been saved.
+                    if (result.IsPermanent)
+                    {
+                        updateTheEntity = FailLaunch(eventEntity, result, ref retryCount, ref resetRetries);
+                    }
+                    else
+                    {
+                        RetryAfter(result);
+                    }
+                }
+
+                void RetryEndAfter(ApiCallResult result)
+                {
+                    updateTheEntity = RecordEndFailure(eventEntity, result);
+                    RetryAfter(result);
+                }
+
+                // Active/Paused end requests and explicitly retried Failed cleanup must
+                // enter the state machine before its loop condition is evaluated.
+                await AdoptPendingEndAsync(alloyContext, eventEntity, ct, allowFailed: retryFailed);
+                if (eventEntity.Status == EventStatus.Ending && eventEntity.WorkspaceId != null &&
+                    eventEntity.InternalStatus != InternalEventStatus.EndQueued)
+                {
+                    // Reconcile Caster once on recovery, including teardown states saved
+                    // by older versions that could still have an unfinished launch run.
+                    eventEntity.InternalStatus = InternalEventStatus.EndQueued;
+                    await alloyContext.SaveChangesAsync(ct);
+                }
+                Task<bool> EndRequested() => alloyContext.Events.AsNoTracking()
+                    .AnyAsync(x => x.Id == eventEntity.Id && x.EndRequestedAt != null, ct);
+
+                // LOOP until this thread's process is complete
+                while (EventLifecycle.IsLaunching(eventEntity.Status) || eventEntity.Status == EventStatus.Ending)
+                {
+                    // A failure before reload must not trigger post-launch end adoption.
                     var processingLaunch = false;
 
                     try
                     {
                         // the updateTheEntity flag is used to indicate if the event entity state should be updated at the end of this loop
-                        // These two are cleared before anything that can throw, so a failure in the
-                        // reload below can never let the finally block act on the previous
-                        // iteration's flags.
+                        // Reset before reload so a failure cannot reuse the previous iteration's flags.
                         updateTheEntity = false;
                         retry = false;
 
-                        // Another request can transition this Event while a long-running
-                        // launch operation is in flight. Always begin the next state
-                        // transition from the persisted state. This talks to the database, so it
-                        // belongs inside the try: a dropped connection, or a concurrency conflict
-                        // against the very end request this code exists to notice, has to be
-                        // classified and retried like any other failure. Outside the try it would
-                        // fall straight through to the terminating catch and abandon the Event
-                        // mid-launch, still holding its View, Workspace and Scenario, with no
-                        // error recorded and no status anything else would reclaim. The reload is
-                        // also what discards whatever a failed adopt left on the tracked entity.
+                        // Reload persisted intent and discard unsaved changes from a failed adoption.
+                        // Keep database failures within the worker's retry handling.
                         await alloyContext.Entry(eventEntity).ReloadAsync(ct);
 
                         if (await AdoptPendingEndAsync(alloyContext, eventEntity, ct))
@@ -274,9 +294,7 @@ namespace Alloy.Api.Services
                             retryCount = 0;
                         }
 
-                        processingLaunch = eventEntity.Status == EventStatus.Creating ||
-                            eventEntity.Status == EventStatus.Planning ||
-                            eventEntity.Status == EventStatus.Applying;
+                        processingLaunch = EventLifecycle.IsLaunching(eventEntity.Status);
 
                         // each time through the loop, one state (case) is handled based on Status and InternalStatus.  This allows for retries of a failed state.
                         switch (eventEntity.Status)
@@ -289,9 +307,6 @@ namespace Alloy.Api.Services
                                         case InternalEventStatus.LaunchQueued:
                                         case InternalEventStatus.CreatingView:
                                             {
-                                                // The Event's Name and Description are set when the
-                                                // Event is created (EventService.CreateEventEntityAsync).
-
                                                 if (eventTemplateEntity.ViewId == null)
                                                 {
                                                     eventEntity.InternalStatus = InternalEventStatus.CreatingScenario;
@@ -312,13 +327,9 @@ namespace Alloy.Api.Services
                                                         eventEntity.InternalStatus = InternalEventStatus.CreatingScenario;
                                                         updateTheEntity = true;
                                                     }
-                                                    else if (result.IsPermanent)
-                                                    {
-                                                        updateTheEntity = FailLaunch(eventEntity, result, ref retryCount, ref resetRetries);
-                                                    }
                                                     else
                                                     {
-                                                        RetryAfter(result);
+                                                        HandleLaunchFailure(result);
                                                     }
                                                 }
                                                 break;
@@ -340,13 +351,9 @@ namespace Alloy.Api.Services
                                                         eventEntity.InternalStatus = InternalEventStatus.CreatingWorkspace;
                                                         updateTheEntity = true;
                                                     }
-                                                    else if (result.IsPermanent)
-                                                    {
-                                                        updateTheEntity = FailLaunch(eventEntity, result, ref retryCount, ref resetRetries);
-                                                    }
                                                     else
                                                     {
-                                                        RetryAfter(result);
+                                                        HandleLaunchFailure(result);
                                                     }
                                                 }
                                                 break;
@@ -366,44 +373,31 @@ namespace Alloy.Api.Services
                                                 else
                                                 {
                                                     var varsFileContent = "";
-                                                    var varsResult = ApiCallResult<string>.Ok("");
                                                     if (eventEntity.ViewId != null)
                                                     {
                                                         (playerApiClient, tokenResponse) = await RefreshClient(playerApiClient, tokenResponse, scope.ServiceProvider, ct);
-                                                        varsResult = await CasterApiExtensions.GetCasterVarsFileContentAsync(eventEntity, playerApiClient, _logger, ct);
+                                                        var varsResult = await CasterApiExtensions.GetCasterVarsFileContentAsync(eventEntity, playerApiClient, _logger, ct);
+                                                        if (!varsResult.IsSuccess)
+                                                        {
+                                                            HandleLaunchFailure(varsResult);
+                                                            break;
+                                                        }
                                                         varsFileContent = varsResult.Value;
                                                     }
 
-                                                    if (varsResult.IsPermanent)
+                                                    // Without a Player view, the workspace gets an empty variables file.
+                                                    (casterApiClient, tokenResponse) = await RefreshClient(casterApiClient, tokenResponse, scope.ServiceProvider, ct);
+                                                    var workspaceResult = await CasterApiExtensions.CreateCasterWorkspaceAsync(casterApiClient, eventEntity, (Guid)eventTemplateEntity.DirectoryId, varsFileContent, eventTemplateEntity.UseDynamicHost, _logger, ct);
+                                                    if (workspaceResult.IsSuccess)
                                                     {
-                                                        updateTheEntity = FailLaunch(eventEntity, varsResult, ref retryCount, ref resetRetries);
-                                                    }
-                                                    else if (!varsResult.IsSuccess)
-                                                    {
-                                                        RetryAfter(varsResult);
+                                                        eventEntity.WorkspaceId = workspaceResult.Value;
+                                                        eventEntity.InternalStatus = InternalEventStatus.PlanningLaunch;
+                                                        eventEntity.Status = EventStatus.Planning;
+                                                        updateTheEntity = true;
                                                     }
                                                     else
                                                     {
-                                                        // An EventTemplate with a Caster directory but no Player view gets an
-                                                        // empty tfvars file - which Terraform accepts - rather than retrying
-                                                        // to the ceiling with nothing to report.
-                                                        (casterApiClient, tokenResponse) = await RefreshClient(casterApiClient, tokenResponse, scope.ServiceProvider, ct);
-                                                        var workspaceResult = await CasterApiExtensions.CreateCasterWorkspaceAsync(casterApiClient, eventEntity, (Guid)eventTemplateEntity.DirectoryId, varsFileContent, eventTemplateEntity.UseDynamicHost, _logger, ct);
-                                                        if (workspaceResult.IsSuccess)
-                                                        {
-                                                            eventEntity.WorkspaceId = workspaceResult.Value;
-                                                            eventEntity.InternalStatus = InternalEventStatus.PlanningLaunch;
-                                                            eventEntity.Status = EventStatus.Planning;
-                                                            updateTheEntity = true;
-                                                        }
-                                                        else if (workspaceResult.IsPermanent)
-                                                        {
-                                                            updateTheEntity = FailLaunch(eventEntity, workspaceResult, ref retryCount, ref resetRetries);
-                                                        }
-                                                        else
-                                                        {
-                                                            RetryAfter(workspaceResult);
-                                                        }
+                                                        HandleLaunchFailure(workspaceResult);
                                                     }
                                                 }
                                                 break;
@@ -441,13 +435,9 @@ namespace Alloy.Api.Services
                                                             break;
                                                     }
                                                 }
-                                                else if (result.IsPermanent)
-                                                {
-                                                    updateTheEntity = FailLaunch(eventEntity, result, ref retryCount, ref resetRetries);
-                                                }
                                                 else
                                                 {
-                                                    RetryAfter(result);
+                                                    HandleLaunchFailure(result);
                                                 }
                                                 break;
                                             }
@@ -455,7 +445,14 @@ namespace Alloy.Api.Services
                                         case InternalEventStatus.PlannedRedeploy:
                                             {
                                                 (casterApiClient, tokenResponse) = await RefreshClient(casterApiClient, tokenResponse, scope.ServiceProvider, ct);
-                                                var result = await CasterApiExtensions.WaitForRunToBePlannedAsync(eventEntity, casterApiClient, _clientOptions.CurrentValue.CasterCheckIntervalSeconds, _clientOptions.CurrentValue.CasterPlanningMaxWaitMinutes, false, _logger, ct);
+                                                var result = await CasterApiExtensions.WaitForRunToBePlannedAsync(eventEntity, casterApiClient, _clientOptions.CurrentValue.CasterCheckIntervalSeconds, _clientOptions.CurrentValue.CasterPlanningMaxWaitMinutes, false, _logger, ct, EndRequested);
+                                                if (result.IsEndRequested)
+                                                {
+                                                    await AdoptPendingEndAsync(alloyContext, eventEntity, ct);
+                                                    retryCount = 0;
+                                                    resetRetries = true;
+                                                    break;
+                                                }
                                                 if (result.IsSuccess)
                                                 {
                                                     eventEntity.Status = EventStatus.Applying;
@@ -471,29 +468,9 @@ namespace Alloy.Api.Services
                                                             break;
                                                     }
                                                 }
-                                                else if (result.IsPermanent)
-                                                {
-                                                    // Terraform rejected the plan; retrying cannot change that
-                                                    updateTheEntity = FailLaunch(eventEntity, result, ref retryCount, ref resetRetries);
-                                                }
                                                 else
                                                 {
-                                                    // Plan timed out or hit a transient error, so plan again
-                                                    lastTransientFailure = result;
-
-                                                    switch (eventEntity.InternalStatus)
-                                                    {
-                                                        case InternalEventStatus.PlannedLaunch:
-                                                            eventEntity.InternalStatus = InternalEventStatus.PlanningLaunch;
-                                                            break;
-                                                        case InternalEventStatus.PlannedRedeploy:
-                                                            eventEntity.InternalStatus = InternalEventStatus.PlanningRedeploy;
-                                                            break;
-                                                    }
-
-                                                    updateTheEntity = true;
-                                                    retry = true;
-                                                    resetRetries = false;
+                                                    HandleLaunchFailure(result);
                                                 }
                                                 break;
                                             }
@@ -529,13 +506,9 @@ namespace Alloy.Api.Services
                                                             break;
                                                     }
                                                 }
-                                                else if (result.IsPermanent)
-                                                {
-                                                    updateTheEntity = FailLaunch(eventEntity, result, ref retryCount, ref resetRetries);
-                                                }
                                                 else
                                                 {
-                                                    RetryAfter(result);
+                                                    HandleLaunchFailure(result);
                                                 }
                                                 break;
                                             }
@@ -543,7 +516,14 @@ namespace Alloy.Api.Services
                                         case InternalEventStatus.AppliedRedeploy:
                                             {
                                                 (casterApiClient, tokenResponse) = await RefreshClient(casterApiClient, tokenResponse, scope.ServiceProvider, ct);
-                                                var result = await CasterApiExtensions.WaitForRunToBeAppliedAsync(eventEntity, casterApiClient, _clientOptions.CurrentValue.CasterCheckIntervalSeconds, _clientOptions.CurrentValue.CasterDeployMaxWaitMinutes, false, _logger, ct);
+                                                var result = await CasterApiExtensions.WaitForRunToBeAppliedAsync(eventEntity, casterApiClient, _clientOptions.CurrentValue.CasterCheckIntervalSeconds, _clientOptions.CurrentValue.CasterDeployMaxWaitMinutes, false, _logger, ct, EndRequested);
+                                                if (result.IsEndRequested)
+                                                {
+                                                    await AdoptPendingEndAsync(alloyContext, eventEntity, ct);
+                                                    retryCount = 0;
+                                                    resetRetries = true;
+                                                    break;
+                                                }
                                                 if (result.IsSuccess)
                                                 {
                                                     updateTheEntity = true;
@@ -563,30 +543,9 @@ namespace Alloy.Api.Services
 
                                                     resetRetries = true;
                                                 }
-                                                else if (result.IsPermanent)
-                                                {
-                                                    // Terraform failed to build the environment; the apply output is in the detail
-                                                    updateTheEntity = FailLaunch(eventEntity, result, ref retryCount, ref resetRetries);
-                                                }
                                                 else
                                                 {
-                                                    // Apply timed out or hit a transient error, so run the whole plan again
-                                                    lastTransientFailure = result;
-
-                                                    switch (eventEntity.InternalStatus)
-                                                    {
-                                                        case InternalEventStatus.AppliedLaunch:
-                                                            eventEntity.InternalStatus = InternalEventStatus.PlanningLaunch;
-                                                            break;
-                                                        case InternalEventStatus.AppliedRedeploy:
-                                                            eventEntity.InternalStatus = InternalEventStatus.PlanningRedeploy;
-                                                            break;
-                                                    }
-
-                                                    eventEntity.Status = EventStatus.Planning;
-                                                    updateTheEntity = true;
-                                                    retry = true;
-                                                    resetRetries = false;
+                                                    HandleLaunchFailure(result);
                                                 }
                                                 break;
                                             }
@@ -610,13 +569,9 @@ namespace Alloy.Api.Services
                                                     eventEntity.ClearFailureState();
                                                     updateTheEntity = true;
                                                 }
-                                                else if (result.IsPermanent)
-                                                {
-                                                    updateTheEntity = FailLaunch(eventEntity, result, ref retryCount, ref resetRetries);
-                                                }
                                                 else
                                                 {
-                                                    RetryAfter(result);
+                                                    HandleLaunchFailure(result);
                                                 }
                                                 break;
                                             }
@@ -634,6 +589,36 @@ namespace Alloy.Api.Services
                                     switch (eventEntity.InternalStatus)
                                     {
                                         case InternalEventStatus.EndQueued:
+                                            {
+                                                settleDeadline ??= DateTime.UtcNow.AddMinutes(_clientOptions.CurrentValue.CasterDestroyMaxWaitMinutes);
+                                                if (eventEntity.WorkspaceId != null)
+                                                    (casterApiClient, tokenResponse) = await RefreshClient(casterApiClient, tokenResponse, scope.ServiceProvider, ct);
+                                                var result = await CasterApiExtensions.SettleLaunchRunsAsync(eventEntity, casterApiClient,
+                                                    _clientOptions.CurrentValue.CasterCheckIntervalSeconds, settleDeadline.Value, _logger, ct);
+                                                if (result.IsSuccess)
+                                                {
+                                                    var destroyRun = result.Value;
+                                                    eventEntity.RunId = destroyRun?.Id;
+                                                    eventEntity.InternalStatus = destroyRun == null
+                                                        ? InternalEventStatus.PlanningDestroy
+                                                        : destroyRun.Status == RunStatus.Planned
+                                                            ? InternalEventStatus.ApplyingDestroy
+                                                            : destroyRun.Status == RunStatus.Queued || destroyRun.Status == RunStatus.Planning
+                                                                ? InternalEventStatus.PlannedDestroy
+                                                                : InternalEventStatus.AppliedDestroy;
+                                                    updateTheEntity = true;
+                                                    resetRetries = true;
+                                                }
+                                                else if (DateTime.UtcNow >= settleDeadline.Value)
+                                                {
+                                                    updateTheEntity = FailEnd(eventEntity, result, ref retryCount);
+                                                }
+                                                else
+                                                {
+                                                    RetryEndAfter(result);
+                                                }
+                                                break;
+                                            }
                                         case InternalEventStatus.PlanningDestroy:
                                             {
                                                 if (eventEntity.WorkspaceId != null)
@@ -645,8 +630,7 @@ namespace Alloy.Api.Services
                                                     if (!countResult.IsSuccess)
                                                     {
                                                         // Don't start a destroy run on a guess about what is in there.
-                                                        updateTheEntity = RecordEndFailure(eventEntity, countResult);
-                                                        RetryAfter(countResult);
+                                                        RetryEndAfter(countResult);
                                                     }
                                                     // if no resources, skip to deleting workspace
                                                     else if (countResult.Value == 0)
@@ -668,8 +652,7 @@ namespace Alloy.Api.Services
                                                             // Never give up on teardown here, even for a permanent failure:
                                                             // only the retry ceiling in the finally block may stop trying,
                                                             // and it records why when it does.
-                                                            updateTheEntity = RecordEndFailure(eventEntity, result);
-                                                            RetryAfter(result);
+                                                            RetryEndAfter(result);
                                                         }
                                                     }
                                                 }
@@ -691,13 +674,16 @@ namespace Alloy.Api.Services
                                                 }
                                                 else
                                                 {
-                                                    // Destroy plan failed or timed out; plan it again from the top
-                                                    RecordEndFailure(eventEntity, result);
-                                                    lastTransientFailure = result;
-                                                    eventEntity.InternalStatus = InternalEventStatus.PlanningDestroy;
-                                                    updateTheEntity = true;
-                                                    retry = true;
-                                                    resetRetries = false;
+                                                    updateTheEntity = RecordEndFailure(eventEntity, result);
+                                                    if (result.IsPermanent)
+                                                    {
+                                                        // Only replace a rejected/failed plan, not a
+                                                        // plan whose status could not be read.
+                                                        eventEntity.InternalStatus = InternalEventStatus.PlanningDestroy;
+                                                        updateTheEntity = true;
+                                                        resetRetries = false;
+                                                    }
+                                                    RetryAfter(result);
                                                 }
                                                 break;
                                             }
@@ -712,8 +698,7 @@ namespace Alloy.Api.Services
                                                 }
                                                 else
                                                 {
-                                                    updateTheEntity = RecordEndFailure(eventEntity, result);
-                                                    RetryAfter(result);
+                                                    RetryEndAfter(result);
                                                 }
                                                 break;
                                             }
@@ -723,9 +708,14 @@ namespace Alloy.Api.Services
                                                 var applyResult = await CasterApiExtensions.WaitForRunToBeAppliedAsync(eventEntity, casterApiClient, _clientOptions.CurrentValue.CasterCheckIntervalSeconds, _clientOptions.CurrentValue.CasterDestroyMaxWaitMinutes, true, _logger, ct);
                                                 if (!applyResult.IsSuccess)
                                                 {
-                                                    // Worth recording, but the resource count below stays the authority
-                                                    // on whether the teardown actually got anywhere.
-                                                    RecordEndFailure(eventEntity, applyResult);
+                                                    updateTheEntity = RecordEndFailure(eventEntity, applyResult);
+                                                    if (applyResult.IsTransient)
+                                                    {
+                                                        // Resources may still be changing. Keep the
+                                                        // run ID and observe this apply again.
+                                                        RetryAfter(applyResult);
+                                                        break;
+                                                    }
                                                 }
 
                                                 // make sure that the run successfully deleted the resources
@@ -734,8 +724,7 @@ namespace Alloy.Api.Services
                                                 {
                                                     // Without a count there is nothing to judge progress by, so ask
                                                     // again rather than spend one of the destroy attempts.
-                                                    updateTheEntity = RecordEndFailure(eventEntity, countResult);
-                                                    RetryAfter(countResult);
+                                                    RetryEndAfter(countResult);
                                                     break;
                                                 }
 
@@ -796,8 +785,7 @@ namespace Alloy.Api.Services
                                                 }
                                                 else
                                                 {
-                                                    updateTheEntity = RecordEndFailure(eventEntity, result);
-                                                    RetryAfter(result);
+                                                    RetryEndAfter(result);
                                                 }
                                                 break;
                                             }
@@ -817,8 +805,7 @@ namespace Alloy.Api.Services
                                                 }
                                                 else
                                                 {
-                                                    updateTheEntity = RecordEndFailure(eventEntity, result);
-                                                    RetryAfter(result);
+                                                    RetryEndAfter(result);
                                                 }
                                                 break;
                                             }
@@ -833,13 +820,9 @@ namespace Alloy.Api.Services
                                                 if (result.IsSuccess)
                                                 {
                                                     eventEntity.ScenarioId = null;
+                                                    eventEntity.EndDate = DateTime.UtcNow;
 
-                                                    // A launch that failed is routed through teardown to get its resources
-                                                    // back, so reaching the end of teardown does not mean the Event ended
-                                                    // normally. LastLaunchInternalStatus is only ever written when a launch
-                                                    // failed - the enum starts at 1, so default means "never" - and it is
-                                                    // cleared on every successful launch and redeploy. That makes it the
-                                                    // honest signal here, with no extra column.
+                                                    // Successful cleanup must preserve the outcome of a failed launch.
                                                     if (eventEntity.LastLaunchInternalStatus != default)
                                                     {
                                                         eventEntity.Status = EventStatus.Failed;
@@ -850,18 +833,14 @@ namespace Alloy.Api.Services
                                                         eventEntity.Status = EventStatus.Ended;
                                                         eventEntity.InternalStatus = InternalEventStatus.Ended;
 
-                                                        // Teardown that had to retry left a "Cleanup failed" note behind on
-                                                        // its way here. It succeeded in the end, so drop it: leaving it set
-                                                        // would brand a cleanly Ended Event as failed in the admin list for
-                                                        // good, with nothing left running that could ever clear it.
+                                                        // Clear errors from cleanup attempts that subsequently succeeded.
                                                         eventEntity.ClearFailureState();
                                                     }
                                                     updateTheEntity = true;
                                                 }
                                                 else
                                                 {
-                                                    updateTheEntity = RecordEndFailure(eventEntity, result);
-                                                    RetryAfter(result);
+                                                    RetryEndAfter(result);
                                                 }
                                                 break;
                                             }
@@ -881,21 +860,13 @@ namespace Alloy.Api.Services
                         _logger.LogError(ex, "Error processing Event {EventId} at {Status} - {InternalStatus}", eventEntity.Id, eventEntity.Status, eventEntity.InternalStatus);
 
                         var result = ex.Classify("process the event");
-                        // FailLaunch moves Status to Ending, so decide before calling it.
-                        var ending = eventEntity.Status == EventStatus.Ending;
-
-                        if (result.IsPermanent && !ending)
+                        if (eventEntity.Status == EventStatus.Ending)
                         {
-                            updateTheEntity = FailLaunch(eventEntity, result, ref retryCount, ref resetRetries);
+                            RetryEndAfter(result);
                         }
                         else
                         {
-                            if (ending)
-                            {
-                                updateTheEntity = RecordEndFailure(eventEntity, result);
-                            }
-
-                            RetryAfter(result);
+                            HandleLaunchFailure(result);
                         }
                     }
                     finally
@@ -907,9 +878,17 @@ namespace Alloy.Api.Services
                             var launchMaxRetries = _clientOptions.CurrentValue.ApiClientLaunchFailureMaxRetries;
                             var endMaxRetries = _clientOptions.CurrentValue.ApiClientEndFailureMaxRetries;
 
-                            if ((eventEntity.Status == EventStatus.Creating ||
-                                    eventEntity.Status == EventStatus.Planning ||
-                                    eventEntity.Status == EventStatus.Applying) &&
+                            if (eventEntity.Status == EventStatus.Ending &&
+                                eventEntity.InternalStatus == InternalEventStatus.EndQueued &&
+                                settleDeadline.HasValue && DateTime.UtcNow >= settleDeadline.Value)
+                            {
+                                // Authentication can fail before the Caster helper runs.
+                                // Its deadline still applies even when API retries are unbounded.
+                                updateTheEntity = FailEnd(eventEntity, ApiCallResult.Permanent(
+                                    "The infrastructure run could not be confirmed stopped in time. Cleanup can be retried by an administrator.",
+                                    lastTransientFailure?.Detail), ref retryCount);
+                            }
+                            else if (EventLifecycle.IsLaunching(eventEntity.Status) &&
                                 retryCount >= launchMaxRetries && launchMaxRetries > 0)
                             {
                                 // Same state as a permanent launch failure, by construction: the
@@ -951,17 +930,11 @@ namespace Alloy.Api.Services
                             eventEntity.StatusDate = DateTime.UtcNow;
                             await alloyContext.SaveChangesAsync(ct);
 
-                            // An end request can be persisted while this launch step is
-                            // saving, which overwrites the end status. Save first so that
-                            // anything the launch just created is recorded, then pick the
-                            // end request back up.
+                            // Persist any resource acquired by the step before adopting end intent.
                             if (processingLaunch)
                             {
-                                // An exception thrown from a finally block escapes the loop
-                                // entirely and would abandon the Event mid-launch with its
-                                // resources still allocated, so this one is swallowed. Nothing is
-                                // lost by doing so: the Event is still in a launch state, so the
-                                // loop goes round again, reloads, and adopts the pending end then.
+                                // The next pass or periodic recovery retries a failed adoption,
+                                // including a request persisted just as the event became Active.
                                 try
                                 {
                                     if (await AdoptPendingEndAsync(alloyContext, eventEntity, ct))
@@ -993,56 +966,27 @@ namespace Alloy.Api.Services
             }
         }
 
-        /// <summary>
-        /// Moves an Event that is launching or launched into the ending flow if an end
-        /// request was persisted while this thread was working. EndDate is only ever set
-        /// by an end or expiration request, so a launch state with an EndDate means an end
-        /// request has not been acted on. Anything the launch already created stays on the
-        /// Event so the ending flow can tear it down.
-        /// </summary>
-        private async Task<bool> AdoptPendingEndAsync(AlloyContext alloyContext, EventEntity eventEntity, CancellationToken ct)
+        /// <summary>Only the worker changes operational state in response to end intent.</summary>
+        private async Task<bool> AdoptPendingEndAsync(AlloyContext alloyContext, EventEntity eventEntity,
+            CancellationToken ct, bool allowFailed = false)
         {
-            if (eventEntity.Status != EventStatus.Creating &&
-                eventEntity.Status != EventStatus.Planning &&
-                eventEntity.Status != EventStatus.Applying &&
-                eventEntity.Status != EventStatus.Active)
-            {
+            if (eventEntity.EndDate != null ||
+                (!EventLifecycle.CanAdoptEnd(eventEntity.Status) && !(allowFailed && eventEntity.Status == EventStatus.Failed)))
                 return false;
-            }
 
-            var endDate = await alloyContext.Events
-                .AsNoTracking()
-                .Where(x => x.Id == eventEntity.Id)
-                .Select(x => x.EndDate)
-                .FirstOrDefaultAsync(ct);
-
-            if (endDate == null)
-            {
+            var requestedAt = await alloyContext.Events.AsNoTracking()
+                .Where(x => x.Id == eventEntity.Id).Select(x => x.EndRequestedAt).FirstOrDefaultAsync(ct);
+            if (requestedAt == null)
                 return false;
-            }
 
-            _logger.LogInformation("Event {EventId} was ended while it was in status {Status} - {InternalStatus}. Ending it.",
-                eventEntity.Id, eventEntity.Status, eventEntity.InternalStatus);
-
-            eventEntity.EndDate = endDate;
+            _logger.LogInformation("Ending Event {EventId} after request at {EndRequestedAt}.", eventEntity.Id, requestedAt);
+            eventEntity.EndRequestedAt = requestedAt;
             eventEntity.Status = EventStatus.Ending;
             eventEntity.InternalStatus = InternalEventStatus.EndQueued;
             eventEntity.StatusDate = DateTime.UtcNow;
             await alloyContext.SaveChangesAsync(ct);
-
             return true;
         }
-
-        // ---------------------------------------------------------------------------------------
-        // Failure bookkeeping.
-        //
-        // EventEntity.ErrorMessage and EventEntity.ErrorDetail are written in exactly the four
-        // helpers below, and cleared in exactly the four places that call ClearFailureState(). Nothing else
-        // in the codebase assigns them, which is what makes the state reachable from a failure
-        // reviewable: `grep -n 'ErrorMessage =' Alloy.Api/` should only ever find this block.
-        //
-        // Each helper returns the value to assign to updateTheEntity.
-        // ---------------------------------------------------------------------------------------
 
         /// <summary>
         /// Marker separating the reason a launch failed from the reason its cleanup then failed.
@@ -1050,11 +994,8 @@ namespace Alloy.Api.Services
         private const string CleanupFailureSeparator = "\n\nCleanup failed: ";
 
         /// <summary>
-        /// Builds the result recorded when the retry budget runs out. The transient arms that got
-        /// the Event here deliberately wrote nothing to it, so without the last failure folded in
-        /// the detail would say only that we gave up - never what kept going wrong, which is the
-        /// one question anyone reading it has. The user-facing <paramref name="summary"/> stays
-        /// generic: the last transient summary ends in "retrying", which is no longer true.
+        /// Reports an exhausted retry budget with the last failure's diagnostics.
+        /// The summary describes the terminal outcome rather than promising another retry.
         /// </summary>
         private static ApiCallResult CeilingFailure(
             string summary, int maxRetries, EventEntity eventEntity, ApiCallResult lastFailure)
@@ -1091,11 +1032,7 @@ namespace Alloy.Api.Services
             eventEntity.LastLaunchInternalStatus = eventEntity.InternalStatus;
             eventEntity.FailureCount++;
 
-            // Never EventStatus.Failed from here. Failed is outside ProcessTheEvent's loop
-            // condition, so setting it at this point would abandon teardown and orphan the Player
-            // View, Steamfitter Scenario and Caster Workspace that have already been created, with
-            // nothing left to reclaim them. Hand off to the teardown states instead and let
-            // DeletingScenario settle the terminal status.
+            // Keep the worker running until acquired resources are cleaned up.
             eventEntity.Status = EventStatus.Ending;
             eventEntity.InternalStatus = InternalEventStatus.EndQueued;
 
@@ -1107,30 +1044,20 @@ namespace Alloy.Api.Services
         }
 
         /// <summary>
-        /// Records why a teardown step failed, without giving up on it - only the retry ceiling
-        /// stops teardown. Returns true only if there is something new to save - a changed summary
-        /// or changed diagnostics - so a step that keeps failing in exactly the same way does not
-        /// churn StatusDate and re-broadcast over SignalR every pass.
+        /// Records a cleanup failure. Returns true only when diagnostics change,
+        /// avoiding repeated saves and notifications for identical failures.
         /// </summary>
         private bool RecordEndFailure(EventEntity eventEntity, ApiCallResult result)
         {
             _logger.LogError("Cleanup of Event {EventId} failed at {Status} - {InternalStatus}: {Summary}",
                 eventEntity.Id, eventEntity.Status, eventEntity.InternalStatus, result.Summary);
 
-            // Whether there is a launch reason to keep in front of the cleanup note is decided from
-            // LastLaunchInternalStatus, not from the text of ErrorMessage. Only FailLaunch ever
-            // writes it and only ClearFailureState clears it, and the enum starts at 1, so default
-            // means no launch failed - the same signal DeletingScenario uses to choose between an
-            // Ended and a Failed terminal status. Asking the text instead would invent a launch
-            // reason for an Event that ended normally and whose teardown then failed twice: the
-            // first pass's cleanup summary has no separator in it, so the second pass would read it
-            // back as the reason the launch failed, and nothing could ever strip it out again.
+            // The launch-failure marker distinguishes a launch error from an earlier cleanup error.
             var launchReason = string.Empty;
 
             if (eventEntity.LastLaunchInternalStatus != default)
             {
-                // Drop any cleanup note left by an earlier pass before appending this one, so ten
-                // retries don't append ten times and the original launch reason stays at the front.
+                // Replace the previous cleanup note while preserving the launch reason.
                 launchReason = eventEntity.ErrorMessage ?? string.Empty;
                 var separatorIndex = launchReason.IndexOf(CleanupFailureSeparator, StringComparison.Ordinal);
                 if (separatorIndex >= 0)
@@ -1144,10 +1071,8 @@ namespace Alloy.Api.Services
                     : launchReason + CleanupFailureSeparator + result.Summary)
                 .Truncate(EventErrorLimits.MaxSummaryLength);
 
-            // The detail is settled before deciding whether anything changed: two attempts can fail
-            // the same way with different diagnostics - two destroy applies that both return a 500
-            // with different Terraform output - and the admin-only detail should be the newer one.
-            // A result that carries no detail leaves whatever is already recorded alone.
+            // Keep the latest diagnostics even when the summary is unchanged.
+            // An empty detail leaves the existing diagnostics intact.
             var detail = string.IsNullOrEmpty(result.Detail)
                 ? eventEntity.ErrorDetail
                 : result.Detail.StripAnsi().TruncateTail(EventErrorLimits.MaxDetailLength);
@@ -1186,9 +1111,7 @@ namespace Alloy.Api.Services
         }
 
         /// <summary>
-        /// Handles a Status/InternalStatus combination the state machine does not know what to do
-        /// with. On the launch side that means restarting teardown, which is safe because every
-        /// teardown step skips what is already gone.
+        /// Routes an invalid launch state to cleanup, or stops cleanup in an invalid end state.
         /// </summary>
         private bool FailInvalidState(EventEntity eventEntity, ref int retryCount, ref bool resetRetries)
         {

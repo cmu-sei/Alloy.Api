@@ -52,6 +52,7 @@ namespace Alloy.Api.Data.Models
         public DateTime StatusDate { get; set; }
         public DateTime? LaunchDate { get; set; }
         public DateTime? EndDate { get; set; }
+        public DateTime? EndRequestedAt { get; set; }
         public DateTime? ExpirationDate { get; set; }
         public virtual ICollection<EventMembershipEntity> Memberships { get; set; } = new List<EventMembershipEntity>();
     }
