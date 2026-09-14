@@ -403,6 +403,8 @@ namespace Alloy.Api.Controllers
 
         [HttpPost("events/enlist/{code}")]
         [ProducesResponseType(typeof(Event), (int)HttpStatusCode.Created)]
+        [ProducesResponseType(typeof(ProblemDetails), (int)HttpStatusCode.Conflict)]
+        [ProducesResponseType(typeof(ProblemDetails), (int)HttpStatusCode.ServiceUnavailable)]
         [SwaggerOperation(OperationId = "enlist")]
         public async Task<ActionResult> Enlist(string code, CancellationToken ct)
         {
@@ -413,6 +415,8 @@ namespace Alloy.Api.Controllers
 
         [HttpPost("events/{id}/enlist/{userId}")]
         [ProducesResponseType(typeof(Event), (int)HttpStatusCode.Created)]
+        [ProducesResponseType(typeof(ProblemDetails), (int)HttpStatusCode.Conflict)]
+        [ProducesResponseType(typeof(ProblemDetails), (int)HttpStatusCode.ServiceUnavailable)]
         [SwaggerOperation(OperationId = "enlistUser")]
         public async Task<ActionResult> EnlistUser(Guid id, Guid userId, [FromBody] EnlistUserCommand command, CancellationToken ct)
         {

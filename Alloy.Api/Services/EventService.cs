@@ -552,7 +552,20 @@ namespace Alloy.Api.Services
                             });
                     }
 
-                    await PlayerApiExtensions.AddUserToViewTeamAsync(playerApiClient, alloyEvent.ViewId.Value, userId, _logger, ct);
+                    // Surface the failure rather than discarding it. Nothing has been persisted at this
+                    // point - the memberships below are only saved further down - so throwing here fails
+                    // the enlist as a unit instead of leaving the user in Alloy but on no Player team.
+                    // Only Summary is safe to show any caller; Detail is for ManageEvents holders only.
+                    var addToTeamResult = await PlayerApiExtensions.AddUserToViewTeamAsync(playerApiClient, alloyEvent.ViewId.Value, userId, _logger, ct);
+
+                    if (addToTeamResult.IsTransient)
+                    {
+                        throw new TransientFailureException(addToTeamResult.Summary);
+                    }
+                    else if (!addToTeamResult.IsSuccess)
+                    {
+                        throw new PermanentFailureException(addToTeamResult.Summary);
+                    }
                 }
 
                 if (alloyEvent.ScenarioId.HasValue)

@@ -26,7 +26,11 @@ internal sealed class TestEnvironment : IDisposable
     public ServiceProvider Services { get; }
     public FakeHttp Http { get; } = new();
     public AlloyEventQueue Queue { get; } = new();
-    public IMapper Mapper { get; } = new MapperConfiguration(c => c.AddProfile<EventProfile>()).CreateMapper();
+    public IMapper Mapper { get; } = new MapperConfiguration(c =>
+    {
+        c.AddProfile<EventProfile>();
+        c.AddProfile<EventTemplateProfile>();
+    }).CreateMapper();
     public ClientOptions Options { get; } = new()
     {
         ApiClientLaunchFailureMaxRetries = 2,
@@ -77,6 +81,10 @@ internal sealed class TestEnvironment : IDisposable
         Mapper, null, null, null, Queue, NullLogger<EventService>.Instance, null, null,
         Services.GetRequiredService<ResourceOwnerAuthorizationOptions>(), Options, Http, Services);
 
+    public EventTemplateService EventTemplateService(AlloyContext db, IPlayerService player) => new(db, null,
+        new ClaimsPrincipal(new ClaimsIdentity([new Claim("sub", Guid.NewGuid().ToString())])),
+        Mapper, NullLogger<EventTemplateService>.Instance, player);
+
     public AlloyBackgroundService Worker() => new(
         NullLogger<AlloyBackgroundService>.Instance, new Monitor<ClientOptions>(Options),
         Services.GetRequiredService<IServiceScopeFactory>(), Queue, Http,
@@ -107,6 +115,56 @@ internal sealed class TestEnvironment : IDisposable
         public T Get(string name) => value;
         public IDisposable OnChange(Action<T, string> listener) => null;
     }
+}
+
+/// <summary>
+/// Stands in for <see cref="IPlayerService"/> so EventTemplate validation can be exercised without Player.
+/// Only GetViewAsync is used; the other members are not reached by the code under test.
+/// </summary>
+internal sealed class StubPlayerService : IPlayerService
+{
+    public Func<Guid, Task<Player.Api.Client.View>> OnGetView { get; set; } =
+        id => throw new InvalidOperationException($"Unexpected GetViewAsync({id})");
+
+    public int GetViewCalls { get; private set; }
+
+    public Task<Player.Api.Client.View> GetViewAsync(Guid viewId, CancellationToken ct)
+    {
+        GetViewCalls++;
+        return OnGetView(viewId);
+    }
+
+    public Task<IEnumerable<Player.Api.Client.View>> GetViewsAsync(CancellationToken ct) =>
+        throw new NotSupportedException();
+
+    public Task<Player.Api.Client.View> CloneViewAsync(Guid viewId, Player.Api.Client.CloneViewCommand command, CancellationToken ct) =>
+        throw new NotSupportedException();
+
+    public Task DeleteViewAsync(Guid viewId, CancellationToken ct) => throw new NotSupportedException();
+
+    /// <summary>A View with a default team, so validation accepts it.</summary>
+    public static StubPlayerService WithDefaultTeam() => new()
+    {
+        OnGetView = id => Task.FromResult(new Player.Api.Client.View
+        {
+            Id = id, Name = "Good View", DefaultTeamId = Guid.NewGuid()
+        })
+    };
+
+    /// <summary>A View with no default team, so validation rejects it.</summary>
+    public static StubPlayerService WithoutDefaultTeam() => new()
+    {
+        OnGetView = id => Task.FromResult(new Player.Api.Client.View
+        {
+            Id = id, Name = "Bad View", DefaultTeamId = null
+        })
+    };
+
+    /// <summary>Player cannot be reached or the View is not visible, so validation must fail closed.</summary>
+    public static StubPlayerService Unavailable() => new()
+    {
+        OnGetView = _ => throw new HttpRequestException("Player is unavailable")
+    };
 }
 
 internal sealed class FakeHttp : HttpMessageHandler, IHttpClientFactory
