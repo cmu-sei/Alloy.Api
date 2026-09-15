@@ -17,6 +17,7 @@ namespace Alloy.Api.Services
     public interface IPlayerService
     {
         Task<IEnumerable<View>> GetViewsAsync(CancellationToken ct);
+        Task<View> GetViewAsync(Guid viewId, CancellationToken ct);
         Task<View> CloneViewAsync(Guid viewId, CloneViewCommand cloneViewCommand, CancellationToken ct);
         Task DeleteViewAsync(Guid viewId, CancellationToken ct);
     }
@@ -45,6 +46,11 @@ namespace Alloy.Api.Services
         {
             var views = await _playerApiClient.GetUserViewsAsync(_user.GetId(), ct);
             return views;
+        }
+
+        public async Task<View> GetViewAsync(Guid viewId, CancellationToken ct)
+        {
+            return await _playerApiClient.GetViewAsync(viewId, ct);
         }
 
         public async Task<View> CloneViewAsync(Guid viewId, CloneViewCommand cloneViewCommand, CancellationToken ct)

@@ -101,6 +101,7 @@ namespace Alloy.Api.Controllers
         /// <param name="ct"></param>
         [HttpPost("eventTemplates")]
         [ProducesResponseType(typeof(EventTemplate), (int)HttpStatusCode.Created)]
+        [ProducesResponseType(typeof(ProblemDetails), (int)HttpStatusCode.BadRequest)]
         [SwaggerOperation(OperationId = "createEventTemplate")]
         public async Task<IActionResult> Create([FromBody] EventTemplate eventTemplate, CancellationToken ct)
         {
@@ -127,6 +128,7 @@ namespace Alloy.Api.Controllers
         [HttpPut("eventTemplates/{id}")]
         [ProducesResponseType(typeof(EventTemplate), (int)HttpStatusCode.OK)]
         [ProducesResponseType(typeof(ProblemDetails), (int)HttpStatusCode.NotFound)]
+        [ProducesResponseType(typeof(ProblemDetails), (int)HttpStatusCode.BadRequest)]
         [SwaggerOperation(OperationId = "updateEventTemplate")]
         public async Task<IActionResult> Update([FromRoute] Guid id, [FromBody] EventTemplate eventTemplate, CancellationToken ct)
         {
