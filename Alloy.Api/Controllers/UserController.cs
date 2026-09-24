@@ -3,6 +3,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Net;
 using System.Threading;
 using STT = System.Threading.Tasks;
@@ -42,7 +43,11 @@ namespace Alloy.Api.Controllers
         [SwaggerOperation(OperationId = "getUsers")]
         public async STT.Task<IActionResult> Get(CancellationToken ct)
         {
-            if (!await _authorizationService.AuthorizeAsync([SystemPermission.ViewUsers, SystemPermission.ViewEventTemplates, SystemPermission.ViewEvents], ct))
+            var canViewUsers = await _authorizationService.AuthorizeAsync([SystemPermission.ViewUsers, SystemPermission.ViewEventTemplates, SystemPermission.ViewEvents], ct);
+            var canManageGroupMemberships = _authorizationService.GetGroupPermissions()
+                .Any(x => x.Permissions.Contains(GroupPermission.ManageMembership));
+
+            if (!canViewUsers && !canManageGroupMemberships)
                 throw new ForbiddenException();
 
             var list = await _userService.GetAsync(ct);

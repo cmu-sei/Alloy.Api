@@ -34,15 +34,17 @@ namespace Alloy.Api.Services
         Task<IEnumerable<Event>> GetMyViewEventsAsync(Guid viewId, CancellationToken ct);
         Task<IEnumerable<Event>> GetMyEventsAsync(bool? includeEnded, int? days, CancellationToken ct);
         Task<Event> GetAsync(Guid id, CancellationToken ct);
-        Task<Event> CreateAsync(Event eventx, CancellationToken ct);
+        Task<EventErrorDetail> GetErrorDetailAsync(Guid id, CancellationToken ct);
+        Task<Event> CreateAsync(CreateEventRequest request, CancellationToken ct);
         Task<Event> LaunchEventFromEventTemplateAsync(Guid eventTemplateId, Guid? userId, string username, List<Guid> additionalUserIds, CancellationToken ct);
         Task<Event> LaunchEventFromEventTemplateAsync(CreateEventCommand command, CancellationToken ct);
-        Task<Event> UpdateAsync(Guid id, Event eventx, CancellationToken ct);
+        Task<Event> UpdateAsync(Guid id, UpdateEventRequest request, CancellationToken ct);
         Task<bool> DeleteAsync(Guid id, CancellationToken ct);
         Task<Event> EndAsync(Guid eventId, CancellationToken ct);
         Task<Event> RedeployAsync(Guid eventId, CancellationToken ct);
         Task<Event> CreateInviteAsync(Guid eventId, CancellationToken ct);
         Task<Event> EnlistAsync(string code, CancellationToken ct);
+        Task<Event> EnlistUserAsync(Guid eventId, Guid userId, string userName, CancellationToken ct);
         Task<IEnumerable<VirtualMachine>> GetEventVirtualMachinesAsync(Guid eventId, CancellationToken ct);
         Task<IEnumerable<QuestionView>> GetEventQuestionsAsync(Guid eventId, CancellationToken ct);
         Task<IEnumerable<QuestionView>> GradeEventAsync(Guid eventId, IEnumerable<string> answers, CancellationToken ct);
@@ -193,10 +195,38 @@ namespace Alloy.Api.Services
             return _mapper.Map<Event>(item);
         }
 
-        public async Task<Event> CreateAsync(Event eventx, CancellationToken ct)
+        public async Task<EventErrorDetail> GetErrorDetailAsync(Guid id, CancellationToken ct)
         {
-            eventx.CreatedBy = _user.GetId();
-            var eventEntity = _mapper.Map<EventEntity>(eventx);
+            var item = await GetTheEventAsync(id, ct);
+
+            return new EventErrorDetail
+            {
+                EventId = item.Id,
+                ErrorMessage = item.ErrorMessage,
+                ErrorDetail = item.ErrorDetail
+            };
+        }
+
+        public async Task<Event> CreateAsync(CreateEventRequest request, CancellationToken ct)
+        {
+            var eventEntity = new EventEntity
+            {
+                Id = request.Id,
+                UserId = request.UserId,
+                Username = request.Username,
+                EventTemplateId = request.EventTemplateId,
+                ViewId = request.ViewId,
+                Name = request.Name,
+                Description = request.Description,
+                ShareCode = request.ShareCode,
+                Status = request.Status,
+                InternalStatus = request.InternalStatus,
+                StatusDate = request.StatusDate,
+                LaunchDate = request.LaunchDate,
+                EndDate = request.EndDate,
+                ExpirationDate = request.ExpirationDate,
+                CreatedBy = _user.GetId()
+            };
 
             _context.Events.Add(eventEntity);
             await _context.SaveChangesAsync(ct);
@@ -228,16 +258,18 @@ namespace Alloy.Api.Services
             return _mapper.Map<Event>(eventEntity);
         }
 
-        public async Task<Event> UpdateAsync(Guid id, Event eventx, CancellationToken ct)
+        public async Task<Event> UpdateAsync(Guid id, UpdateEventRequest request, CancellationToken ct)
         {
             var eventEntity = await GetTheEventAsync(id, ct);
-            eventx.ModifiedBy = _user.GetId();
-            _mapper.Map(eventx, eventEntity);
-
-            _context.Events.Update(eventEntity);
+            // Only mark editable properties as changed; a full Update would overwrite
+            // lifecycle changes committed since this entity was read.
+            eventEntity.Name = request.Name;
+            eventEntity.Description = request.Description;
+            eventEntity.ExpirationDate = request.ExpirationDate;
+            eventEntity.ModifiedBy = _user.GetId();
             await _context.SaveChangesAsync(ct);
 
-            return _mapper.Map(eventEntity, eventx);
+            return _mapper.Map<Event>(eventEntity);
         }
 
         public async Task<bool> DeleteAsync(Guid id, CancellationToken ct)
@@ -254,18 +286,11 @@ namespace Alloy.Api.Services
             try
             {
                 var eventEntity = await GetTheEventAsync(eventId, ct);
-                if (eventEntity.Status != EventStatus.Failed && eventEntity.EndDate != null)
+                if (await EventLifecycle.RequestEndAsync(_context, eventEntity, DateTime.UtcNow, ct))
                 {
-                    var msg = $"Event {eventEntity.Id} has already been ended";
-                    _logger.LogError(msg);
-                    throw new Exception(msg);
+                    // Failed cleanup can be retried explicitly; the worker owns the transition.
+                    _alloyEventQueue.Add(eventEntity);
                 }
-                eventEntity.EndDate = DateTime.UtcNow;
-                eventEntity.Status = EventStatus.Ending;
-                eventEntity.InternalStatus = InternalEventStatus.EndQueued;
-                await _context.SaveChangesAsync(ct);
-                // add the event to the event queue for AlloyBackgrounsService to process the caster destroy.
-                _alloyEventQueue.Add(eventEntity);
             }
             catch (Exception ex)
             {
@@ -281,7 +306,7 @@ namespace Alloy.Api.Services
             try
             {
                 var eventEntity = await GetTheEventAsync(eventId, ct);
-                if (eventEntity.Status != EventStatus.Active)
+                if (eventEntity.Status != EventStatus.Active || eventEntity.EndRequestedAt != null || eventEntity.EndDate != null)
                 {
                     var msg = $"Only an Active Event can be redeployed";
                     _logger.LogError(msg);
@@ -303,10 +328,11 @@ namespace Alloy.Api.Services
                     throw new Exception(msg);
                 }
 
-                eventEntity.Status = EventStatus.Planning;
-                eventEntity.InternalStatus = InternalEventStatus.PlanningRedeploy;
-                await _context.SaveChangesAsync(ct);
-                // add the event to the event queue for AlloyBackgrounsService to process the caster destroy.
+                // Tainting is an external call. An end may have arrived while it ran.
+                if (!await EventLifecycle.ScheduleRedeployAsync(_context, eventEntity, ct))
+                {
+                    throw new InvalidOperationException("The event is no longer active or ending has been requested.");
+                }
                 _alloyEventQueue.Add(eventEntity);
             }
             catch (Exception ex)
@@ -332,6 +358,17 @@ namespace Alloy.Api.Services
             if (eventTemplateEntity == null)
             {
                 throw new EntityNotFoundException<EventTemplate>($"EventTemplate {eventTemplateId} was not found.");
+            }
+
+            // Event memberships have a foreign key to Users, and an Event can be launched on behalf of
+            // a user who has never signed in to Alloy, so make sure each member has a User record first.
+            await EnsureUserAsync(userId, username, ct);
+            if (additionalUserIds != null)
+            {
+                foreach (var additionalUserId in additionalUserIds.Where(m => m != userId))
+                {
+                    await EnsureUserAsync(additionalUserId, null, ct);
+                }
             }
 
             var eventEntity = new EventEntity()
@@ -452,10 +489,10 @@ namespace Alloy.Api.Services
 
         private async Task<Event> GetEventByShareCodeAsync(string code, CancellationToken ct)
         {
-            var eventEntity = await _context.Events.Where(e => e.ShareCode == code).SingleOrDefaultAsync();
+            var eventEntity = await _context.Events.Where(e => e.ShareCode == code).SingleOrDefaultAsync(ct);
             if (eventEntity == null)
             {
-                throw new EntityNotFoundException<EventEntity>($"Event not found or has been ended");
+                throw new EntityNotFoundException<Event>($"Event not found or has been ended");
             }
 
             return _mapper.Map<Event>(eventEntity);
@@ -464,73 +501,147 @@ namespace Alloy.Api.Services
 
         public async Task<Event> EnlistAsync(string code, CancellationToken ct)
         {
-            var userId = _user.GetId();
+            var alloyEvent = await GetEventByShareCodeAsync(code, ct);
+
+            if (alloyEvent == null)
+            {
+                throw new EntityNotFoundException<Event>($"Event not found or has been ended");
+            }
+
+            return await EnlistUserAsync(alloyEvent, _user.GetId(), _user.FindFirst("Name").Value, ct);
+        }
+
+        public async Task<Event> EnlistUserAsync(Guid eventId, Guid userId, string userName, CancellationToken ct)
+        {
+            var eventEntity = await _context.Events.SingleOrDefaultAsync(e => e.Id == eventId, ct);
+
+            if (eventEntity == null)
+            {
+                throw new EntityNotFoundException<Event>($"Event {eventId} was not found.");
+            }
+
+            var alloyEvent = _mapper.Map<Event>(eventEntity);
+
+            return await EnlistUserAsync(alloyEvent, userId, userName, ct);
+        }
+
+        private async Task<Event> EnlistUserAsync(Event alloyEvent, Guid userId, string userName, CancellationToken ct)
+        {
+            var user = await EnsureUserAsync(userId, userName, ct);
+
             // user may not have access to the player api, so we get the resource owner token
             var token = await ApiClientsExtensions.GetToken(_serviceProvider);
             var playerApiClient = PlayerApiExtensions.GetPlayerApiClient(_httpClientFactory, _clientOptions.urls.playerApi, token);
             var steamfitterApiClient = SteamfitterApiExtensions.GetSteamfitterApiClient(_httpClientFactory, _clientOptions.urls.steamfitterApi, token);
 
-            var alloyEvent = await GetEventByShareCodeAsync(code, ct);
             if (alloyEvent.Status == EventStatus.Active || alloyEvent.Status == EventStatus.Paused)
             {
-                if (alloyEvent != null)
+                if (alloyEvent.ViewId.HasValue)
                 {
-                    if (alloyEvent.ViewId.HasValue)
-                    {
-                        await PlayerApiExtensions.AddUserToViewTeamAsync(playerApiClient, alloyEvent.ViewId.Value, userId, ct);
-                    }
-
-                    if (alloyEvent.ScenarioId.HasValue)
-                    {
-                        try
-                        {
-                            var user = await steamfitterApiClient.GetUserAsync(userId, ct);
-                        }
-                        catch (System.Exception)
-                        {
-                            var newUser = new Steamfitter.Api.Client.User()
-                            {
-                                Id = userId,
-                                Name = _user.FindFirst("Name").Value
-                            };
-                            await steamfitterApiClient.CreateUserAsync(newUser);
-                        }
-
-                        var scenarioMembership = new ScenarioMembership() { UserId = userId, ScenarioId = alloyEvent.ScenarioId.Value };
-                        await steamfitterApiClient.CreateScenarioMembershipAsync(alloyEvent.ScenarioId.Value, scenarioMembership, ct);
-                    }
-
                     try
                     {
-                        var entity = await _context.EventMemberships.Where(m => m.UserId == userId && m.EventId == alloyEvent.Id).FirstOrDefaultAsync();
-                        if (entity == null)
-                        {
-                            var eventMembership = new EventMembershipEntity
-                            {
-                                EventId = alloyEvent.Id,
-                                UserId = userId,
-                                RoleId = EventRoleDefaults.EventMemberRoleId
-                            };
-                            _context.EventMemberships.Add(eventMembership);
-                            var eventTemplateMembership = new EventTemplateMembershipEntity
-                            {
-                                EventTemplateId = (Guid)alloyEvent.EventTemplateId,
-                                UserId = userId,
-                                RoleId = EventTemplateRoleEntityDefaults.EventTemplateReadOnlyRoleId
-                            };
-                            _context.EventTemplateMemberships.Add(eventTemplateMembership);
-                            await _context.SaveChangesAsync();
-                        }
-
-                        return alloyEvent;
+                        var playerUser = await playerApiClient.GetUserAsync(user.Id, ct);
                     }
                     catch (Exception)
                     {
-                        throw new InviteException("Invite Failed, Accepted Already");
+                        await playerApiClient.CreateUserAsync(
+                            new Player.Api.Client.CreateUserCommand
+                            {
+                                Id = user.Id,
+                                Name = user.Name
+                            });
                     }
+
+                    // Surface the failure rather than discarding it. Nothing has been persisted at this
+                    // point - the memberships below are only saved further down - so throwing here fails
+                    // the enlist as a unit instead of leaving the user in Alloy but on no Player team.
+                    // Only Summary is safe to show any caller; Detail is for ManageEvents holders only.
+                    var addToTeamResult = await PlayerApiExtensions.AddUserToViewTeamAsync(playerApiClient, alloyEvent.ViewId.Value, userId, _logger, ct);
+
+                    if (addToTeamResult.IsTransient)
+                    {
+                        throw new TransientFailureException(addToTeamResult.Summary);
+                    }
+                    else if (!addToTeamResult.IsSuccess)
+                    {
+                        throw new PermanentFailureException(addToTeamResult.Summary);
+                    }
+                }
+
+                if (alloyEvent.ScenarioId.HasValue)
+                {
+                    try
+                    {
+                        var steamfitterUser = await steamfitterApiClient.GetUserAsync(userId, ct);
+                    }
+                    catch (System.Exception)
+                    {
+                        var newUser = new Steamfitter.Api.Client.User()
+                        {
+                            Id = userId,
+                            Name = user.Name
+                        };
+                        await steamfitterApiClient.CreateUserAsync(newUser);
+                    }
+
+                    var scenarioMembership = new ScenarioMembership() { UserId = userId, ScenarioId = alloyEvent.ScenarioId.Value };
+                    await steamfitterApiClient.CreateScenarioMembershipAsync(alloyEvent.ScenarioId.Value, scenarioMembership, ct);
+                }
+
+                try
+                {
+                    var entity = await _context.EventMemberships.Where(m => m.UserId == userId && m.EventId == alloyEvent.Id).FirstOrDefaultAsync();
+                    if (entity == null)
+                    {
+                        var eventMembership = new EventMembershipEntity
+                        {
+                            EventId = alloyEvent.Id,
+                            UserId = userId,
+                            RoleId = EventRoleDefaults.EventMemberRoleId
+                        };
+                        _context.EventMemberships.Add(eventMembership);
+                        var eventTemplateMembership = new EventTemplateMembershipEntity
+                        {
+                            EventTemplateId = (Guid)alloyEvent.EventTemplateId,
+                            UserId = userId,
+                            RoleId = EventTemplateRoleEntityDefaults.EventTemplateReadOnlyRoleId
+                        };
+                        _context.EventTemplateMemberships.Add(eventTemplateMembership);
+                        await _context.SaveChangesAsync();
+                    }
+
+                    return alloyEvent;
+                }
+                catch (Exception)
+                {
+                    throw new InviteException("Invite Failed, Accepted Already");
                 }
             }
             throw new InviteException($"Invite Failed, Event Status: {Enum.GetName(typeof(EventStatus), alloyEvent.Status)}");
+        }
+
+        private async Task<UserEntity> EnsureUserAsync(Guid userId, string userName, CancellationToken ct)
+        {
+            userName = string.IsNullOrWhiteSpace(userName) ? userId.ToString() : userName;
+
+            var user = await _context.Users.SingleOrDefaultAsync(u => u.Id == userId, ct);
+            if (user == null)
+            {
+                user = new UserEntity
+                {
+                    Id = userId,
+                    Name = userName
+                };
+                _context.Users.Add(user);
+                await _context.SaveChangesAsync(ct);
+            }
+            else if (string.IsNullOrWhiteSpace(user.Name))
+            {
+                user.Name = userName;
+                await _context.SaveChangesAsync(ct);
+            }
+
+            return user;
         }
 
         public async Task<IEnumerable<VirtualMachine>> GetEventVirtualMachinesAsync(Guid eventId, CancellationToken ct)

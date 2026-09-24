@@ -86,23 +86,20 @@ namespace Alloy.Api.Services
                     using (var alloyContext = scope.ServiceProvider.GetRequiredService<AlloyContext>())
                     {
                         var currentDateTime = DateTime.UtcNow;
-                        var expiredEventEntities = alloyContext.Events.Where(o => 
-                            o.EndDate == null &&
-                            o.ExpirationDate < currentDateTime).ToList();
-
-                        if (expiredEventEntities.Any())
+                        var expiredEventEntities = await EventLifecycle.ExpiredEvents(alloyContext, currentDateTime).ToListAsync();
+                        foreach (var eventEntity in expiredEventEntities)
                         {
-                            _logger.LogInformation($"AlloyQueryService is processing {expiredEventEntities.Count()} expired Events.");
-                            foreach (var eventEntity in expiredEventEntities)
+                            if (await EventLifecycle.RequestEndAsync(alloyContext, eventEntity, currentDateTime, CancellationToken.None))
                             {
-                                eventEntity.EndDate = DateTime.UtcNow;
-                                eventEntity.Status = EventStatus.Ending;
-                                eventEntity.InternalStatus = InternalEventStatus.EndQueued;
-                                eventEntity.RunId = null;
-                                await alloyContext.SaveChangesAsync();
-                                 _logger.LogInformation($"AlloyQueryService is queueing {eventEntity.Id}.");
                                 _eventQueue.Add(eventEntity);
                             }
+                        }
+
+                        // Recover persisted work after a lost notification or a worker/database
+                        // failure. Failed events keep their existing bounded/manual retry policy.
+                        foreach (var eventEntity in await EventLifecycle.UnfinishedEvents(alloyContext).ToListAsync())
+                        {
+                            _eventQueue.Add(eventEntity, requeueIfProcessing: false);
                         }
                     }
                 }

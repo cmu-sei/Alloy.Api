@@ -40,19 +40,22 @@ namespace Alloy.Api.Services
         private readonly ClaimsPrincipal _user;
         private readonly IMapper _mapper;
         private readonly ILogger<EventTemplateService> _logger;
+        private readonly IPlayerService _playerService;
 
         public EventTemplateService(
             AlloyContext context,
             IAuthorizationService authorizationService,
             IPrincipal user,
             IMapper mapper,
-            ILogger<EventTemplateService> logger)
+            ILogger<EventTemplateService> logger,
+            IPlayerService playerService)
         {
             _context = context;
             _authorizationService = authorizationService;
             _user = user as ClaimsPrincipal;
             _mapper = mapper;
             _logger = logger;
+            _playerService = playerService;
         }
 
         /// <summary>
@@ -125,6 +128,8 @@ namespace Alloy.Api.Services
         /// <returns></returns>
         public async Task<ViewModels.EventTemplate> CreateAsync(ViewModels.EventTemplate eventTemplate, CancellationToken ct)
         {
+            await ValidateViewHasDefaultTeamAsync(eventTemplate.ViewId, ct);
+
             eventTemplate.CreatedBy = _user.GetId();
             var eventTemplateEntity = _mapper.Map<EventTemplateEntity>(eventTemplate);
 
@@ -143,6 +148,8 @@ namespace Alloy.Api.Services
         /// <returns></returns>
         public async Task<ViewModels.EventTemplate> UpdateAsync(Guid id, ViewModels.EventTemplate eventTemplate, CancellationToken ct)
         {
+            await ValidateViewHasDefaultTeamAsync(eventTemplate.ViewId, ct);
+
             var eventTemplateEntity = await GetTheEventTemplateAsync(id, ct);
             eventTemplate.ModifiedBy = _user.GetId();
             _mapper.Map(eventTemplate, eventTemplateEntity);
@@ -183,6 +190,42 @@ namespace Alloy.Api.Services
             }
 
             return eventTemplateEntity;
+        }
+
+        /// <summary>
+        /// Rejects an EventTemplate whose Player View has no default team.
+        /// </summary>
+        /// <remarks>
+        /// Without a default team, <see cref="Infrastructure.Extensions.PlayerApiExtensions"/> falls back
+        /// to the first team in the View that does not look administrative when an Event is launched, so
+        /// participants land on an arbitrary team - or the launch fails outright if there is no such team.
+        /// A null ViewId is valid; a Template need not reference a View at all.
+        /// </remarks>
+        private async Task ValidateViewHasDefaultTeamAsync(Guid? viewId, CancellationToken ct)
+        {
+            if (!viewId.HasValue)
+                return;
+
+            Player.Api.Client.View view;
+
+            try
+            {
+                view = await _playerService.GetViewAsync(viewId.Value, ct);
+            }
+            catch (Exception ex)
+            {
+                // Fail closed. Being unable to confirm a default team is not the same as there being one,
+                // and failing open here would make the rule bypassable whenever Player is unreachable.
+                _logger.LogWarning(ex, $"Could not retrieve Player View {viewId.Value} to validate its default team.");
+                throw new ValidationException(
+                    $"Could not verify Player View {viewId.Value}. It may not exist or may not be visible to you.", ex);
+            }
+
+            if (!view.DefaultTeamId.HasValue)
+            {
+                throw new ValidationException(
+                    $"Player View \"{view.Name}\" has no default team. Set a default team on the view in Player, or choose a different view.");
+            }
         }
 
     }

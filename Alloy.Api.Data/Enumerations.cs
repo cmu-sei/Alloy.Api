@@ -91,5 +91,16 @@ namespace Alloy.Api.Data
         ManageEventTemplate
     }
 
+    public enum GroupPermission
+    {
+        ManageMembership,
+        EditGroup
+    }
+
+    public enum GroupMembershipRole
+    {
+        Member,
+        Manager
+    }
 
 }

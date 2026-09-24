@@ -17,7 +17,7 @@ namespace Alloy.Api.Migrations.PostgreSQL.Migrations
         {
 #pragma warning disable 612, 618
             modelBuilder
-                .HasAnnotation("ProductVersion", "10.0.0")
+                .HasAnnotation("ProductVersion", "10.0.1")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
             NpgsqlModelBuilderExtensions.HasPostgresExtension(modelBuilder, "uuid-ossp");
@@ -50,6 +50,18 @@ namespace Alloy.Api.Migrations.PostgreSQL.Migrations
                     b.Property<DateTime?>("EndDate")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("end_date");
+
+                    b.Property<DateTime?>("EndRequestedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("end_requested_at");
+
+                    b.Property<string>("ErrorDetail")
+                        .HasColumnType("text")
+                        .HasColumnName("error_detail");
+
+                    b.Property<string>("ErrorMessage")
+                        .HasColumnType("text")
+                        .HasColumnName("error_message");
 
                     b.Property<Guid?>("EventTemplateId")
                         .HasColumnType("uuid")
@@ -461,6 +473,12 @@ namespace Alloy.Api.Migrations.PostgreSQL.Migrations
                     b.Property<Guid>("GroupId")
                         .HasColumnType("uuid")
                         .HasColumnName("group_id");
+
+                    b.Property<int>("Role")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0)
+                        .HasColumnName("role");
 
                     b.Property<Guid>("UserId")
                         .HasColumnType("uuid")

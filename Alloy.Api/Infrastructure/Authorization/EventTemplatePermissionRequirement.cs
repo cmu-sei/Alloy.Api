@@ -13,14 +13,14 @@ namespace Alloy.Api.Infrastructure.Authorization
     public class EventTemplatePermissionRequirement : IAuthorizationRequirement
     {
         public EventTemplatePermission[] RequiredPermissions;
-        public Guid EventId;
+        public Guid? EventId;
 
         public EventTemplatePermissionRequirement(
             EventTemplatePermission[] requiredPermissions,
-            Guid projectId)
+            Guid? eventTemplateId)
         {
             RequiredPermissions = requiredPermissions;
-            EventId = projectId;
+            EventId = eventTemplateId;
         }
     }
 
@@ -28,7 +28,7 @@ namespace Alloy.Api.Infrastructure.Authorization
     {
         protected override Task HandleRequirementAsync(AuthorizationHandlerContext context, EventTemplatePermissionRequirement requirement)
         {
-            if (context.User == null)
+            if (context.User == null || !requirement.EventId.HasValue)
             {
                 context.Fail();
             }
@@ -43,7 +43,7 @@ namespace Alloy.Api.Infrastructure.Authorization
                 foreach (var claim in claims)
                 {
                     var claimValue = EventTemplatePermissionClaim.FromString(claim.Value);
-                    if (claimValue.EventTemplateId == requirement.EventId)
+                    if (claimValue.EventTemplateId == requirement.EventId.Value)
                     {
                         eventTemplatePermissionsClaim = claimValue;
                         break;

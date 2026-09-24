@@ -20,12 +20,17 @@ namespace Alloy.Api.Services
         public Gauge<int> ActiveEvents;
         public Gauge<int> EndedEvents;
         public Gauge<int> FailedEvents;
+        public Gauge<int> FailedEventsWithResources;
 
         public TelemetryService()
         {
             ActiveEvents = AlloyMeter.CreateGauge<int>("alloy_active_events");
             EndedEvents = AlloyMeter.CreateGauge<int>("alloy_ended_events");
             FailedEvents = AlloyMeter.CreateGauge<int>("alloy_failed_events");
+            // Failed Events that still hold a Caster Workspace, Player View or Steamfitter Scenario
+            // are real orphans in the range. Bootstrap retries them on restart, but anything that
+            // sticks here needs an operator to look at it, so it is worth alerting on.
+            FailedEventsWithResources = AlloyMeter.CreateGauge<int>("alloy_failed_events_with_resources");
         }
 
         public async Task UpdateEventGauges(AlloyContext alloyContext, CancellationToken ct)
@@ -33,9 +38,13 @@ namespace Alloy.Api.Services
             var activeEventCount = await alloyContext.Events.CountAsync(m => m.Status == EventStatus.Active);
             var endedEventCount = await alloyContext.Events.CountAsync(m => m.Status == EventStatus.Ended);
             var failedEventCount = await alloyContext.Events.CountAsync(m => m.Status == EventStatus.Failed);
+            var failedWithResourcesCount = await alloyContext.Events.CountAsync(m =>
+                m.Status == EventStatus.Failed &&
+                (m.WorkspaceId != null || m.ViewId != null || m.ScenarioId != null));
             ActiveEvents.Record(activeEventCount);
             EndedEvents.Record(endedEventCount);
             FailedEvents.Record(failedEventCount);
+            FailedEventsWithResources.Record(failedWithResourcesCount);
         }
 
     }
