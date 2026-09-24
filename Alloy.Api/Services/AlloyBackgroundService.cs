@@ -126,7 +126,7 @@ namespace Alloy.Api.Services
                                     if (eventEntity.Status == EventStatus.Failed)
                                     {
                                         _logger.LogInformation("AlloyBackgroundService is retrying cleanup of failed Event {EventId}, which still holds external resources.", eventEntity.Id);
-                                        // ProcessTheEvent's loop does not run for Failed, so put the
+                                        // ProcessEventAsync's loop does not run for Failed, so put the
                                         // Event back into a state the teardown states can pick up.
                                         eventEntity.Status = EventStatus.Ending;
                                         eventEntity.InternalStatus = InternalEventStatus.EndQueued;
@@ -136,7 +136,7 @@ namespace Alloy.Api.Services
                                     _logger.LogDebug($"AlloyBackgroundService is queueing Event {eventEntity.Id}.");
                                 }
 
-                                // ProcessTheEvent re-reads each Event in its own scope, so the reset
+                                // ProcessEventAsync re-reads each Event in its own scope, so the reset
                                 // above has to be committed before anything is queued.
                                 await alloyContext.SaveChangesAsync();
 
@@ -174,11 +174,10 @@ namespace Alloy.Api.Services
                         _logger.LogDebug("The AlloyBackgroundService is ready to process events.");
                         // _implementatioQueue is a BlockingCollection, so this loop will sleep if nothing is in the queue
                         var eventEntity = _eventQueue.Take(new CancellationToken());
-                        // process the eventEntity on a new thread
+                        // process the eventEntity on a thread pool task (fire-and-forget)
                         try
                         {
-                            var newThread = new Thread(ProcessTheEvent);
-                            newThread.Start(eventEntity);
+                            _ = Task.Run(() => ProcessEventAsync(eventEntity, CancellationToken.None));
                         }
                         catch
                         {
@@ -193,9 +192,6 @@ namespace Alloy.Api.Services
                 }
             });
         }
-
-        private async void ProcessTheEvent(Object eventEntityAsObject) =>
-            await ProcessEventAsync((EventEntity)eventEntityAsObject, CancellationToken.None);
 
         internal async Task ProcessEventAsync(EventEntity eventEntity, CancellationToken ct)
         {
