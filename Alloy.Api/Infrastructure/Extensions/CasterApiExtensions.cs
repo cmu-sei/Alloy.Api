@@ -32,8 +32,10 @@ namespace Alloy.Api.Infrastructure.Extensions
         /// </summary>
         public static string GetWorkspaceName(string userName, Guid userId)
         {
-            // use lower case, replace spaces with underscores and remove every other character Caster does not allow
-            var name = Regex.Replace((userName ?? string.Empty).ToLower().Replace(" ", "_"), "[^a-z0-9_.-]", "", RegexOptions.None);
+            // use lower case, replace spaces with underscores and remove every other character Caster does not allow.
+            // ToLowerInvariant, not ToLower: ToLower is culture-sensitive, and on a Turkish-locale host "I" lowercases
+            // to the dotless "ı" (U+0131), which is not in [a-z0-9_.-] and would be stripped rather than kept.
+            var name = Regex.Replace((userName ?? string.Empty).ToLowerInvariant().Replace(" ", "_"), "[^a-z0-9_.-]", "", RegexOptions.None);
 
             // "-" and the user id use 37 of the 90 characters
             if (name.Length > 53)
@@ -103,7 +105,11 @@ namespace Alloy.Api.Infrastructure.Extensions
 
                 foreach (var team in teams)
                 {
-                    var cleanTeamName = Regex.Replace(team.Name.ToLower().Replace(" ", "_"), "[@&'(\\s)<>#]", "", RegexOptions.None);
+                    // ToLowerInvariant for the same reason as GetWorkspaceName: ToLower is culture-sensitive, so on a
+                    // Turkish-locale host "I" lowercases to the dotless "ı" (U+0131) and the variable name changes.
+                    // The character set is deliberately left as-is - these names become tfvars identifiers that
+                    // templates declare by name, so widening or narrowing the filter would stop matching them.
+                    var cleanTeamName = Regex.Replace(team.Name.ToLowerInvariant().Replace(" ", "_"), "[@&'(\\s)<>#]", "", RegexOptions.None);
                     varsFileContent += $"{cleanTeamName} = \"{team.Id}\"\r\n";
                 }
 
