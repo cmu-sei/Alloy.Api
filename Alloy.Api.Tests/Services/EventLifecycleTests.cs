@@ -122,9 +122,11 @@ public class EventLifecycleTests(DatabaseFixture fixture) : DatabaseTestBase(fix
 
     /// <summary>A recovery scan picks up pending end requests, but never revives a failure or a completed event.</summary>
     [Theory]
+    [InlineData(EventStatus.Creating, true)]
+    [InlineData(EventStatus.Planning, true)]
+    [InlineData(EventStatus.Applying, true)]
     [InlineData(EventStatus.Active, true)]
     [InlineData(EventStatus.Paused, true)]
-    [InlineData(EventStatus.Planning, true)]
     [InlineData(EventStatus.Ending, true)]
     [InlineData(EventStatus.Failed, false)]
     [InlineData(EventStatus.Ended, false)]

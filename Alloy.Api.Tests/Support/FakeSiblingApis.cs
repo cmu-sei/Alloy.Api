@@ -38,8 +38,16 @@ public sealed class FakeSiblingApis : HttpMessageHandler, IHttpClientFactory
 
     private readonly ConcurrentQueue<string> _requests = new();
 
+    private readonly ConcurrentQueue<string> _urls = new();
+
     /// <summary>Every request to a sibling API, as <c>"{METHOD} {path}"</c>, in order. Identity is not listed.</summary>
     public IReadOnlyList<string> Requests => [.. _requests];
+
+    /// <summary>
+    /// The same requests with the sibling they went to, as <c>"{METHOD} https://{host}{path}"</c> (no query),
+    /// in order, for a test that asserts which API was asked.
+    /// </summary>
+    public IReadOnlyList<string> Urls => [.. _urls];
 
     /// <summary>
     /// The script. By default every request fails the test that made it, so a test lists only the calls it
@@ -88,6 +96,7 @@ public sealed class FakeSiblingApis : HttpMessageHandler, IHttpClientFactory
         }
 
         _requests.Enqueue($"{request.Method} {uri.AbsolutePath}");
+        _urls.Enqueue($"{request.Method} {uri.GetLeftPart(UriPartial.Path)}");
 
         return Handle(request);
     }

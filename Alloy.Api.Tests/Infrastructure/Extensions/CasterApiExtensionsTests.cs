@@ -49,14 +49,16 @@ public class CasterApiExtensionsTests
         var entity = new EventEntity { RunId = run.Id };
         var client = Client(caster);
         var first = await CasterApiExtensions.WaitForRunToBeAppliedAsync(entity, client, 0, 1, isDestroy, NullLogger.Instance, Ct);
+        var runIdAfterFirst = entity.RunId;
 
         var second = await CasterApiExtensions.WaitForRunToBeAppliedAsync(entity, client, 0, 1, isDestroy, NullLogger.Instance, Ct);
 
         Assert.True(first.IsTransient);
+        Assert.Equal(run.Id, runIdAfterFirst);
         Assert.Equal((terminal == RunStatus.Applied, terminal == RunStatus.Failed), (second.IsSuccess, second.IsPermanent));
         Assert.Equal(2, saves);
         Assert.Equal(run.Id, entity.RunId);
-        Assert.All(caster.Requests, x => Assert.Contains($"/runs/{run.Id}", x));
+        Assert.All(caster.Requests, x => Assert.Matches($"^(GET /api/runs/{run.Id}|POST /api/runs/{run.Id}/actions/save-state)$", x));
     }
 
     /// <summary>A graceful cancel is acknowledged before the run stops; settling waits for a terminal status.</summary>
@@ -83,13 +85,15 @@ public class CasterApiExtensionsTests
             return FakeSiblingApis.Json(new[] { run });
         };
 
+        var entity = new EventEntity { WorkspaceId = Guid.NewGuid() };
+
         var result = await CasterApiExtensions.SettleLaunchRunsAsync(
-            new EventEntity { WorkspaceId = Guid.NewGuid() }, Client(caster), 0,
-            DateTime.UtcNow.AddSeconds(5), NullLogger.Instance, Ct);
+            entity, Client(caster), 0, DateTime.UtcNow.AddSeconds(5), NullLogger.Instance, Ct);
 
         Assert.True(result.IsSuccess);
         Assert.Contains("\"force\":false", cancelBody.ToLowerInvariant());
         Assert.Single(caster.Requests, x => x.EndsWith("/actions/cancel", StringComparison.Ordinal));
+        Assert.All(caster.Requests, x => Assert.Matches($"^(GET /api/workspaces/{entity.WorkspaceId}/runs|POST /api/runs/{run.Id}/actions/cancel)$", x));
         Assert.True(reads >= 3);
         Assert.Null(result.Value);
     }
@@ -111,13 +115,15 @@ public class CasterApiExtensionsTests
             return Task.FromResult(FakeSiblingApis.Json(new[] { run }));
         };
 
+        var entity = new EventEntity { WorkspaceId = Guid.NewGuid(), RunId = null };
+
         var result = await CasterApiExtensions.SettleLaunchRunsAsync(
-            new EventEntity { WorkspaceId = Guid.NewGuid(), RunId = null }, Client(caster), 0,
-            DateTime.UtcNow.AddSeconds(5), NullLogger.Instance, Ct);
+            entity, Client(caster), 0, DateTime.UtcNow.AddSeconds(5), NullLogger.Instance, Ct);
 
         Assert.True(result.IsSuccess);
         Assert.Contains(caster.Requests, x => x.EndsWith("/actions/reject", StringComparison.Ordinal));
         Assert.DoesNotContain(caster.Requests, x => x.Contains("cancel", StringComparison.Ordinal));
+        Assert.All(caster.Requests, x => Assert.Matches($"^(GET /api/workspaces/{entity.WorkspaceId}/runs|POST /api/runs/{run.Id}/actions/reject)$", x));
     }
 
     [Theory]

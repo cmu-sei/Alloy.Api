@@ -48,8 +48,8 @@ public class EventTemplateViewValidationTests(DatabaseFixture fixture, AlloyAppF
     }
 
     /// <summary>
-    /// Nothing is arranged on Player, and an unarranged view fails closed, so the create succeeding shows
-    /// no view was asked for.
+    /// Player is not asked at all: the run-wide handler records no request carrying this test's caller
+    /// token, which the Player client forwards on every view read.
     /// </summary>
     [Fact]
     public async Task Create_accepts_a_template_with_no_view()
@@ -57,6 +57,7 @@ public class EventTemplateViewValidationTests(DatabaseFixture fixture, AlloyAppF
         var created = await ReadAsync<EventTemplate>(await RootClient.PostAsJsonAsync("api/eventTemplates", Template(viewId: null), AlloyJson, Ct));
 
         Assert.Null(created.ViewId);
+        Assert.DoesNotContain(Factory.OutboundHttp.Sent, x => x.Authorization == $"Bearer {BearerToken(Root)}");
     }
 
     /// <summary>The view is asked for with the caller's own token, so a view the caller cannot see fails too.</summary>

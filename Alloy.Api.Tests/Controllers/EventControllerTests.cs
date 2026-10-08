@@ -212,15 +212,15 @@ public class EventControllerTests(DatabaseFixture fixture, AlloyAppFactory facto
             LastEndStatus = EventStatus.Failed, LastEndInternalStatus = InternalEventStatus.FailedDestroy,
             WorkspaceId = Guid.NewGuid(), RunId = Guid.NewGuid(), ScenarioId = Guid.NewGuid()
         };
+        var setup = new { payload.Id, payload.UserId, payload.Username, payload.EventTemplateId, payload.ViewId, payload.Name,
+            payload.Description, payload.ShareCode, payload.Status, payload.InternalStatus, payload.StatusDate,
+            payload.LaunchDate, payload.EndDate, payload.ExpirationDate };
 
         var created = await ReadAsync<Event>(await RootClient.PostAsJsonAsync("api/events", payload, AlloyJson, Ct));
 
         var saved = await Stored(created.Id);
-        Assert.Equivalent(
-            new { payload.Id, payload.UserId, payload.Username, payload.EventTemplateId, payload.ViewId, payload.Name,
-                payload.Description, payload.ShareCode, payload.Status, payload.InternalStatus, payload.StatusDate,
-                payload.LaunchDate, payload.EndDate, payload.ExpirationDate },
-            saved);
+        Assert.Equivalent(setup, created);
+        Assert.Equivalent(setup, saved);
         Assert.Equal(Root.Id, saved.CreatedBy);
         Assert.True(saved.DateCreated > date);
         Assert.Equal((null, null, null, null), (saved.ModifiedBy, saved.DateModified, saved.EndRequestedAt, saved.ErrorMessage));

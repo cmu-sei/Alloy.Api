@@ -2,6 +2,7 @@
 // Released under a MIT (SEI)-style license. See LICENSE.md in the project root for license information.
 
 using System;
+using System.Collections.Generic;
 using System.Net;
 using System.Net.Http;
 using System.Text.Json;
@@ -61,8 +62,9 @@ public class AlloyBackgroundServiceTests(DatabaseFixture fixture) : ServiceTestB
         Assert.Null(saved.ErrorMessage);
         Assert.Equal(0, saved.FailureCount);
         Assert.Equal(1, saves);
-        Assert.All(worker.SiblingApis.Requests, x => Assert.Contains($"/runs/{run.Id}", x));
-        Assert.DoesNotContain(worker.SiblingApis.Requests, x => x.Contains("/cancel", StringComparison.Ordinal) || x.StartsWith("DELETE ", StringComparison.Ordinal));
+        Assert.Equal(
+            [Caster("GET", $"runs/{run.Id}"), Caster("POST", $"runs/{run.Id}/actions/save-state"), Caster("GET", $"runs/{run.Id}")],
+            worker.SiblingApis.Urls);
     }
 
     /// <summary>The first read of the view fails transiently; the worker reads it again and writes it into the variables.</summary>
@@ -77,6 +79,14 @@ public class AlloyBackgroundServiceTests(DatabaseFixture fixture) : ServiceTestB
 
         var saved = await Stored(entity.Id);
         Assert.Equal((2, 1, true, true), (script.ViewReads, script.WorkspaceCreates, script.WorkspaceDeleted, script.ViewDeleted));
+        Assert.Equal(
+            [
+                Player("GET", $"views/{viewId}"), Player("GET", $"views/{viewId}"), Player("GET", $"views/{viewId}/teams"),
+                Caster("POST", "workspaces"), Caster("POST", "files"),
+                Caster("GET", $"workspaces/{script.WorkspaceId}/runs"), Caster("GET", $"workspaces/{script.WorkspaceId}/resources"),
+                Caster("DELETE", $"workspaces/{script.WorkspaceId}"), Player("DELETE", $"views/{viewId}")
+            ],
+            worker.SiblingApis.Urls);
         Assert.Contains($"view_id = \"{viewId}\"", script.Variables);
         Assert.Equal(EventStatus.Ended, saved.Status);
         Assert.Equal((null, null), (saved.ViewId, saved.WorkspaceId));
@@ -96,6 +106,13 @@ public class AlloyBackgroundServiceTests(DatabaseFixture fixture) : ServiceTestB
 
         var saved = await Stored(entity.Id);
         Assert.Equal((0, 1, true, false), (script.ViewReads, script.WorkspaceCreates, script.WorkspaceDeleted, script.ViewDeleted));
+        Assert.Equal(
+            [
+                Caster("POST", "workspaces"), Caster("POST", "files"),
+                Caster("GET", $"workspaces/{script.WorkspaceId}/runs"), Caster("GET", $"workspaces/{script.WorkspaceId}/resources"),
+                Caster("DELETE", $"workspaces/{script.WorkspaceId}")
+            ],
+            worker.SiblingApis.Urls);
         Assert.Equal(string.Empty, script.Variables);
         Assert.Equal(EventStatus.Ended, saved.Status);
         Assert.Equal((null, null), (saved.ViewId, saved.WorkspaceId));
@@ -116,11 +133,12 @@ public class AlloyBackgroundServiceTests(DatabaseFixture fixture) : ServiceTestB
 
         var saved = await Stored(entity.Id);
         Assert.Equal((1, 0, false, true), (script.ViewReads, script.WorkspaceCreates, script.WorkspaceDeleted, script.ViewDeleted));
+        Assert.Equal([Player("GET", $"views/{viewId}"), Player("DELETE", $"views/{viewId}")], worker.SiblingApis.Urls);
         Assert.Null(script.Variables);
         Assert.Equal((EventStatus.Failed, InternalEventStatus.FailedLaunch), (saved.Status, saved.InternalStatus));
         Assert.Equal(InternalEventStatus.CreatingWorkspace, saved.LastLaunchInternalStatus);
         Assert.Contains("read the virtual environment configuration", saved.ErrorMessage);
-        Assert.Null(saved.ViewId);
+        Assert.Equal((null, null), (saved.ViewId, saved.WorkspaceId));
         Assert.NotNull(saved.EndDate);
     }
 
@@ -166,7 +184,9 @@ public class AlloyBackgroundServiceTests(DatabaseFixture fixture) : ServiceTestB
                 x.WorkspaceId = Guid.NewGuid();
                 x.RunId = run.Id;
             });
-        RunStatus? statusAtDelete = null;
+        var statusesAtDelete = new List<RunStatus?>();
+        var statusesAtResources = new List<RunStatus?>();
+        var polls = new List<string>();
         var endSent = false;
         worker.SiblingApis.Handle = async request =>
         {
@@ -180,12 +200,13 @@ public class AlloyBackgroundServiceTests(DatabaseFixture fixture) : ServiceTestB
 
             if (request.Method == HttpMethod.Delete)
             {
-                statusAtDelete = run.Status;
+                statusesAtDelete.Add(run.Status);
                 return new HttpResponseMessage(HttpStatusCode.NoContent);
             }
 
             if (path.EndsWith("/resources", StringComparison.Ordinal))
             {
+                statusesAtResources.Add(run.Status);
                 return FakeSiblingApis.Json(Array.Empty<object>());
             }
 
@@ -194,6 +215,7 @@ public class AlloyBackgroundServiceTests(DatabaseFixture fixture) : ServiceTestB
                 return FakeSiblingApis.Json(new[] { run });
             }
 
+            polls.Add(path);
             if (!endSent)
             {
                 endSent = true;
@@ -206,7 +228,11 @@ public class AlloyBackgroundServiceTests(DatabaseFixture fixture) : ServiceTestB
         await Process(worker, entity);
 
         var saved = await Stored(entity.Id);
-        Assert.Equal(RunStatus.Rejected, statusAtDelete);
+        Assert.NotEmpty(statusesAtResources);
+        Assert.All(statusesAtResources, x => Assert.Equal(RunStatus.Rejected, x));
+        Assert.NotEmpty(statusesAtDelete);
+        Assert.All(statusesAtDelete, x => Assert.Equal(RunStatus.Rejected, x));
+        Assert.All(polls, x => Assert.Contains($"/runs/{run.Id}", x));
         Assert.Equal(EventStatus.Ended, saved.Status);
         Assert.Equal((null, null), (saved.WorkspaceId, saved.RunId));
         Assert.Null(saved.ErrorMessage);
@@ -230,17 +256,22 @@ public class AlloyBackgroundServiceTests(DatabaseFixture fixture) : ServiceTestB
             starting ? InternalEventStatus.StartingScenario : InternalEventStatus.CreatingScenario);
         entity.ScenarioId = starting ? scenarioId : null;
         await Seed(template, entity);
-        Guid? scenarioIdAtEnd = null;
+        var interruptedCall = starting
+            ? $"PUT https://steamfitter.test/api/scenarios/{scenarioId}/start"
+            : $"POST https://steamfitter.test/api/scenariotemplates/{template.ScenarioTemplateId}/scenarios";
+        var scenarioIdsAtEnd = new List<Guid?>();
+        var interrupted = new List<string>();
         worker.SiblingApis.Handle = async request =>
         {
             var path = request.RequestUri.AbsolutePath.ToLowerInvariant();
 
             if (path.EndsWith("/end", StringComparison.Ordinal))
             {
-                scenarioIdAtEnd = (await Stored(entity.Id)).ScenarioId;
+                scenarioIdsAtEnd.Add((await Stored(entity.Id)).ScenarioId);
                 return FakeSiblingApis.Json(new { id = scenarioId });
             }
 
+            interrupted.Add($"{request.Method} {request.RequestUri.GetLeftPart(UriPartial.Path)}");
             await RequestEnd(worker, entity.Id);
             return FakeSiblingApis.Json(new { id = scenarioId }, starting ? HttpStatusCode.OK : HttpStatusCode.Created);
         };
@@ -248,7 +279,9 @@ public class AlloyBackgroundServiceTests(DatabaseFixture fixture) : ServiceTestB
         await Process(worker, entity);
 
         var saved = await Stored(entity.Id);
-        Assert.Equal(scenarioId, scenarioIdAtEnd);
+        Assert.Equal([interruptedCall], interrupted);
+        Assert.NotEmpty(scenarioIdsAtEnd);
+        Assert.All(scenarioIdsAtEnd, x => Assert.Equal(scenarioId, x));
         Assert.Equal(EventStatus.Ended, saved.Status);
         Assert.Null(saved.ScenarioId);
         Assert.NotNull(saved.EndDate);
@@ -336,7 +369,9 @@ public class AlloyBackgroundServiceTests(DatabaseFixture fixture) : ServiceTestB
             x.WorkspaceId = Guid.NewGuid();
             x.RunId = run.Id;
         });
-        RunStatus? statusAtDelete = null;
+        var statusesAtDelete = new List<RunStatus?>();
+        var statusesAtResources = new List<RunStatus?>();
+        var deletes = new List<string>();
         worker.SiblingApis.Handle = request =>
         {
             var path = request.RequestUri.AbsolutePath;
@@ -354,17 +389,22 @@ public class AlloyBackgroundServiceTests(DatabaseFixture fixture) : ServiceTestB
 
             if (path.EndsWith("/resources", StringComparison.Ordinal))
             {
+                statusesAtResources.Add(run.Status);
                 return Task.FromResult(FakeSiblingApis.Json(Array.Empty<object>()));
             }
 
-            statusAtDelete = run.Status;
+            statusesAtDelete.Add(run.Status);
+            deletes.Add($"{request.Method} {request.RequestUri.GetLeftPart(UriPartial.Path)}");
             return Task.FromResult(new HttpResponseMessage(HttpStatusCode.NoContent));
         };
 
         await Process(worker, entity);
 
         var saved = await Stored(entity.Id);
-        Assert.Equal(RunStatus.Rejected, statusAtDelete);
+        Assert.NotEmpty(statusesAtResources);
+        Assert.All(statusesAtResources, x => Assert.Equal(RunStatus.Rejected, x));
+        Assert.Equal([RunStatus.Rejected], statusesAtDelete);
+        Assert.Equal([Caster("DELETE", $"workspaces/{entity.WorkspaceId}")], deletes);
         Assert.Equal(EventStatus.Ended, saved.Status);
         Assert.Null(saved.WorkspaceId);
     }
@@ -387,7 +427,9 @@ public class AlloyBackgroundServiceTests(DatabaseFixture fixture) : ServiceTestB
                 x.EndRequestedAt = DateTime.UtcNow.AddMinutes(-1);
             });
         var reads = 0;
-        Guid? runIdDuringPoll = null;
+        var runIdsDuringPolls = new List<Guid?>();
+        var polls = new List<string>();
+        var statusesAtResources = new List<RunStatus?>();
         worker.SiblingApis.Handle = async request =>
         {
             var path = request.RequestUri.AbsolutePath;
@@ -399,6 +441,7 @@ public class AlloyBackgroundServiceTests(DatabaseFixture fixture) : ServiceTestB
 
             if (path.EndsWith("/resources", StringComparison.Ordinal))
             {
+                statusesAtResources.Add(run.Status);
                 return FakeSiblingApis.Json(Array.Empty<object>());
             }
 
@@ -414,12 +457,13 @@ public class AlloyBackgroundServiceTests(DatabaseFixture fixture) : ServiceTestB
                 return FakeSiblingApis.Json(new Apply { Id = run.ApplyId.Value });
             }
 
+            polls.Add(path);
             if (++reads == 1)
             {
                 throw new HttpRequestException("poll response lost");
             }
 
-            runIdDuringPoll = (await Stored(entity.Id)).RunId;
+            runIdsDuringPolls.Add((await Stored(entity.Id)).RunId);
             run.Status = run.Status == RunStatus.Planning ? RunStatus.Planned
                 : run.Status == RunStatus.Applying ? RunStatus.Applied : run.Status;
             return FakeSiblingApis.Json(run);
@@ -428,7 +472,10 @@ public class AlloyBackgroundServiceTests(DatabaseFixture fixture) : ServiceTestB
         await Process(worker, entity);
 
         var saved = await Stored(entity.Id);
-        Assert.Equal(run.Id, runIdDuringPoll);
+        Assert.NotEmpty(statusesAtResources);
+        Assert.All(statusesAtResources, x => Assert.Equal(RunStatus.Applied, x));
+        Assert.All(polls, x => Assert.Contains($"/runs/{run.Id}", x));
+        Assert.All(runIdsDuringPolls, x => Assert.Equal(run.Id, x));
         Assert.Equal(EventStatus.Ended, saved.Status);
         Assert.Null(saved.RunId);
         Assert.Null(saved.ErrorMessage);
@@ -523,6 +570,12 @@ public class AlloyBackgroundServiceTests(DatabaseFixture fixture) : ServiceTestB
         return (entity, viewId);
     }
 
+    /// <summary>A request to Player, as <see cref="FakeSiblingApis.Urls"/> lists it, at the url <c>ApiTestHostOptions</c> configures.</summary>
+    private static string Player(string method, string route) => $"{method} https://player.test/api/{route}";
+
+    /// <summary>A request to Caster, as <see cref="FakeSiblingApis.Urls"/> lists it, at the url <c>ApiTestHostOptions</c> configures.</summary>
+    private static string Caster(string method, string route) => $"{method} https://caster.test/api/{route}";
+
     private async Task<EventEntity> Stored(Guid id)
     {
         await using var context = NewContext();
@@ -539,28 +592,36 @@ public class AlloyBackgroundServiceTests(DatabaseFixture fixture) : ServiceTestB
     {
         public PreparationScript(AlloyBackgroundServiceTests test, ApiTestHost worker, Guid eventId, Guid viewId, HttpStatusCode firstViewRead)
         {
-            var workspaceId = Guid.NewGuid();
+            var workspaceId = WorkspaceId;
 
             worker.SiblingApis.Handle = async request =>
             {
                 var path = request.RequestUri.AbsolutePath.ToLowerInvariant();
 
+                var view = $"/api/views/{viewId}";
+                var workspace = $"/api/workspaces/{workspaceId}";
+
                 if (request.RequestUri.Host == "player.test")
                 {
-                    if (request.Method == HttpMethod.Delete)
+                    if (request.Method == HttpMethod.Delete && path == view)
                     {
                         ViewDeleted = true;
                         return new HttpResponseMessage(HttpStatusCode.NoContent);
                     }
 
-                    if (path.EndsWith("/teams", StringComparison.Ordinal))
+                    if (request.Method == HttpMethod.Get && path.EndsWith("/teams", StringComparison.Ordinal))
                     {
                         return FakeSiblingApis.Json(Array.Empty<object>());
                     }
 
-                    return ++ViewReads == 1
-                        ? FakeSiblingApis.Json(new { message = "Configuration unavailable" }, firstViewRead)
-                        : FakeSiblingApis.Json(new { id = viewId });
+                    if (request.Method == HttpMethod.Get && path == view)
+                    {
+                        return ++ViewReads == 1
+                            ? FakeSiblingApis.Json(new { message = "Configuration unavailable" }, firstViewRead)
+                            : FakeSiblingApis.Json(new { id = viewId });
+                    }
+
+                    throw new InvalidOperationException($"Unexpected Player request: {request.Method} {path}");
                 }
 
                 if (request.Method == HttpMethod.Post && path.EndsWith("/workspaces", StringComparison.Ordinal))
@@ -577,15 +638,23 @@ public class AlloyBackgroundServiceTests(DatabaseFixture fixture) : ServiceTestB
                     return FakeSiblingApis.Json(new { id = Guid.NewGuid() }, HttpStatusCode.Created);
                 }
 
-                if (request.Method == HttpMethod.Get)
+                if (request.Method == HttpMethod.Get && (path.EndsWith("/runs", StringComparison.Ordinal) || path.EndsWith("/resources", StringComparison.Ordinal)))
                 {
                     return FakeSiblingApis.Json(Array.Empty<object>());
                 }
 
-                WorkspaceDeleted = true;
-                return new HttpResponseMessage(HttpStatusCode.NoContent);
+                if (request.Method == HttpMethod.Delete && path == workspace)
+                {
+                    WorkspaceDeleted = true;
+                    return new HttpResponseMessage(HttpStatusCode.NoContent);
+                }
+
+                throw new InvalidOperationException($"Unexpected Caster request: {request.Method} {path}");
             };
         }
+
+        /// <summary>The id Caster answers the workspace create with.</summary>
+        public Guid WorkspaceId { get; } = Guid.NewGuid();
 
         public int ViewReads { get; private set; }
 
