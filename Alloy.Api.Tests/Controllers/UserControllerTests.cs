@@ -106,6 +106,21 @@ public class UserControllerTests(DatabaseFixture fixture, AlloyAppFactory factor
         Assert.Equal(("Created", TestData.Roles.Observer, actor.Id), (saved.Name, saved.RoleId, saved.CreatedBy));
     }
 
+    /// <summary>A caller holding only ManageUsers creates an account holding the seeded Administrator role.</summary>
+    // Same case as Update_lets_a_caller_holding_only_ManageUsers_give_itself_the_administrator_role.
+    [Fact]
+    public async Task Create_lets_a_caller_holding_only_ManageUsers_create_an_administrator()
+    {
+        var actor = await Actor().WithSystemPermissions(SystemPermission.ManageUsers).SeedAsync();
+        var id = Guid.NewGuid();
+
+        var response = await Client(actor).PostAsJsonAsync("api/users",
+            new User { Id = id, Name = "Created", RoleId = TestData.Roles.Administrator.ToString() }, AlloyJson, Ct);
+
+        await AssertStatus(HttpStatusCode.Created, response);
+        Assert.Equal(TestData.Roles.Administrator, (await StoredUser(id)).RoleId);
+    }
+
     /// <summary>A user id that already exists is refused by the primary key, answered with a 500.</summary>
     [Fact]
     public async Task Create_answers_an_existing_user_id_with_a_server_error()
@@ -145,6 +160,19 @@ public class UserControllerTests(DatabaseFixture fixture, AlloyAppFactory factor
         await AssertStatus(HttpStatusCode.OK, response);
         var saved = await StoredUser(user.Id);
         Assert.Equal(("Renamed", TestData.Roles.ContentDeveloper), (saved.Name, saved.RoleId));
+    }
+
+    /// <summary>A caller holding only ManageUsers sets its own role to the seeded Administrator role.</summary>
+    [Fact]
+    public async Task Update_lets_a_caller_holding_only_ManageUsers_give_itself_the_administrator_role()
+    {
+        var actor = await Actor().WithSystemPermissions(SystemPermission.ManageUsers).SeedAsync();
+
+        var response = await Client(actor).PutAsJsonAsync($"api/Users/{actor.Id}",
+            new User { Id = actor.Id, Name = actor.Name, RoleId = TestData.Roles.Administrator.ToString() }, AlloyJson, Ct);
+
+        await AssertStatus(HttpStatusCode.OK, response);
+        Assert.Equal(TestData.Roles.Administrator, (await StoredUser(actor.Id)).RoleId);
     }
 
     [Fact]

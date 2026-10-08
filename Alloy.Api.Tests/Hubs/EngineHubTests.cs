@@ -70,19 +70,103 @@ public class EngineHubTests(DatabaseFixture fixture) : DatabaseTestBase(fixture)
     }
 
     [Fact]
-    public async Task JoinAdmin_adds_a_caller_holding_every_view_permission_to_each_admin_group()
+    public async Task JoinAdmin_adds_a_caller_holding_ViewEvents_to_the_admin_event_group()
     {
-        var harness = Harness(b => b.WithSystemPermissions(
-            SystemPermission.ViewEvents, SystemPermission.ViewEventTemplates, SystemPermission.ViewGroups,
-            SystemPermission.ViewRoles, SystemPermission.ViewUsers));
+        var harness = Harness(b => b.WithSystemPermissions(SystemPermission.ViewEvents));
 
         await Hub(harness).JoinAdmin();
 
-        await Joined(harness, EngineHub.ADMIN_EVENT_GROUP);
-        await Joined(harness, EngineHub.ADMIN_EVENT_TEMPLATE_GROUP);
-        await Joined(harness, EngineHub.ADMIN_GROUP_GROUP);
-        await Joined(harness, EngineHub.ADMIN_ROLE_GROUP);
-        await Joined(harness, EngineHub.ADMIN_USER_GROUP);
+        Assert.Contains(EngineHub.ADMIN_EVENT_GROUP, harness.JoinedGroups);
+    }
+
+    [Fact]
+    public async Task JoinAdmin_leaves_out_of_the_admin_event_group_a_caller_holding_only_ViewEventTemplates()
+    {
+        var harness = Harness(b => b.WithSystemPermissions(SystemPermission.ViewEventTemplates));
+
+        await Hub(harness).JoinAdmin();
+
+        Assert.DoesNotContain(EngineHub.ADMIN_EVENT_GROUP, harness.JoinedGroups);
+    }
+
+    [Fact]
+    public async Task JoinAdmin_adds_a_caller_holding_ViewEventTemplates_to_the_admin_event_template_group()
+    {
+        var harness = Harness(b => b.WithSystemPermissions(SystemPermission.ViewEventTemplates));
+
+        await Hub(harness).JoinAdmin();
+
+        Assert.Contains(EngineHub.ADMIN_EVENT_TEMPLATE_GROUP, harness.JoinedGroups);
+    }
+
+    [Fact]
+    public async Task JoinAdmin_leaves_out_of_the_admin_event_template_group_a_caller_holding_only_ViewEvents()
+    {
+        var harness = Harness(b => b.WithSystemPermissions(SystemPermission.ViewEvents));
+
+        await Hub(harness).JoinAdmin();
+
+        Assert.DoesNotContain(EngineHub.ADMIN_EVENT_TEMPLATE_GROUP, harness.JoinedGroups);
+    }
+
+    [Fact]
+    public async Task JoinAdmin_adds_a_caller_holding_ViewGroups_to_the_admin_group_group()
+    {
+        var harness = Harness(b => b.WithSystemPermissions(SystemPermission.ViewGroups));
+
+        await Hub(harness).JoinAdmin();
+
+        Assert.Contains(EngineHub.ADMIN_GROUP_GROUP, harness.JoinedGroups);
+    }
+
+    [Fact]
+    public async Task JoinAdmin_leaves_out_of_the_admin_group_group_a_caller_holding_only_ViewRoles()
+    {
+        var harness = Harness(b => b.WithSystemPermissions(SystemPermission.ViewRoles));
+
+        await Hub(harness).JoinAdmin();
+
+        Assert.DoesNotContain(EngineHub.ADMIN_GROUP_GROUP, harness.JoinedGroups);
+    }
+
+    [Fact]
+    public async Task JoinAdmin_adds_a_caller_holding_ViewRoles_to_the_admin_role_group()
+    {
+        var harness = Harness(b => b.WithSystemPermissions(SystemPermission.ViewRoles));
+
+        await Hub(harness).JoinAdmin();
+
+        Assert.Contains(EngineHub.ADMIN_ROLE_GROUP, harness.JoinedGroups);
+    }
+
+    [Fact]
+    public async Task JoinAdmin_leaves_out_of_the_admin_role_group_a_caller_holding_only_ViewGroups()
+    {
+        var harness = Harness(b => b.WithSystemPermissions(SystemPermission.ViewGroups));
+
+        await Hub(harness).JoinAdmin();
+
+        Assert.DoesNotContain(EngineHub.ADMIN_ROLE_GROUP, harness.JoinedGroups);
+    }
+
+    [Fact]
+    public async Task JoinAdmin_adds_a_caller_holding_ViewUsers_to_the_admin_user_group()
+    {
+        var harness = Harness(b => b.WithSystemPermissions(SystemPermission.ViewUsers));
+
+        await Hub(harness).JoinAdmin();
+
+        Assert.Contains(EngineHub.ADMIN_USER_GROUP, harness.JoinedGroups);
+    }
+
+    [Fact]
+    public async Task JoinAdmin_leaves_out_of_the_admin_user_group_a_caller_holding_only_ViewRoles()
+    {
+        var harness = Harness(b => b.WithSystemPermissions(SystemPermission.ViewRoles));
+
+        await Hub(harness).JoinAdmin();
+
+        Assert.DoesNotContain(EngineHub.ADMIN_USER_GROUP, harness.JoinedGroups);
     }
 
     [Fact]
@@ -107,6 +191,80 @@ public class EngineHubTests(DatabaseFixture fixture) : DatabaseTestBase(fixture)
     }
 
     [Fact]
+    public async Task LeaveAdmin_removes_a_caller_holding_ViewEvents_from_the_admin_event_group()
+    {
+        var harness = Harness(b => b.WithSystemPermissions(SystemPermission.ViewEvents));
+
+        await Hub(harness).LeaveAdmin();
+
+        Assert.Contains(EngineHub.ADMIN_EVENT_GROUP, harness.LeftGroups);
+    }
+
+    [Fact]
+    public async Task LeaveAdmin_leaves_out_the_admin_event_group_and_removes_the_events_for_a_member_holding_only_ViewEventTemplates()
+    {
+        var user = TestData.User();
+        var evt = TestData.Event(null);
+        await Seed(user, evt, TestData.EventMembership(evt.Id, TestData.EventRoles.Observer, user.Id));
+        var harness = new HubHarness(user.Id, new ClaimsPrincipalBuilder().WithUserId(user.Id)
+            .WithSystemPermissions(SystemPermission.ViewEventTemplates).Build());
+
+        await Hub(harness).LeaveAdmin();
+
+        Assert.DoesNotContain(EngineHub.ADMIN_EVENT_GROUP, harness.LeftGroups);
+        Assert.Contains(evt.Id.ToString(), harness.LeftGroups);
+    }
+
+    [Fact]
+    public async Task LeaveAdmin_removes_a_caller_holding_ViewEventTemplates_from_the_admin_event_template_group()
+    {
+        var harness = Harness(b => b.WithSystemPermissions(SystemPermission.ViewEventTemplates));
+
+        await Hub(harness).LeaveAdmin();
+
+        Assert.Contains(EngineHub.ADMIN_EVENT_TEMPLATE_GROUP, harness.LeftGroups);
+    }
+
+    [Fact]
+    public async Task LeaveAdmin_leaves_out_the_admin_event_template_group_and_removes_the_templates_for_a_member_holding_only_ViewEvents()
+    {
+        var user = TestData.User();
+        var template = TestData.EventTemplate();
+        await Seed(user, template, TestData.EventTemplateMembership(template.Id, TestData.EventTemplateRoles.Observer, user.Id));
+        var harness = new HubHarness(user.Id, new ClaimsPrincipalBuilder().WithUserId(user.Id)
+            .WithSystemPermissions(SystemPermission.ViewEvents).Build());
+
+        await Hub(harness).LeaveAdmin();
+
+        Assert.DoesNotContain(EngineHub.ADMIN_EVENT_TEMPLATE_GROUP, harness.LeftGroups);
+        Assert.Contains(template.Id.ToString(), harness.LeftGroups);
+    }
+
+    [Fact]
+    public async Task LeaveAdmin_keeps_a_caller_holding_ViewGroups_in_the_groups_it_manages()
+    {
+        var group = TestData.Group();
+        await Seed(group);
+        var harness = Harness(b => b.WithSystemPermissions(SystemPermission.ViewGroups).WithGroup(group.Id, GroupPermission.ManageMembership));
+
+        await Hub(harness).LeaveAdmin();
+
+        Assert.DoesNotContain(group.Id.ToString(), harness.LeftGroups);
+    }
+
+    [Fact]
+    public async Task LeaveAdmin_does_not_let_a_caller_holding_only_ViewRoles_stay_in_the_groups_it_manages()
+    {
+        var group = TestData.Group();
+        await Seed(group);
+        var harness = Harness(b => b.WithSystemPermissions(SystemPermission.ViewRoles).WithGroup(group.Id, GroupPermission.ManageMembership));
+
+        await Hub(harness).LeaveAdmin();
+
+        Assert.Contains(group.Id.ToString(), harness.LeftGroups);
+    }
+
+    [Fact]
     public async Task LeaveAdmin_removes_the_connection_from_the_role_and_user_groups_whatever_it_holds()
     {
         var harness = Harness(_ => { });
@@ -127,9 +285,6 @@ public class EngineHubTests(DatabaseFixture fixture) : DatabaseTestBase(fixture)
 
         await harness.Groups.Received(1).RemoveFromGroupAsync(HubHarness.ConnectionId, eventId.ToString(), Arg.Any<CancellationToken>());
     }
-
-    private static Task Joined(HubHarness harness, string group) =>
-        harness.Groups.Received(1).AddToGroupAsync(HubHarness.ConnectionId, group, Arg.Any<CancellationToken>());
 
     private static HubHarness Harness(Action<ClaimsPrincipalBuilder> configure)
     {

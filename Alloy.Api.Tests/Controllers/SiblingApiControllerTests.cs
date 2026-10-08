@@ -15,16 +15,21 @@ namespace Alloy.Api.Tests.Controllers;
 /// <c>PlayerController</c>, <c>CasterController</c> and <c>SteamfitterController</c> relay a list from a
 /// sibling API with the caller's own token, so the sibling's permissions decide what comes back; Alloy
 /// itself only asks that the caller be signed in. Player answers per user, so its url is one the test owns;
-/// Caster's and Steamfitter's lists are not keyed on anything a test mints, so they are read by the token
-/// each actor sends.
+/// Caster's and Steamfitter's urls are fixed and arranged by one test each, whose answer carries an id it
+/// minted and whose request is told apart by the token its actor sends.
 /// </summary>
 public class SiblingApiControllerTests(DatabaseFixture fixture, AlloyAppFactory factory) : ApiTestBase(fixture, factory)
 {
     private const string PlayerApi = "http://localhost:4300/";
 
-    private const string CasterApi = "http://localhost:4309/";
+    /// <summary>
+    /// The url <c>CasterService.GetDirectoriesAsync</c> asks; fixed, so it is arranged only here, and the
+    /// answer carries an id the test minted.
+    /// </summary>
+    private const string CasterDirectories = "http://localhost:4309/api/directories?IncludeRelated=false&IncludeFileContent=false";
 
-    private const string SteamfitterApi = "http://localhost:4400/";
+    /// <summary>The url <c>SteamfitterService.GetScenarioTemplatesAsync</c> asks; fixed, so it is arranged only here.</summary>
+    private const string SteamfitterScenarioTemplates = "http://localhost:4400/api/scenariotemplates";
 
     [Fact]
     public async Task GetViews_relays_the_callers_views_from_Player_with_the_callers_token()
@@ -45,33 +50,30 @@ public class SiblingApiControllerTests(DatabaseFixture fixture, AlloyAppFactory 
         await AssertStatus(HttpStatusCode.Unauthorized, await Client().GetAsync("api/views", Ct));
     }
 
-    /// <summary>Caster's unarranged 404 is relayed as a 500 (the client fails to read its body); the request carried the caller's token.</summary>
     [Fact]
-    public async Task GetDirectories_asks_Caster_with_the_callers_token()
+    public async Task GetDirectories_relays_the_directories_from_Caster_with_the_callers_token()
     {
         var actor = await Actor().SeedAsync();
+        var directoryId = Guid.NewGuid();
+        Factory.OutboundHttp.RespondJson(CasterDirectories, new[] { new { id = directoryId, name = "Directory" } });
 
-        using var response = await Client(actor).GetAsync("api/directories", Ct);
+        var directories = await ReadAsync<List<IdOnly>>(await Client(actor).GetAsync("api/directories", Ct));
 
-        var problem = await AssertJsonError(HttpStatusCode.InternalServerError, response);
-        Assert.StartsWith("Could not deserialize the response body stream as", problem.Detail);
-        var request = Assert.Single(Factory.OutboundHttp.Sent, x => x.Uri.StartsWith($"{CasterApi}api/directories", StringComparison.Ordinal)
-            && x.Headers["Authorization"] == $"Bearer {BearerToken(actor)}");
-        Assert.Equal("GET", request.Method.Method);
+        Assert.Equal([directoryId], directories.Select(x => x.Id));
+        Assert.Equal($"Bearer {BearerToken(actor)}", Assert.Single(Factory.OutboundHttp.Sent, x => x.Uri == CasterDirectories && x.Headers["Authorization"] == $"Bearer {BearerToken(actor)}").Headers["Authorization"]);
     }
 
-    /// <summary>Steamfitter's unarranged 404 is relayed as a 500 (the client fails to read its body); the request carried the caller's token.</summary>
     [Fact]
-    public async Task GetScenarioTemplates_asks_Steamfitter_with_the_callers_token()
+    public async Task GetScenarioTemplates_relays_the_templates_from_Steamfitter_with_the_callers_token()
     {
         var actor = await Actor().SeedAsync();
+        var templateId = Guid.NewGuid();
+        Factory.OutboundHttp.RespondJson(SteamfitterScenarioTemplates, new[] { new { id = templateId, name = "Scenario Template" } });
 
-        using var response = await Client(actor).GetAsync("api/scenarioTemplates", Ct);
+        var templates = await ReadAsync<List<IdOnly>>(await Client(actor).GetAsync("api/scenarioTemplates", Ct));
 
-        var problem = await AssertJsonError(HttpStatusCode.InternalServerError, response);
-        Assert.StartsWith("Could not deserialize the response body stream as", problem.Detail);
-        Assert.Single(Factory.OutboundHttp.Sent, x => x.Uri.StartsWith($"{SteamfitterApi}api/scenariotemplates", StringComparison.OrdinalIgnoreCase)
-            && x.Headers["Authorization"] == $"Bearer {BearerToken(actor)}");
+        Assert.Equal([templateId], templates.Select(x => x.Id));
+        Assert.Single(Factory.OutboundHttp.Sent, x => x.Uri == SteamfitterScenarioTemplates && x.Headers["Authorization"] == $"Bearer {BearerToken(actor)}");
     }
 
     /// <summary>The health routes are anonymous.</summary>

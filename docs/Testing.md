@@ -26,7 +26,7 @@ dotnet test Alloy.Api.Tests --collect:"XPlat Code Coverage"
 
 - `Alloy.Api.Tests/Directory.Build.props` (the standard's) turns on `TreatWarningsAsErrors` for the test project only, so the xUnit analyzers fail the build (xUnit1051 makes every awaited call take `Ct`), and keeps the NuGet audit codes as warnings. The repository has no root `Directory.Build.props`, so the application projects keep their own settings.
 - The root `.editorconfig` raises xUnit1004, so `[Fact(Skip = ...)]` fails the build.
-- There is no central package management in this repository, so the test packages carry the standard's pinned versions (`agent-docs/api-testing/test-packages.props`) as `Version=` attributes in `Alloy.Api.Tests.csproj`; `sync.sh` checks them there.
+- There is no central package management in this repository, so the test packages carry the standard's pinned versions (`agent-docs/api-testing/test-packages.props`) as `Version=` attributes in `Alloy.Api.Tests.csproj`; `sync.sh` checks them there. The optional `Microsoft.AspNetCore.SignalR.Client` (10.0.1, the standard's pin) is referenced for `EngineHub`'s real-connection test.
 - `ImplicitUsings` stays off, as in the API projects; each file names its usings. Nullable is off.
 - A build of the test project rebuilds `Alloy.Api`, which reports CS1573 for documented actions whose `CancellationToken` has no `<param>` tag. The test project's own build is warning-free apart from the NuGet audit.
 - The suites run in VSTest mode, for coverlet; see the standard's README.
@@ -60,6 +60,10 @@ The harness is the standard's, in `Alloy.Api.Tests/Support/`. The shared files a
 
 A denied test names what the caller holds: `Update_is_forbidden_for_a_member_holding_only_ViewEvent`, `Get_is_forbidden_for_a_caller_holding_ViewEvent_only_on_another_event`.
 
+## Scopes, the hub's connection and metrics
+
+`Startup` requires every scope of `Authorization:AuthorizationScope` twice in front of a controller (the MVC-wide `AuthorizeFilter` with `RequireScope`, and the default policy behind `BaseController`'s `[Authorize]`), and the default policy alone behind `EngineHub`'s `[Authorize]` and the Prometheus endpoint (`/metrics`, `RequireAuthorization()`). `Infrastructure/Extensions/DefaultPolicyScopeTests` sends each family a token missing one scope at a time through the shared handler's `X-Test-Scope` opt-in, with a caller holding the route's permission. `Hubs/EngineHubConnectionTests` connects an actor to `/hubs/engine` over WebSockets (`SkipNegotiation`, `Factory.Server.CreateWebSocketClient()` carrying the actor's and the session's headers), so a hub method reads the test's database; a negotiate request without an identity is a 401.
+
 ## Reading responses
 
 - `ReadAsync<T>` in Alloy's `ApiTestBase` hides the shared one: Alloy writes a null `Guid?` as `""` (`JsonNullableGuidConverter`), which the shared `TestJson.Options` cannot read, so it calls the shared `ReadAsync<T>(response, AlloyJson)` (the shared options plus Alloy's converters). Send request bodies with `AlloyJson` too.
@@ -87,8 +91,9 @@ A defect the tests find is characterized by a passing test of the current behavi
 Alloy.Api.Tests/
   Controllers/          every controller over HTTP: gates, persistence, broadcasts
   Services/             the worker, EventService, EventLifecycle, the queue, UserClaimsService
-  Hubs/                 EngineHub through HubHarness, and its [Authorize] over the negotiate request
-  Infrastructure/       authorization handlers, the exception filter, the Caster run helpers, mapping
+  Hubs/                 EngineHub through HubHarness, and its [Authorize] over a real WebSocket connection
+  Infrastructure/       authorization handlers, the scope policy, the exception filter, the Caster run
+                        helpers, mapping
   Data/                 the migrations (EndRequestedAt up and down) and the model snapshot
   Support/              the harness: Alloy's files, the self-tests, the extras (FakeSiblingApis,
                         TestIdentity)

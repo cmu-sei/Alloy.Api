@@ -50,6 +50,23 @@ public class EventTemplateControllerTests(DatabaseFixture fixture, AlloyAppFacto
         Assert.DoesNotContain(hidden.Id, templates.Select(x => x.Id));
     }
 
+    /// <summary>Each template carries the caller's permissions on that template only, with its system permissions.</summary>
+    [Fact]
+    public async Task GetAll_adds_the_callers_template_and_system_permissions_to_each_template()
+    {
+        var actor = await Actor().WithSystemPermissions(SystemPermission.ViewEvents)
+            .OnNewEventTemplate(EventTemplatePermission.ViewEventTemplate, EventTemplatePermission.EditEventTemplate)
+            .OnNewEventTemplate(EventTemplatePermission.ViewEventTemplate, EventTemplatePermission.ManageEventTemplate)
+            .SeedAsync();
+
+        var templates = await ReadAsync<List<EventTemplate>>(await Client(actor).GetAsync("api/eventTemplates", Ct));
+
+        var permissions = templates.Single(x => x.Id == actor.NewEventTemplates[0]).EventTemplatePermissions.ToList();
+        Assert.Contains(nameof(SystemPermission.ViewEvents), permissions);
+        Assert.Contains(permissions, x => x.Split(',').Contains(nameof(EventTemplatePermission.EditEventTemplate)));
+        Assert.DoesNotContain(permissions, x => x.Split(',').Contains(nameof(EventTemplatePermission.ManageEventTemplate)));
+    }
+
     // GET api/eventTemplates/{id}
 
     [Fact]

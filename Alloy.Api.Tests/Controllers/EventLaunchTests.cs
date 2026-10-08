@@ -170,6 +170,20 @@ public class EventLaunchTests(DatabaseFixture fixture, AlloyAppFactory factory) 
         Assert.Equal($"User {actor.Id} already has 2 Events active.", problem.Detail);
     }
 
+    /// <summary>A caller holding ManageEventTemplates but not ManageEvents is limited like a basic user; the second launch is answered with a 500.</summary>
+    // Same case as Launch_answers_a_second_active_event_of_the_same_template_with_a_server_error.
+    [Fact]
+    public async Task Launch_answers_a_second_active_event_for_a_caller_holding_ManageEventTemplates_with_a_server_error()
+    {
+        var template = await SeedTemplate();
+        var actor = await Actor().WithSystemPermissions(SystemPermission.ViewEventTemplates, SystemPermission.ManageEventTemplates).SeedAsync();
+        await Launch(actor, template.Id, new CreateEventCommand());
+
+        var problem = await AssertJsonError(HttpStatusCode.InternalServerError, await Launch(actor, template.Id, new CreateEventCommand()));
+
+        Assert.Equal($"User {actor.Id} already has an active Event for EventTemplate {template.Id}.", problem.Detail);
+    }
+
     [Fact]
     public async Task Launch_by_a_caller_holding_ManageEvents_is_not_limited()
     {
@@ -215,6 +229,36 @@ public class EventLaunchTests(DatabaseFixture fixture, AlloyAppFactory factory) 
     {
         var template = await SeedTemplate();
         var actor = await Actor().OnEventTemplate(template.Id, [EventTemplatePermission.ViewEventTemplate]).SeedAsync();
+
+        var response = await Client(actor).PostAsync($"api/eventTemplates/{template.Id}/events?userId={Guid.NewGuid()}&username=Other", null, Ct);
+
+        await AssertJsonError(HttpStatusCode.Forbidden, response);
+        await AssertNoEventsOf(template.Id);
+    }
+
+    [Fact]
+    public async Task LegacyLaunch_for_another_user_by_a_member_holding_ManageEventTemplate_makes_that_user_the_owner()
+    {
+        var template = await SeedTemplate();
+        var actor = await Actor()
+            .OnEventTemplate(template.Id, [EventTemplatePermission.ViewEventTemplate, EventTemplatePermission.ManageEventTemplate])
+            .SeedAsync();
+        var owner = Guid.NewGuid();
+
+        var created = await ReadAsync<Event>(await Client(actor).PostAsync($"api/eventTemplates/{template.Id}/events?userId={owner}&username=Owner", null, Ct));
+
+        var saved = await Stored(created.Id);
+        Assert.Equal((owner, "Owner"), (saved.UserId, saved.Username));
+    }
+
+    [Fact]
+    public async Task LegacyLaunch_for_another_user_is_forbidden_for_a_caller_holding_ManageEventTemplate_only_on_another_template()
+    {
+        var template = await SeedTemplate();
+        var actor = await Actor()
+            .OnEventTemplate(template.Id, [EventTemplatePermission.ViewEventTemplate])
+            .OnNewEventTemplate(EventTemplatePermission.ManageEventTemplate)
+            .SeedAsync();
 
         var response = await Client(actor).PostAsync($"api/eventTemplates/{template.Id}/events?userId={Guid.NewGuid()}&username=Other", null, Ct);
 

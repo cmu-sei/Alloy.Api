@@ -23,6 +23,9 @@ namespace Alloy.Api.Tests.Controllers;
 /// </summary>
 public class EventControllerTests(DatabaseFixture fixture, AlloyAppFactory factory) : ApiTestBase(fixture, factory)
 {
+    /// <summary>The message of a parameterless <c>ForbiddenException</c>, which every permission check throws.</summary>
+    private const string InsufficientPermissions = "Insufficient Permissions";
+
     // GET api/events
 
     [Fact]
@@ -504,25 +507,32 @@ public class EventControllerTests(DatabaseFixture fixture, AlloyAppFactory facto
         Assert.Equal(invited.ShareCode, (await Stored(eventId)).ShareCode);
     }
 
-    /// <summary>Only the creator may invite: a caller with every permission who did not create the event is refused.</summary>
+    /// <summary>Only the creator may invite: a caller holding ManageEvents who did not create the event is refused.</summary>
     [Fact]
     public async Task Invite_is_forbidden_for_a_caller_holding_ManageEvents_who_did_not_create_the_event()
     {
         var evt = await SeedEvent();
+        var actor = await Actor().WithSystemPermissions(SystemPermission.ManageEvents).SeedAsync();
 
-        var problem = await AssertJsonError(HttpStatusCode.Forbidden, await RootClient.PostAsync($"api/events/{evt.Id}/invite", null, Ct));
+        // Data-row gate: the event's CreatedBy, which names another user, is the check that refuses.
+        var problem = await AssertJsonError(HttpStatusCode.Forbidden, await Client(actor).PostAsync($"api/events/{evt.Id}/invite", null, Ct));
 
         Assert.Contains("Only owners of an event can create an invite link", problem.Title);
         Assert.Null((await Stored(evt.Id)).ShareCode);
     }
 
+    /// <summary>The caller created the event, so the refusal is the ManageEvent check's, not the creator check's.</summary>
     [Fact]
-    public async Task Invite_is_forbidden_for_a_member_holding_only_EditEvent()
+    public async Task Invite_is_forbidden_for_the_events_creator_holding_only_EditEvent()
     {
-        var evt = await SeedEvent();
-        var actor = await Actor().OnEvent(evt.Id, [EventPermission.EditEvent]).SeedAsync();
+        var creatorId = Guid.NewGuid();
+        var evt = await SeedEvent(x => x.CreatedBy = creatorId);
+        var actor = await Actor().WithId(creatorId).OnEvent(evt.Id, [EventPermission.EditEvent]).SeedAsync();
 
-        await AssertJsonError(HttpStatusCode.Forbidden, await Client(actor).PostAsync($"api/events/{evt.Id}/invite", null, Ct));
+        var problem = await AssertJsonError(HttpStatusCode.Forbidden, await Client(actor).PostAsync($"api/events/{evt.Id}/invite", null, Ct));
+
+        Assert.Equal(InsufficientPermissions, problem.Title);
+        Assert.Null((await Stored(evt.Id)).ShareCode);
     }
 
     // POST api/events/enlist/{code}
