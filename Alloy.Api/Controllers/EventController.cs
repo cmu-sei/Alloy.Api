@@ -203,31 +203,6 @@ namespace Alloy.Api.Controllers
         }
 
         /// <summary>
-        /// Creates a new Event
-        /// </summary>
-        /// <remarks>
-        /// Creates a new Event with the attributes specified
-        /// <para />
-        /// Accessible only to a SuperUser or an Administrator
-        /// </remarks>
-        /// <param name="eventx">The data to create the Event with</param>
-        /// <param name="ct"></param>
-        [HttpPost("events")]
-        [ProducesResponseType(typeof(Event), (int)HttpStatusCode.Created)]
-        [SwaggerOperation(OperationId = "createEvent")]
-        public async Task<IActionResult> Create([FromBody] CreateEventRequest eventx, CancellationToken ct)
-        {
-            if (!await _authorizationService.AuthorizeAsync([SystemPermission.CreateEvents], ct))
-                throw new ForbiddenException();
-
-            var createdEvent = await _eventService.CreateAsync(eventx, ct);
-            // add this user's permissions
-            AddPermissions(createdEvent);
-
-            return CreatedAtAction(nameof(this.Get), new { id = createdEvent.Id }, createdEvent);
-        }
-
-        /// <summary>
         /// Creates a new Event from an Event Template
         /// </summary>
         /// <remarks>

@@ -23,7 +23,7 @@ namespace Alloy.Api.Services
         STT.Task<EventMembership> GetAsync(Guid id, CancellationToken ct);
         STT.Task<IEnumerable<EventMembership>> GetByEventAsync(Guid eventId, CancellationToken ct);
         STT.Task<EventMembership> CreateAsync(EventMembership eventMembership, CancellationToken ct);
-        STT.Task<EventMembership> UpdateAsync(Guid id, EventMembership eventMembership, CancellationToken ct);
+        STT.Task<EventMembership> UpdateAsync(Guid id, UpdateEventMembershipRequest request, CancellationToken ct);
         STT.Task DeleteAsync(Guid id, CancellationToken ct);
     }
 
@@ -70,14 +70,14 @@ namespace Alloy.Api.Services
 
             return createdEvent;
         }
-        public async STT.Task<EventMembership> UpdateAsync(Guid id, EventMembership eventMembership, CancellationToken ct)
+        public async STT.Task<EventMembership> UpdateAsync(Guid id, UpdateEventMembershipRequest request, CancellationToken ct)
         {
             var eventMembershipToUpdate = await _context.EventMemberships.SingleOrDefaultAsync(v => v.Id == id, ct);
             if (eventMembershipToUpdate == null)
                 throw new EntityNotFoundException<SAVM.Event>();
 
             eventMembershipToUpdate.Role = null;
-            eventMembershipToUpdate.RoleId = eventMembership.RoleId;
+            eventMembershipToUpdate.RoleId = request.RoleId;
             await _context.SaveChangesAsync(ct);
 
             return _mapper.Map<SAVM.EventMembership>(eventMembershipToUpdate);

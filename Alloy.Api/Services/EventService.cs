@@ -35,7 +35,6 @@ namespace Alloy.Api.Services
         Task<IEnumerable<Event>> GetMyEventsAsync(bool? includeEnded, int? days, CancellationToken ct);
         Task<Event> GetAsync(Guid id, CancellationToken ct);
         Task<EventErrorDetail> GetErrorDetailAsync(Guid id, CancellationToken ct);
-        Task<Event> CreateAsync(CreateEventRequest request, CancellationToken ct);
         Task<Event> LaunchEventFromEventTemplateAsync(Guid eventTemplateId, Guid? userId, string username, List<Guid> additionalUserIds, CancellationToken ct);
         Task<Event> LaunchEventFromEventTemplateAsync(CreateEventCommand command, CancellationToken ct);
         Task<Event> UpdateAsync(Guid id, UpdateEventRequest request, CancellationToken ct);
@@ -205,33 +204,6 @@ namespace Alloy.Api.Services
                 ErrorMessage = item.ErrorMessage,
                 ErrorDetail = item.ErrorDetail
             };
-        }
-
-        public async Task<Event> CreateAsync(CreateEventRequest request, CancellationToken ct)
-        {
-            var eventEntity = new EventEntity
-            {
-                Id = request.Id,
-                UserId = request.UserId,
-                Username = request.Username,
-                EventTemplateId = request.EventTemplateId,
-                ViewId = request.ViewId,
-                Name = request.Name,
-                Description = request.Description,
-                ShareCode = request.ShareCode,
-                Status = request.Status,
-                InternalStatus = request.InternalStatus,
-                StatusDate = request.StatusDate,
-                LaunchDate = request.LaunchDate,
-                EndDate = request.EndDate,
-                ExpirationDate = request.ExpirationDate,
-                CreatedBy = _user.GetId()
-            };
-
-            _context.Events.Add(eventEntity);
-            await _context.SaveChangesAsync(ct);
-
-            return _mapper.Map<Event>(eventEntity);
         }
 
         public async Task<Event> LaunchEventFromEventTemplateAsync(CreateEventCommand command, CancellationToken ct)

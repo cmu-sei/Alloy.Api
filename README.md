@@ -96,16 +96,15 @@ The entire **Launch** and **End** processes will be single background tasks that
 
 ## Event request models
 
-Direct event creation (`POST /events`) accepts `CreateEventRequest`; editing an
+Events are created only by launching an Event Template, which uses
+`CreateEventCommand`. There is no direct event creation endpoint. Editing an
 event (`PUT /events/{id}`) accepts `UpdateEventRequest`, containing only `Name`,
-`Description`, and `ExpirationDate`. Both endpoints continue returning `Event`.
-Template launches continue using `CreateEventCommand`.
+`Description`, and `ExpirationDate`, and returns `Event`.
 
 Existing JSON payloads may still include additional response fields; those fields
 are ignored when reading requests. Audit fields, end-request tracking, errors,
 retry history, and workspace/run/scenario IDs remain server-owned.
-Regenerated clients use the new request types for `createEvent` and
-`updateEvent`, so callers must use those types when upgrading generated clients.
+Regenerated clients use `UpdateEventRequest` for `updateEvent`.
 
 ## Reporting bugs and requesting features
 

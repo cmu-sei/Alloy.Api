@@ -7,10 +7,14 @@ using System.Threading;
 using System.Threading.Tasks;
 using Alloy.Api.Data;
 using Alloy.Api.Data.Models;
+using Alloy.Api.Infrastructure.Authorization;
+using Alloy.Api.Infrastructure.Extensions;
+using Alloy.Api.Infrastructure.Identity;
 using Alloy.Api.Infrastructure.Mappings;
 using Alloy.Api.Infrastructure.Options;
 using Alloy.Api.Services;
 using AutoMapper;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -30,6 +34,7 @@ internal sealed class TestEnvironment : IDisposable
     {
         c.AddProfile<EventProfile>();
         c.AddProfile<EventTemplateProfile>();
+        c.AddProfile<Alloy.Api.Infrastructure.Mapping.EventMembershipProfile>();
     }).CreateMapper();
     public ClientOptions Options { get; } = new()
     {
@@ -81,9 +86,44 @@ internal sealed class TestEnvironment : IDisposable
         Mapper, null, null, null, Queue, NullLogger<EventService>.Instance, null, null,
         Services.GetRequiredService<ResourceOwnerAuthorizationOptions>(), Options, Http, Services);
 
-    public EventTemplateService EventTemplateService(AlloyContext db, IPlayerService player) => new(db, null,
+    public EventTemplateService EventTemplateService(AlloyContext db, IPlayerService player,
+        ICasterService caster = null, ISteamfitterService steamfitter = null) => new(db, null,
         new ClaimsPrincipal(new ClaimsIdentity([new Claim("sub", Guid.NewGuid().ToString())])),
-        Mapper, NullLogger<EventTemplateService>.Instance, player);
+        Mapper, NullLogger<EventTemplateService>.Instance, player,
+        caster ?? new StubCasterService(), steamfitter ?? new StubSteamfitterService());
+
+    /// <summary>
+    /// The real Alloy authorization service and requirement handlers, acting as <paramref name="actor"/>.
+    /// Unlike the other helpers, nothing here bypasses authorization.
+    /// </summary>
+    public AlloyAuthorization Authorization(AlloyContext db, ClaimsPrincipal actor)
+    {
+        var services = new ServiceCollection()
+            .AddLogging()
+            .AddAuthorizationCore()
+            .AddSingleton<IAuthorizationHandler, SystemPermissionHandler>()
+            .AddSingleton<IAuthorizationHandler, EventPermissionHandler>()
+            .AddSingleton<IAuthorizationHandler, EventTemplatePermissionHandler>()
+            .AddSingleton<IAuthorizationHandler, GroupPermissionsHandler>()
+            .BuildServiceProvider();
+        return new AlloyAuthorization(services,
+            new AuthorizationService(services.GetRequiredService<IAuthorizationService>(), new FixedIdentity(actor), db));
+    }
+
+    /// <summary>A non-admin user whose only rights are the given claims.</summary>
+    public static ClaimsPrincipal Actor(params Claim[] claims) =>
+        new(new ClaimsIdentity([new Claim("sub", Guid.NewGuid().ToString()), .. claims], "test"));
+
+    public static Claim SystemClaim(SystemPermission permission) =>
+        new(AuthorizationConstants.PermissionClaimType, permission.ToString());
+
+    public static Claim EventClaim(Guid eventId, params EventPermission[] permissions) =>
+        new(AuthorizationConstants.EventPermissionClaimType,
+            new EventPermissionClaim { EventId = eventId, Permissions = permissions }.ToString());
+
+    public static Claim EventTemplateClaim(Guid eventTemplateId, params EventTemplatePermission[] permissions) =>
+        new(AuthorizationConstants.EventTemplatePermissionClaimType,
+            new EventTemplatePermissionClaim { EventTemplateId = eventTemplateId, Permissions = permissions }.ToString());
 
     public AlloyBackgroundService Worker() => new(
         NullLogger<AlloyBackgroundService>.Instance, new Monitor<ClientOptions>(Options),
@@ -107,6 +147,12 @@ internal sealed class TestEnvironment : IDisposable
         Services.Dispose();
         Http.Dispose();
         database.Dispose();
+    }
+
+    private sealed class FixedIdentity(ClaimsPrincipal principal) : IIdentityResolver
+    {
+        public ClaimsPrincipal GetClaimsPrincipal() => principal;
+        public Guid GetId() => principal.GetId();
     }
 
     private sealed class Monitor<T>(T value) : IOptionsMonitor<T>
@@ -164,6 +210,86 @@ internal sealed class StubPlayerService : IPlayerService
     public static StubPlayerService Unavailable() => new()
     {
         OnGetView = _ => throw new HttpRequestException("Player is unavailable")
+    };
+}
+
+/// <summary>
+/// Stands in for <see cref="ICasterService"/>. Only GetDirectoryAsync is used by Template reference validation.
+/// By default it fails the test if called.
+/// </summary>
+/// <summary>Owns the handler container so a test can dispose it with the service.</summary>
+internal sealed class AlloyAuthorization(ServiceProvider handlers, AuthorizationService service) : IDisposable
+{
+    public AuthorizationService Service { get; } = service;
+    public void Dispose() => handlers.Dispose();
+}
+
+internal sealed class StubCasterService : ICasterService
+{
+    public Func<Guid, Task<Caster.Api.Client.Directory>> OnGetDirectory { get; set; } =
+        id => throw new InvalidOperationException($"Unexpected GetDirectoryAsync({id})");
+
+    public int GetDirectoryCalls { get; private set; }
+
+    public Task<Caster.Api.Client.Directory> GetDirectoryAsync(Guid directoryId, CancellationToken ct)
+    {
+        GetDirectoryCalls++;
+        return OnGetDirectory(directoryId);
+    }
+
+    public Task<IEnumerable<Caster.Api.Client.Directory>> GetDirectoriesAsync(CancellationToken ct) =>
+        throw new NotSupportedException();
+
+    public Task<IEnumerable<Caster.Api.Client.Resource>> GetWorkspaceResourcesAsync(Guid workspaceId, CancellationToken ct) =>
+        throw new NotSupportedException();
+
+    public Task<object> GetWorkspaceOutputsAsync(Guid workspaceId, CancellationToken ct) =>
+        throw new NotSupportedException();
+
+    public Task<Caster.Api.Client.Resource> RefreshResourceAsync(Guid workspaceId, Caster.Api.Client.Resource resource, CancellationToken ct) =>
+        throw new NotSupportedException();
+
+    public static StubCasterService Visible() => new()
+    {
+        OnGetDirectory = id => Task.FromResult(new Caster.Api.Client.Directory { Id = id, Name = "Directory" })
+    };
+
+    /// <summary>Caster refuses the caller, as it does for a Directory in a project they cannot read.</summary>
+    public static StubCasterService Forbidden() => new()
+    {
+        OnGetDirectory = _ => throw new HttpRequestException("Forbidden", null, HttpStatusCode.Forbidden)
+    };
+}
+
+/// <summary>
+/// Stands in for <see cref="ISteamfitterService"/>. Only GetScenarioTemplateAsync is used by Template
+/// reference validation. By default it fails the test if called.
+/// </summary>
+internal sealed class StubSteamfitterService : ISteamfitterService
+{
+    public Func<Guid, Task<Steamfitter.Api.Client.ScenarioTemplate>> OnGetScenarioTemplate { get; set; } =
+        id => throw new InvalidOperationException($"Unexpected GetScenarioTemplateAsync({id})");
+
+    public int GetScenarioTemplateCalls { get; private set; }
+
+    public Task<Steamfitter.Api.Client.ScenarioTemplate> GetScenarioTemplateAsync(Guid scenarioTemplateId, CancellationToken ct)
+    {
+        GetScenarioTemplateCalls++;
+        return OnGetScenarioTemplate(scenarioTemplateId);
+    }
+
+    public Task<IEnumerable<Steamfitter.Api.Client.ScenarioTemplate>> GetScenarioTemplatesAsync(CancellationToken ct) =>
+        throw new NotSupportedException();
+
+    public static StubSteamfitterService Visible() => new()
+    {
+        OnGetScenarioTemplate = id => Task.FromResult(new Steamfitter.Api.Client.ScenarioTemplate { Id = id, Name = "Scenario Template" })
+    };
+
+    /// <summary>Steamfitter refuses the caller, as it does for a Scenario Template they cannot read.</summary>
+    public static StubSteamfitterService Forbidden() => new()
+    {
+        OnGetScenarioTemplate = _ => throw new HttpRequestException("Forbidden", null, HttpStatusCode.Forbidden)
     };
 }
 
