@@ -56,6 +56,15 @@ public class EventMembershipControllerTests(DatabaseFixture fixture, AlloyAppFac
     }
 
     [Fact]
+    public async Task Get_is_forbidden_for_a_caller_holding_only_ViewEventTemplates()
+    {
+        var (_, membership) = await SeedMembership();
+        var actor = await Actor().WithSystemPermissions(SystemPermission.ViewEventTemplates).SeedAsync();
+
+        await AssertJsonError(HttpStatusCode.Forbidden, await Client(actor).GetAsync($"api/events/memberships/{membership.Id}", Ct));
+    }
+
+    [Fact]
     public async Task Get_of_an_unknown_membership_is_not_found()
     {
         await AssertJsonError(HttpStatusCode.NotFound, await RootClient.GetAsync($"api/events/memberships/{Guid.NewGuid()}", Ct));
@@ -90,6 +99,15 @@ public class EventMembershipControllerTests(DatabaseFixture fixture, AlloyAppFac
     {
         var (evt, _) = await SeedMembership();
         var actor = await Actor().OnEvent(evt.Id, [EventPermission.EditEvent]).SeedAsync();
+
+        await AssertJsonError(HttpStatusCode.Forbidden, await Client(actor).GetAsync($"api/events/{evt.Id}/memberships", Ct));
+    }
+
+    [Fact]
+    public async Task GetAll_is_forbidden_for_a_caller_holding_only_ViewEventTemplates()
+    {
+        var (evt, _) = await SeedMembership();
+        var actor = await Actor().WithSystemPermissions(SystemPermission.ViewEventTemplates).SeedAsync();
 
         await AssertJsonError(HttpStatusCode.Forbidden, await Client(actor).GetAsync($"api/events/{evt.Id}/memberships", Ct));
     }
@@ -198,6 +216,20 @@ public class EventMembershipControllerTests(DatabaseFixture fixture, AlloyAppFac
         await AssertJsonError(HttpStatusCode.Forbidden, response);
     }
 
+    [Fact]
+    public async Task Create_is_forbidden_for_a_caller_holding_only_EditEvents()
+    {
+        var evt = await SeedEvent();
+        var actor = await Actor().WithSystemPermissions(SystemPermission.EditEvents).SeedAsync();
+
+        var response = await Client(actor).PostAsJsonAsync($"api/events/{evt.Id}/memberships",
+            new EventMembership { EventId = evt.Id, UserId = actor.Id, RoleId = TestData.EventRoles.Manager }, AlloyJson, Ct);
+
+        await AssertJsonError(HttpStatusCode.Forbidden, response);
+        await using var context = NewContext();
+        Assert.False(await context.EventMemberships.AnyAsync(x => x.EventId == evt.Id && x.UserId == actor.Id, Ct));
+    }
+
     // PUT api/Events/Memberships/{id}
 
     [Fact]
@@ -253,6 +285,19 @@ public class EventMembershipControllerTests(DatabaseFixture fixture, AlloyAppFac
         Assert.Equal(TestData.EventRoles.Member, (await StoredMembership(membership.Id)).RoleId);
     }
 
+    [Fact]
+    public async Task Update_is_forbidden_for_a_caller_holding_only_EditEvents()
+    {
+        var (evt, membership) = await SeedMembership();
+        var actor = await Actor().WithSystemPermissions(SystemPermission.EditEvents).SeedAsync();
+
+        var response = await Client(actor).PutAsJsonAsync($"api/Events/Memberships/{membership.Id}",
+            new EventMembership { Id = membership.Id, EventId = evt.Id, RoleId = TestData.EventRoles.Manager }, AlloyJson, Ct);
+
+        await AssertJsonError(HttpStatusCode.Forbidden, response);
+        Assert.Equal(TestData.EventRoles.Member, (await StoredMembership(membership.Id)).RoleId);
+    }
+
     // DELETE api/events/memberships/{id}
 
     // Same case as Create_broadcasts_the_membership_to_the_group_of_its_own_id_and_not_its_events.
@@ -267,6 +312,18 @@ public class EventMembershipControllerTests(DatabaseFixture fixture, AlloyAppFac
         await using var context = NewContext();
         Assert.False(await context.EventMemberships.AnyAsync(x => x.Id == membership.Id, Ct));
         Assert.Equal(EngineHubMethods.EventMembershipDeleted, Assert.Single(Factory.Hub.ToGroup(membership.Id)).Method);
+    }
+
+    [Fact]
+    public async Task Delete_by_a_member_holding_ManageEvent_removes_the_membership()
+    {
+        var (evt, membership) = await SeedMembership();
+        var actor = await Actor().OnEvent(evt.Id, [EventPermission.ManageEvent]).SeedAsync();
+
+        await AssertStatus(HttpStatusCode.NoContent, await Client(actor).DeleteAsync($"api/events/memberships/{membership.Id}", Ct));
+
+        await using var context = NewContext();
+        Assert.False(await context.EventMemberships.AnyAsync(x => x.Id == membership.Id, Ct));
     }
 
     [Fact]

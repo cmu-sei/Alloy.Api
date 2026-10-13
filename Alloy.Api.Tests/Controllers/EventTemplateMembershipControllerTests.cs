@@ -55,6 +55,15 @@ public class EventTemplateMembershipControllerTests(DatabaseFixture fixture, All
         await AssertJsonError(HttpStatusCode.Forbidden, await Client(actor).GetAsync($"api/eventTemplates/memberships/{membership.Id}", Ct));
     }
 
+    [Fact]
+    public async Task Get_is_forbidden_for_a_caller_holding_only_ViewEvents()
+    {
+        var (_, membership) = await SeedMembership();
+        var actor = await Actor().WithSystemPermissions(SystemPermission.ViewEvents).SeedAsync();
+
+        await AssertJsonError(HttpStatusCode.Forbidden, await Client(actor).GetAsync($"api/eventTemplates/memberships/{membership.Id}", Ct));
+    }
+
     // GET api/eventTemplates/{id}/memberships
 
     [Fact]
@@ -84,6 +93,15 @@ public class EventTemplateMembershipControllerTests(DatabaseFixture fixture, All
     {
         var (template, _) = await SeedMembership();
         var actor = await Actor().WithSystemPermissions(SystemPermission.ViewEvents).SeedAsync();
+
+        await AssertJsonError(HttpStatusCode.Forbidden, await Client(actor).GetAsync($"api/eventTemplates/{template.Id}/memberships", Ct));
+    }
+
+    [Fact]
+    public async Task GetAll_is_forbidden_for_a_caller_holding_ViewEventTemplate_only_on_another_template()
+    {
+        var (template, _) = await SeedMembership();
+        var actor = await Actor().OnNewEventTemplate(EventTemplatePermission.ViewEventTemplate).SeedAsync();
 
         await AssertJsonError(HttpStatusCode.Forbidden, await Client(actor).GetAsync($"api/eventTemplates/{template.Id}/memberships", Ct));
     }
@@ -206,6 +224,20 @@ public class EventTemplateMembershipControllerTests(DatabaseFixture fixture, All
         await AssertJsonError(HttpStatusCode.Forbidden, response);
     }
 
+    [Fact]
+    public async Task Create_is_forbidden_for_a_caller_holding_only_EditEventTemplates()
+    {
+        var template = await SeedTemplate();
+        var actor = await Actor().WithSystemPermissions(SystemPermission.EditEventTemplates).SeedAsync();
+
+        var response = await Client(actor).PostAsJsonAsync($"api/eventTemplates/{template.Id}/memberships",
+            new EventTemplateMembership { EventTemplateId = template.Id, UserId = actor.Id, RoleId = TestData.EventTemplateRoles.Manager }, AlloyJson, Ct);
+
+        await AssertJsonError(HttpStatusCode.Forbidden, response);
+        await using var context = NewContext();
+        Assert.False(await context.EventTemplateMemberships.AnyAsync(x => x.EventTemplateId == template.Id && x.UserId == actor.Id, Ct));
+    }
+
     // PUT api/EventTemplates/Memberships/{id}
 
     [Fact]
@@ -248,6 +280,19 @@ public class EventTemplateMembershipControllerTests(DatabaseFixture fixture, All
         Assert.Equal(TestData.EventTemplateRoles.Member, (await StoredMembership(membership.Id)).RoleId);
     }
 
+    [Fact]
+    public async Task Update_is_forbidden_for_a_caller_holding_only_EditEventTemplates()
+    {
+        var (template, membership) = await SeedMembership();
+        var actor = await Actor().WithSystemPermissions(SystemPermission.EditEventTemplates).SeedAsync();
+
+        var response = await Client(actor).PutAsJsonAsync($"api/EventTemplates/Memberships/{membership.Id}",
+            new EventTemplateMembership { Id = membership.Id, EventTemplateId = template.Id, RoleId = TestData.EventTemplateRoles.Manager }, AlloyJson, Ct);
+
+        await AssertJsonError(HttpStatusCode.Forbidden, response);
+        Assert.Equal(TestData.EventTemplateRoles.Member, (await StoredMembership(membership.Id)).RoleId);
+    }
+
     // DELETE api/eventTemplates/memberships/{id}
 
     // Same case as Create_broadcasts_the_membership_to_the_group_of_its_own_id_and_not_its_templates.
@@ -281,6 +326,18 @@ public class EventTemplateMembershipControllerTests(DatabaseFixture fixture, All
     {
         var (_, membership) = await SeedMembership();
         var actor = await Actor().WithSystemPermissions(SystemPermission.EditEventTemplates).SeedAsync();
+
+        await AssertJsonError(HttpStatusCode.Forbidden, await Client(actor).DeleteAsync($"api/eventTemplates/memberships/{membership.Id}", Ct));
+
+        await using var context = NewContext();
+        Assert.True(await context.EventTemplateMemberships.AnyAsync(x => x.Id == membership.Id, Ct));
+    }
+
+    [Fact]
+    public async Task Delete_is_forbidden_for_a_caller_holding_ManageEventTemplate_only_on_another_template()
+    {
+        var (_, membership) = await SeedMembership();
+        var actor = await Actor().OnNewEventTemplate(EventTemplatePermission.ManageEventTemplate).SeedAsync();
 
         await AssertJsonError(HttpStatusCode.Forbidden, await Client(actor).DeleteAsync($"api/eventTemplates/memberships/{membership.Id}", Ct));
 

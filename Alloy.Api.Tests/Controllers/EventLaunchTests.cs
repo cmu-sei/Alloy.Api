@@ -127,6 +127,17 @@ public class EventLaunchTests(DatabaseFixture fixture, AlloyAppFactory factory) 
     }
 
     [Fact]
+    public async Task Launch_for_another_user_is_forbidden_for_a_caller_holding_only_ViewEventTemplates_and_EditEventTemplates()
+    {
+        var template = await SeedTemplate();
+        var actor = await Actor().WithSystemPermissions(SystemPermission.ViewEventTemplates, SystemPermission.EditEventTemplates).SeedAsync();
+
+        await AssertJsonError(HttpStatusCode.Forbidden, await Launch(actor, template.Id, new CreateEventCommand { UserId = Guid.NewGuid() }));
+
+        await AssertNoEventsOf(template.Id);
+    }
+
+    [Fact]
     public async Task Launch_for_another_user_is_forbidden_for_a_caller_holding_ManageEventTemplate_only_on_another_template()
     {
         var template = await SeedTemplate();
@@ -214,6 +225,29 @@ public class EventLaunchTests(DatabaseFixture fixture, AlloyAppFactory factory) 
     }
 
     [Fact]
+    public async Task LegacyLaunch_by_a_caller_holding_ViewEventTemplates_creates_the_event()
+    {
+        var template = await SeedTemplate();
+        var actor = await Actor().WithSystemPermissions(SystemPermission.ViewEventTemplates).SeedAsync();
+
+        var created = await ReadAsync<Event>(await Client(actor).PostAsync($"api/eventTemplates/{template.Id}/events", null, Ct));
+
+        var saved = await Stored(created.Id);
+        Assert.Equal((template.Id, actor.Id), (saved.EventTemplateId, saved.UserId));
+    }
+
+    [Fact]
+    public async Task LegacyLaunch_is_forbidden_for_a_caller_holding_only_CreateEvents_and_ViewEvents()
+    {
+        var template = await SeedTemplate();
+        var actor = await Actor().WithSystemPermissions(SystemPermission.CreateEvents, SystemPermission.ViewEvents).SeedAsync();
+
+        await AssertJsonError(HttpStatusCode.Forbidden, await Client(actor).PostAsync($"api/eventTemplates/{template.Id}/events", null, Ct));
+
+        await AssertNoEventsOf(template.Id);
+    }
+
+    [Fact]
     public async Task LegacyLaunch_is_forbidden_for_a_caller_holding_ViewEventTemplate_only_on_another_template()
     {
         var template = await SeedTemplate();
@@ -249,6 +283,32 @@ public class EventLaunchTests(DatabaseFixture fixture, AlloyAppFactory factory) 
 
         var saved = await Stored(created.Id);
         Assert.Equal((owner, "Owner"), (saved.UserId, saved.Username));
+    }
+
+    /// <summary>Launching for another user passes the view check first, so the caller holds ViewEventTemplates too.</summary>
+    [Fact]
+    public async Task LegacyLaunch_for_another_user_by_a_caller_holding_ManageEventTemplates_makes_that_user_the_owner()
+    {
+        var template = await SeedTemplate();
+        var actor = await Actor().WithSystemPermissions(SystemPermission.ViewEventTemplates, SystemPermission.ManageEventTemplates).SeedAsync();
+        var owner = Guid.NewGuid();
+
+        var created = await ReadAsync<Event>(await Client(actor).PostAsync($"api/eventTemplates/{template.Id}/events?userId={owner}&username=Owner", null, Ct));
+
+        var saved = await Stored(created.Id);
+        Assert.Equal((owner, "Owner"), (saved.UserId, saved.Username));
+    }
+
+    [Fact]
+    public async Task LegacyLaunch_for_another_user_is_forbidden_for_a_caller_holding_only_ViewEventTemplates_and_EditEventTemplates()
+    {
+        var template = await SeedTemplate();
+        var actor = await Actor().WithSystemPermissions(SystemPermission.ViewEventTemplates, SystemPermission.EditEventTemplates).SeedAsync();
+
+        var response = await Client(actor).PostAsync($"api/eventTemplates/{template.Id}/events?userId={Guid.NewGuid()}&username=Other", null, Ct);
+
+        await AssertJsonError(HttpStatusCode.Forbidden, response);
+        await AssertNoEventsOf(template.Id);
     }
 
     [Fact]

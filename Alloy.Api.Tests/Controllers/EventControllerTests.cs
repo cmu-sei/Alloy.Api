@@ -483,8 +483,21 @@ public class EventControllerTests(DatabaseFixture fixture, AlloyAppFactory facto
     [Fact]
     public async Task Redeploy_is_forbidden_for_a_member_holding_only_EditEvent()
     {
-        var evt = await SeedEvent();
+        var evt = await SeedEvent(x => x.WorkspaceId = Guid.NewGuid());
         var actor = await Actor().OnEvent(evt.Id, [EventPermission.ViewEvent, EventPermission.EditEvent]).SeedAsync();
+        Factory.OutboundHttp.RespondJson($"http://localhost:4309/api/workspaces/{evt.WorkspaceId}/resources/actions/taint", new { resources = new[] { new { id = "vm", tainted = true } } });
+
+        await AssertJsonError(HttpStatusCode.Forbidden, await Client(actor).PostAsync($"api/events/{evt.Id}/redeploy", null, Ct));
+
+        Assert.Equal(EventStatus.Active, (await Stored(evt.Id)).Status);
+    }
+
+    [Fact]
+    public async Task Redeploy_is_forbidden_for_a_caller_holding_only_EditEvents()
+    {
+        var evt = await SeedEvent(x => x.WorkspaceId = Guid.NewGuid());
+        var actor = await Actor().WithSystemPermissions(SystemPermission.EditEvents).SeedAsync();
+        Factory.OutboundHttp.RespondJson($"http://localhost:4309/api/workspaces/{evt.WorkspaceId}/resources/actions/taint", new { resources = new[] { new { id = "vm", tainted = true } } });
 
         await AssertJsonError(HttpStatusCode.Forbidden, await Client(actor).PostAsync($"api/events/{evt.Id}/redeploy", null, Ct));
 
@@ -505,6 +518,34 @@ public class EventControllerTests(DatabaseFixture fixture, AlloyAppFactory facto
 
         Assert.NotNull(invited.ShareCode);
         Assert.Equal(invited.ShareCode, (await Stored(eventId)).ShareCode);
+    }
+
+    [Fact]
+    public async Task Invite_by_the_events_creator_holding_ManageEvents_stores_a_share_code()
+    {
+        var creatorId = Guid.NewGuid();
+        var evt = await SeedEvent(x => x.CreatedBy = creatorId);
+        var actor = await Actor().WithId(creatorId).WithSystemPermissions(SystemPermission.ManageEvents).SeedAsync();
+        var eventId = evt.Id;
+
+        var invited = await ReadAsync<Event>(await Client(actor).PostAsync($"api/events/{eventId}/invite", null, Ct));
+
+        Assert.NotNull(invited.ShareCode);
+        Assert.Equal(invited.ShareCode, (await Stored(eventId)).ShareCode);
+    }
+
+    /// <summary>The caller created the event, so the refusal is the ManageEvents check's, not the creator check's.</summary>
+    [Fact]
+    public async Task Invite_is_forbidden_for_the_events_creator_holding_only_EditEvents()
+    {
+        var creatorId = Guid.NewGuid();
+        var evt = await SeedEvent(x => x.CreatedBy = creatorId);
+        var actor = await Actor().WithId(creatorId).WithSystemPermissions(SystemPermission.EditEvents).SeedAsync();
+
+        var problem = await AssertJsonError(HttpStatusCode.Forbidden, await Client(actor).PostAsync($"api/events/{evt.Id}/invite", null, Ct));
+
+        Assert.Equal(InsufficientPermissions, problem.Title);
+        Assert.Null((await Stored(evt.Id)).ShareCode);
     }
 
     /// <summary>Only the creator may invite: a caller holding ManageEvents who did not create the event is refused.</summary>
@@ -633,6 +674,15 @@ public class EventControllerTests(DatabaseFixture fixture, AlloyAppFactory facto
     }
 
     [Fact]
+    public async Task GetVirtualMachines_is_forbidden_for_a_caller_holding_only_ViewEventTemplates()
+    {
+        var evt = await SeedEvent();
+        var actor = await Actor().WithSystemPermissions(SystemPermission.ViewEventTemplates).SeedAsync();
+
+        await AssertJsonError(HttpStatusCode.Forbidden, await Client(actor).GetAsync($"api/events/{evt.Id}/virtual-machines", Ct));
+    }
+
+    [Fact]
     public async Task GetQuestions_of_an_event_without_a_workspace_is_empty_for_a_caller_holding_ViewEvents()
     {
         var evt = await SeedEvent();
@@ -655,6 +705,15 @@ public class EventControllerTests(DatabaseFixture fixture, AlloyAppFactory facto
     {
         var evt = await SeedEvent();
         var actor = await Actor().WithSystemPermissions(SystemPermission.ViewEventTemplates).SeedAsync();
+
+        await AssertJsonError(HttpStatusCode.Forbidden, await Client(actor).GetAsync($"api/events/{evt.Id}/questions", Ct));
+    }
+
+    [Fact]
+    public async Task GetQuestions_is_forbidden_for_a_caller_holding_ViewEvent_only_on_another_event()
+    {
+        var evt = await SeedEvent();
+        var actor = await Actor().OnNewEvent(evt.EventTemplateId, EventPermission.ViewEvent).SeedAsync();
 
         await AssertJsonError(HttpStatusCode.Forbidden, await Client(actor).GetAsync($"api/events/{evt.Id}/questions", Ct));
     }
@@ -684,6 +743,15 @@ public class EventControllerTests(DatabaseFixture fixture, AlloyAppFactory facto
     {
         var evt = await SeedEvent();
         var actor = await Actor().OnEvent(evt.Id, [EventPermission.ViewEvent]).SeedAsync();
+
+        await AssertJsonError(HttpStatusCode.Forbidden, await Client(actor).PostAsJsonAsync($"api/events/{evt.Id}/qrade", new[] { "a" }, Ct));
+    }
+
+    [Fact]
+    public async Task Grade_is_forbidden_for_a_caller_holding_only_EditEvents()
+    {
+        var evt = await SeedEvent();
+        var actor = await Actor().WithSystemPermissions(SystemPermission.EditEvents).SeedAsync();
 
         await AssertJsonError(HttpStatusCode.Forbidden, await Client(actor).PostAsJsonAsync($"api/events/{evt.Id}/qrade", new[] { "a" }, Ct));
     }

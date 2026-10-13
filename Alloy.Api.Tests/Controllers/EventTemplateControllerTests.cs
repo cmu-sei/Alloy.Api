@@ -81,6 +81,17 @@ public class EventTemplateControllerTests(DatabaseFixture fixture, AlloyAppFacto
     }
 
     [Fact]
+    public async Task Get_returns_the_template_to_a_caller_holding_ViewEventTemplates()
+    {
+        var template = await SeedTemplate();
+        var actor = await Actor().WithSystemPermissions(SystemPermission.ViewEventTemplates).SeedAsync();
+
+        var read = await ReadAsync<EventTemplate>(await Client(actor).GetAsync($"api/eventTemplates/{template.Id}", Ct));
+
+        Assert.Equal((template.Id, template.Name), (read.Id, read.Name));
+    }
+
+    [Fact]
     public async Task Get_returns_a_published_template_to_a_caller_with_no_membership_on_it()
     {
         var template = await SeedTemplate(published: true);

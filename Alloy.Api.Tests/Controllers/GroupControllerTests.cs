@@ -77,6 +77,26 @@ public class GroupControllerTests(DatabaseFixture fixture, AlloyAppFactory facto
     }
 
     [Fact]
+    public async Task Get_returns_the_group_to_a_caller_holding_ViewGroups()
+    {
+        var group = await SeedGroup();
+        var actor = await Actor().WithSystemPermissions(SystemPermission.ViewGroups).SeedAsync();
+
+        var read = await ReadAsync<Group>(await Client(actor).GetAsync($"api/groups/{group.Id}", Ct));
+
+        Assert.Equal((group.Id, group.Name), (read.Id, read.Name));
+    }
+
+    [Fact]
+    public async Task Get_is_forbidden_for_a_caller_holding_only_ViewUsers()
+    {
+        var group = await SeedGroup();
+        var actor = await Actor().WithSystemPermissions(SystemPermission.ViewUsers).SeedAsync();
+
+        await AssertJsonError(HttpStatusCode.Forbidden, await Client(actor).GetAsync($"api/groups/{group.Id}", Ct));
+    }
+
+    [Fact]
     public async Task Get_is_forbidden_for_a_plain_member_of_the_group()
     {
         var group = await SeedGroup();
@@ -221,6 +241,26 @@ public class GroupControllerTests(DatabaseFixture fixture, AlloyAppFactory facto
     }
 
     [Fact]
+    public async Task GetMembership_returns_the_membership_to_a_caller_holding_ViewGroups()
+    {
+        var (group, membership) = await SeedMembership();
+        var actor = await Actor().WithSystemPermissions(SystemPermission.ViewGroups).SeedAsync();
+
+        var read = await ReadAsync<GroupMembership>(await Client(actor).GetAsync($"api/groups/memberships/{membership.Id}", Ct));
+
+        Assert.Equal((membership.Id, group.Id, membership.UserId), (read.Id, read.GroupId, read.UserId));
+    }
+
+    [Fact]
+    public async Task GetMembership_is_forbidden_for_a_caller_holding_only_ViewUsers()
+    {
+        var (_, membership) = await SeedMembership();
+        var actor = await Actor().WithSystemPermissions(SystemPermission.ViewUsers).SeedAsync();
+
+        await AssertJsonError(HttpStatusCode.Forbidden, await Client(actor).GetAsync($"api/groups/memberships/{membership.Id}", Ct));
+    }
+
+    [Fact]
     public async Task GetMembership_is_forbidden_for_a_manager_of_another_group()
     {
         var (_, membership) = await SeedMembership();
@@ -260,6 +300,24 @@ public class GroupControllerTests(DatabaseFixture fixture, AlloyAppFactory facto
         await AssertJsonError(HttpStatusCode.Forbidden, await Client(actor).GetAsync($"api/groups/{group.Id}/memberships", Ct));
     }
 
+    [Fact]
+    public async Task GetMemberships_is_forbidden_for_a_manager_of_another_group()
+    {
+        var (group, _) = await SeedMembership();
+        var actor = await Actor().OnNewGroup(GroupMembershipRole.Manager).SeedAsync();
+
+        await AssertJsonError(HttpStatusCode.Forbidden, await Client(actor).GetAsync($"api/groups/{group.Id}/memberships", Ct));
+    }
+
+    [Fact]
+    public async Task GetMemberships_is_forbidden_for_a_caller_holding_only_ViewUsers()
+    {
+        var (group, _) = await SeedMembership();
+        var actor = await Actor().WithSystemPermissions(SystemPermission.ViewUsers).SeedAsync();
+
+        await AssertJsonError(HttpStatusCode.Forbidden, await Client(actor).GetAsync($"api/groups/{group.Id}/memberships", Ct));
+    }
+
     // POST api/groups/{groupId}/memberships
 
     [Fact]
@@ -279,6 +337,22 @@ public class GroupControllerTests(DatabaseFixture fixture, AlloyAppFactory facto
         var broadcast = Assert.Single(Factory.Hub.ToGroup(group.Id));
         Assert.Equal(EngineHubMethods.GroupMembershipCreated, broadcast.Method);
         Assert.Equal(created.Id, Assert.IsType<GroupMembership>(broadcast.Arguments[0]).Id);
+    }
+
+    [Fact]
+    public async Task CreateMembership_by_a_caller_holding_ManageGroups_stores_it_under_the_route_group()
+    {
+        var group = await SeedGroup();
+        var user = TestData.User();
+        await Seed(user);
+        var actor = await Actor().WithSystemPermissions(SystemPermission.ManageGroups).SeedAsync();
+
+        var created = await ReadAsync<GroupMembership>(await Client(actor).PostAsJsonAsync($"api/groups/{group.Id}/memberships",
+            new GroupMembership { GroupId = group.Id, UserId = user.Id }, AlloyJson, Ct));
+
+        await using var context = NewContext();
+        var saved = await context.GroupMemberships.SingleAsync(x => x.Id == created.Id, Ct);
+        Assert.Equal((group.Id, user.Id), (saved.GroupId, saved.UserId));
     }
 
     /// <summary>The second membership of one user is refused by the unique index on (group, user), answered with a 500.</summary>
@@ -350,6 +424,32 @@ public class GroupControllerTests(DatabaseFixture fixture, AlloyAppFactory facto
     }
 
     [Fact]
+    public async Task UpdateMembership_by_a_caller_holding_ManageGroups_changes_the_role()
+    {
+        var (group, membership) = await SeedMembership();
+        var actor = await Actor().WithSystemPermissions(SystemPermission.ManageGroups).SeedAsync();
+
+        var response = await Client(actor).PutAsJsonAsync($"api/groups/memberships/{membership.Id}",
+            new GroupMembership { Id = membership.Id, GroupId = group.Id, UserId = membership.UserId, Role = GroupMembershipRole.Manager }, AlloyJson, Ct);
+
+        await AssertStatus(HttpStatusCode.OK, response);
+        Assert.Equal(GroupMembershipRole.Manager, (await StoredMembership(membership.Id)).Role);
+    }
+
+    [Fact]
+    public async Task UpdateMembership_is_forbidden_for_a_caller_holding_only_ViewGroups()
+    {
+        var (group, membership) = await SeedMembership();
+        var actor = await Actor().WithSystemPermissions(SystemPermission.ViewGroups).SeedAsync();
+
+        var response = await Client(actor).PutAsJsonAsync($"api/groups/memberships/{membership.Id}",
+            new GroupMembership { Id = membership.Id, GroupId = group.Id, UserId = membership.UserId, Role = GroupMembershipRole.Manager }, AlloyJson, Ct);
+
+        await AssertJsonError(HttpStatusCode.Forbidden, response);
+        Assert.Equal(GroupMembershipRole.Member, (await StoredMembership(membership.Id)).Role);
+    }
+
+    [Fact]
     public async Task UpdateMembership_is_forbidden_for_a_manager_of_another_group()
     {
         var (group, membership) = await SeedMembership();
@@ -395,6 +495,30 @@ public class GroupControllerTests(DatabaseFixture fixture, AlloyAppFactory facto
     {
         var (group, membership) = await SeedMembership();
         var actor = await Actor().InGroup(group.Id).SeedAsync();
+
+        await AssertJsonError(HttpStatusCode.Forbidden, await Client(actor).DeleteAsync($"api/groups/memberships/{membership.Id}", Ct));
+
+        await using var context = NewContext();
+        Assert.True(await context.GroupMemberships.AnyAsync(x => x.Id == membership.Id, Ct));
+    }
+
+    [Fact]
+    public async Task DeleteMembership_is_forbidden_for_a_manager_of_another_group()
+    {
+        var (_, membership) = await SeedMembership();
+        var actor = await Actor().OnNewGroup(GroupMembershipRole.Manager).SeedAsync();
+
+        await AssertJsonError(HttpStatusCode.Forbidden, await Client(actor).DeleteAsync($"api/groups/memberships/{membership.Id}", Ct));
+
+        await using var context = NewContext();
+        Assert.True(await context.GroupMemberships.AnyAsync(x => x.Id == membership.Id, Ct));
+    }
+
+    [Fact]
+    public async Task DeleteMembership_is_forbidden_for_a_caller_holding_only_ViewGroups()
+    {
+        var (_, membership) = await SeedMembership();
+        var actor = await Actor().WithSystemPermissions(SystemPermission.ViewGroups).SeedAsync();
 
         await AssertJsonError(HttpStatusCode.Forbidden, await Client(actor).DeleteAsync($"api/groups/memberships/{membership.Id}", Ct));
 
