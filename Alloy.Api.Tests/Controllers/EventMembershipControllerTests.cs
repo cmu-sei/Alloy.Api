@@ -230,6 +230,41 @@ public class EventMembershipControllerTests(DatabaseFixture fixture, AlloyAppFac
         Assert.False(await context.EventMemberships.AnyAsync(x => x.EventId == evt.Id && x.UserId == actor.Id, Ct));
     }
 
+    /// <summary>The route names the event; another event id in the body is overwritten with the route's.</summary>
+    [Fact]
+    public async Task Create_stores_the_membership_on_the_routes_event_whatever_the_body_names()
+    {
+        var evt = await SeedEvent();
+        var other = await SeedEvent();
+        var user = TestData.User();
+        await Seed(user);
+        var actor = await Actor().OnEvent(evt.Id, [EventPermission.ManageEvent]).SeedAsync();
+
+        var created = await ReadAsync<EventMembership>(await Client(actor).PostAsJsonAsync($"api/events/{evt.Id}/memberships",
+            new EventMembership { EventId = other.Id, UserId = user.Id, RoleId = TestData.EventRoles.Member }, AlloyJson, Ct));
+
+        await using var context = NewContext();
+        Assert.Equal(evt.Id, (await context.EventMemberships.SingleAsync(x => x.UserId == user.Id, Ct)).EventId);
+        Assert.Equal(evt.Id, created.EventId);
+    }
+
+    /// <summary>A body naming the event the caller manages does not open the route's event it does not manage.</summary>
+    [Fact]
+    public async Task Create_is_forbidden_on_a_routes_event_the_caller_does_not_manage_whatever_the_body_names()
+    {
+        var evt = await SeedEvent();
+        var user = TestData.User();
+        await Seed(user);
+        var actor = await Actor().OnNewEvent(evt.EventTemplateId, EventPermission.ManageEvent).SeedAsync();
+
+        var response = await Client(actor).PostAsJsonAsync($"api/events/{evt.Id}/memberships",
+            new EventMembership { EventId = Assert.Single(actor.NewEvents), UserId = user.Id, RoleId = TestData.EventRoles.Member }, AlloyJson, Ct);
+
+        await AssertJsonError(HttpStatusCode.Forbidden, response);
+        await using var context = NewContext();
+        Assert.False(await context.EventMemberships.AnyAsync(x => x.UserId == user.Id, Ct));
+    }
+
     // PUT api/Events/Memberships/{id}
 
     [Fact]
@@ -239,10 +274,11 @@ public class EventMembershipControllerTests(DatabaseFixture fixture, AlloyAppFac
         var actor = await Actor().OnEvent(evt.Id, [EventPermission.ManageEvent]).SeedAsync();
 
         var response = await Client(actor).PutAsJsonAsync($"api/Events/Memberships/{membership.Id}",
-            new EventMembership { Id = membership.Id, EventId = evt.Id, RoleId = TestData.EventRoles.Manager }, AlloyJson, Ct);
+            new UpdateEventMembershipRequest { RoleId = TestData.EventRoles.Manager }, AlloyJson, Ct);
 
         await AssertStatus(HttpStatusCode.OK, response);
-        Assert.Equal(TestData.EventRoles.Manager, (await StoredMembership(membership.Id)).RoleId);
+        var saved = await StoredMembership(membership.Id);
+        Assert.Equal((evt.Id, TestData.EventRoles.Manager), (saved.EventId, saved.RoleId));
     }
 
     [Fact]
@@ -258,18 +294,33 @@ public class EventMembershipControllerTests(DatabaseFixture fixture, AlloyAppFac
         Assert.Equal(TestData.EventRoles.Observer, (await StoredMembership(membership.Id)).RoleId);
     }
 
-    /// <summary>A caller managing the event named in the body changes the role of a membership on another event.</summary>
+    /// <summary>
+    /// The gate reads the event of the stored membership, so naming an event the caller manages in the body
+    /// opens nothing; the caller also views the membership's own event, which is not enough to manage it.
+    /// </summary>
     [Fact]
-    public async Task Update_changes_a_membership_of_another_event_for_a_caller_managing_the_event_named_in_the_body()
+    public async Task Update_is_forbidden_for_a_caller_managing_only_the_event_named_in_the_body()
     {
-        var (_, membership) = await SeedMembership();
-        var actor = await Actor().OnNewEvent(null, EventPermission.ManageEvent).SeedAsync();
+        var (evt, membership) = await SeedMembership();
+        var actor = await Actor().OnNewEvent(null, EventPermission.ManageEvent).OnEvent(evt.Id, [EventPermission.ViewEvent]).SeedAsync();
 
         var response = await Client(actor).PutAsJsonAsync($"api/Events/Memberships/{membership.Id}",
-            new EventMembership { Id = membership.Id, EventId = Assert.Single(actor.NewEvents), RoleId = TestData.EventRoles.Manager }, AlloyJson, Ct);
+            new { eventId = Assert.Single(actor.NewEvents), roleId = TestData.EventRoles.Manager }, AlloyJson, Ct);
 
-        await AssertStatus(HttpStatusCode.OK, response);
-        Assert.Equal(TestData.EventRoles.Manager, (await StoredMembership(membership.Id)).RoleId);
+        await AssertJsonError(HttpStatusCode.Forbidden, response);
+        Assert.Equal(TestData.EventRoles.Member, (await StoredMembership(membership.Id)).RoleId);
+    }
+
+    /// <summary>An id no membership has resolves to no event, which no event permission admits.</summary>
+    [Fact]
+    public async Task Update_of_an_unknown_membership_is_forbidden_for_a_caller_holding_ManageEvent_on_an_event()
+    {
+        var actor = await Actor().OnNewEvent(null, EventPermission.ManageEvent).SeedAsync();
+
+        var response = await Client(actor).PutAsJsonAsync($"api/Events/Memberships/{Guid.NewGuid()}",
+            new UpdateEventMembershipRequest { RoleId = TestData.EventRoles.Manager }, AlloyJson, Ct);
+
+        await AssertJsonError(HttpStatusCode.Forbidden, response);
     }
 
     [Fact]

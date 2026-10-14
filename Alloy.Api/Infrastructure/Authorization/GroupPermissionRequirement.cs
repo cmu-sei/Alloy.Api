@@ -53,9 +53,10 @@ namespace Alloy.Api.Infrastructure.Authorization
                 {
                     context.Fail();
                 }
+                // An empty list must not pass: a claim for this resource is not a permission.
                 else if (requirement.RequiredPermissions == null || requirement.RequiredPermissions.Length == 0)
                 {
-                    context.Succeed(requirement);
+                    context.Fail();
                 }
                 else if (requirement.RequiredPermissions.Any(x => groupPermissionsClaim.Permissions.Contains(x)))
                 {

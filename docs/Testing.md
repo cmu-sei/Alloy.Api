@@ -71,7 +71,7 @@ A denied test names what the caller holds: `Update_is_forbidden_for_a_member_hol
 
 ## Service tests
 
-`ServiceTestBase` and `ApiTestHost` construct services with options a test chose, without the web host: the launch and end worker (`AlloyBackgroundService.ProcessEventAsync`, which reads `ClientOptions` through `IOptionsMonitor` and resolves a context and the resource-owner options per scope) and `EventService` where a request's own stale context is the subject. The host registers the context per scope over the test's database, the real authorization service and handlers, the Startup client registrations, and a `FakeSiblingApis` per host. `ApiTestHostOptions` defaults to two retries, one-minute Caster waits and a zero poll interval. `ApiTestHostTests` constructs what the host offers.
+`ServiceTestBase` and `ApiTestHost` construct services with options a test chose, without the web host: the launch and end worker (`AlloyBackgroundService.ProcessEventAsync`, which reads `ClientOptions` through `IOptionsMonitor` and resolves a context and the resource-owner options per scope) `EventService` where a request's own stale context is the subject, and `EventTemplateService` where a request cancelled during a reference check is. The host registers the context per scope over the test's database, the real authorization service and handlers, the Startup client registrations, and a `FakeSiblingApis` per host. `ApiTestHostOptions` defaults to two retries, one-minute Caster waits and a zero poll interval. `ApiTestHostTests` constructs what the host offers.
 
 `FakeSiblingApis` is an app extra: Player, Caster and Steamfitter answered by a script (`Handle`), and the identity provider answered by itself. The worker's subject is a conversation (a run that reads `Planning` and then `Applying`, a save-state conflict followed by a terminal status, an end request arriving while a poll is in flight), and its scripts pick the status per request, throw after changing state (a response lost after the call took effect), read the request body and await an end request mid-call. The shared stub's route rules answer with a fixed status, and `AnswersJson(route, Func<string>)` computes only a 200 body synchronously, so they cannot express those. It is owned by one test, never registered in the run-wide host. `CasterApiExtensionsTests` uses one directly.
 
@@ -95,11 +95,13 @@ Alloy.Api.Tests/
   CasterWorkspaceNameTests.cs
                         the Caster workspace name built from a user's display name
   Controllers/          every controller over HTTP: gates, persistence, broadcasts
-  Services/             the worker, EventService, EventLifecycle, the queue, UserClaimsService
+  Services/             the worker, EventService, EventTemplateService, EventLifecycle, the queue,
+                        UserClaimsService
   Hubs/                 EngineHub through HubHarness, and its [Authorize] over a real WebSocket connection
-  Infrastructure/       authorization handlers, the scope policy, the exception filter, the Caster run
-                        helpers, mapping
-  Data/                 the migrations (EndRequestedAt up and down) and the model snapshot
+  Infrastructure/       authorization handlers and service, the scope policy, the exception filter,
+                        the Caster run helpers, mapping
+  Data/                 the migrations (EndRequestedAt and RemoveCreateEventsGrant, up and down) and
+                        the model snapshot
   Support/              the harness: Alloy's files, the self-tests, the extras (FakeSiblingApis,
                         TestIdentity)
     Shared/             the standard's shared files, copied by sync.sh, never edited here

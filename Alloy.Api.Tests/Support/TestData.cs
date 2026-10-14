@@ -20,7 +20,7 @@ public static class TestData
         /// <summary><c>AllPermissions</c>, <c>Immutable</c>.</summary>
         public static readonly Guid Administrator = SystemRoleEntityDefaults.AdministratorRoleId;
 
-        /// <summary><c>CreateEventTemplates</c>, <c>CreateEvents</c>, <c>ExecuteEvents</c>.</summary>
+        /// <summary><c>CreateEventTemplates</c>, <c>ExecuteEvents</c>.</summary>
         public static readonly Guid ContentDeveloper = SystemRoleEntityDefaults.ContentDeveloperRoleId;
 
         /// <summary>Every <c>View*</c> system permission.</summary>

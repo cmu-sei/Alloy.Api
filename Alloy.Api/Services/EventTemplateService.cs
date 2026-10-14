@@ -41,6 +41,8 @@ namespace Alloy.Api.Services
         private readonly IMapper _mapper;
         private readonly ILogger<EventTemplateService> _logger;
         private readonly IPlayerService _playerService;
+        private readonly ICasterService _casterService;
+        private readonly ISteamfitterService _steamfitterService;
 
         public EventTemplateService(
             AlloyContext context,
@@ -48,7 +50,9 @@ namespace Alloy.Api.Services
             IPrincipal user,
             IMapper mapper,
             ILogger<EventTemplateService> logger,
-            IPlayerService playerService)
+            IPlayerService playerService,
+            ICasterService casterService,
+            ISteamfitterService steamfitterService)
         {
             _context = context;
             _authorizationService = authorizationService;
@@ -56,6 +60,8 @@ namespace Alloy.Api.Services
             _mapper = mapper;
             _logger = logger;
             _playerService = playerService;
+            _casterService = casterService;
+            _steamfitterService = steamfitterService;
         }
 
         /// <summary>
@@ -129,6 +135,7 @@ namespace Alloy.Api.Services
         public async Task<ViewModels.EventTemplate> CreateAsync(ViewModels.EventTemplate eventTemplate, CancellationToken ct)
         {
             await ValidateViewHasDefaultTeamAsync(eventTemplate.ViewId, ct);
+            await ValidateReferencesAsync(null, eventTemplate, ct);
 
             eventTemplate.CreatedBy = _user.GetId();
             var eventTemplateEntity = _mapper.Map<EventTemplateEntity>(eventTemplate);
@@ -151,6 +158,7 @@ namespace Alloy.Api.Services
             await ValidateViewHasDefaultTeamAsync(eventTemplate.ViewId, ct);
 
             var eventTemplateEntity = await GetTheEventTemplateAsync(id, ct);
+            await ValidateReferencesAsync(eventTemplateEntity, eventTemplate, ct);
             eventTemplate.ModifiedBy = _user.GetId();
             _mapper.Map(eventTemplate, eventTemplateEntity);
 
@@ -225,6 +233,53 @@ namespace Alloy.Api.Services
             {
                 throw new ValidationException(
                     $"Player View \"{view.Name}\" has no default team. Set a default team on the view in Player, or choose a different view.");
+            }
+        }
+
+        /// <summary>
+        /// Makes sure the caller can see the Caster Directory and Steamfitter Scenario Template that the
+        /// Template references.
+        /// </summary>
+        /// <remarks>
+        /// When an Event launches, Alloy's service account deploys the Directory and clones the Scenario
+        /// Template, so without this check an author could launch resources from projects they cannot access.
+        /// The calls use the caller's token, so Caster and Steamfitter apply their own access rules.
+        /// Only new or changed references are checked; a collaborator who cannot see an existing
+        /// reference can still edit the Template's other fields. A null reference is valid.
+        /// </remarks>
+        private async Task ValidateReferencesAsync(EventTemplateEntity stored, ViewModels.EventTemplate incoming, CancellationToken ct)
+        {
+            if (incoming.DirectoryId.HasValue && incoming.DirectoryId != stored?.DirectoryId)
+            {
+                await ValidateReferenceAsync(
+                    () => _casterService.GetDirectoryAsync(incoming.DirectoryId.Value, ct),
+                    $"Caster Directory {incoming.DirectoryId.Value}");
+            }
+
+            if (incoming.ScenarioTemplateId.HasValue && incoming.ScenarioTemplateId != stored?.ScenarioTemplateId)
+            {
+                await ValidateReferenceAsync(
+                    () => _steamfitterService.GetScenarioTemplateAsync(incoming.ScenarioTemplateId.Value, ct),
+                    $"Steamfitter Scenario Template {incoming.ScenarioTemplateId.Value}");
+            }
+        }
+
+        private async Task ValidateReferenceAsync(Func<Task> get, string description)
+        {
+            try
+            {
+                await get();
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                // Fail closed, like ValidateViewHasDefaultTeamAsync.
+                _logger.LogWarning(ex, $"Could not retrieve {description} to validate an Event Template reference.");
+                throw new ValidationException(
+                    $"Could not verify {description}. It may not exist or may not be visible to you.", ex);
             }
         }
 

@@ -44,7 +44,7 @@ public class SystemRoleControllerTests(DatabaseFixture fixture, AlloyAppFactory 
         var role = await ReadAsync<SystemRole>(await Client(actor).GetAsync($"api/system-roles/{TestData.Roles.ContentDeveloper}", Ct));
 
         Assert.Equal(
-            [SystemPermission.CreateEventTemplates, SystemPermission.CreateEvents, SystemPermission.ExecuteEvents],
+            [SystemPermission.CreateEventTemplates, SystemPermission.ExecuteEvents],
             role.Permissions.Order());
     }
 

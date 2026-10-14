@@ -9,7 +9,6 @@ using System.Text;
 using System.Threading.Tasks;
 using Alloy.Api.Data;
 using Alloy.Api.Tests.Support;
-using Microsoft.EntityFrameworkCore;
 
 namespace Alloy.Api.Tests.Infrastructure.Filters;
 
@@ -65,28 +64,13 @@ public class JsonExceptionFilterTests(DatabaseFixture fixture, AlloyAppFactory f
     {
         using var body = new StringContent(string.Empty, Encoding.UTF8, "application/json");
 
-        await AssertProblem(HttpStatusCode.BadRequest, await RootClient.PostAsync("api/events", body, Ct));
+        await AssertProblem(HttpStatusCode.BadRequest, await RootClient.PostAsync("api/eventTemplates", body, Ct));
     }
 
     [Fact]
     public async Task A_route_id_that_is_not_a_guid_is_a_validation_problem()
     {
         await AssertProblem(HttpStatusCode.BadRequest, await RootClient.GetAsync("api/events/not-a-guid", Ct));
-    }
-
-    /// <summary>An integer outside <see cref="EventStatus"/> is accepted and stored.</summary>
-    [Fact]
-    public async Task An_event_status_outside_the_enum_is_stored()
-    {
-        const int undefinedStatus = 999;
-        var id = Guid.NewGuid();
-
-        var response = await RootClient.PostAsJsonAsync("api/events",
-            new { id, name = "Out of range", userId = Guid.NewGuid(), status = undefinedStatus, statusDate = TestData.DefaultDate }, Ct);
-
-        await AssertStatus(HttpStatusCode.Created, response);
-        await using var context = NewContext();
-        Assert.Equal((EventStatus)undefinedStatus, (await context.Events.SingleAsync(x => x.Id == id, Ct)).Status);
     }
 
     /// <summary>A request with no identity is answered with a 401; the anonymous client is the case under test.</summary>

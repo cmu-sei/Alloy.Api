@@ -10,6 +10,7 @@ using System.Net.Http.Json;
 using System.Threading.Tasks;
 using Alloy.Api.Data;
 using Alloy.Api.Data.Models;
+using Alloy.Api.Hubs;
 using Alloy.Api.Tests.Support;
 using Alloy.Api.ViewModels;
 using Microsoft.EntityFrameworkCore;
@@ -39,6 +40,19 @@ public class EventLaunchTests(DatabaseFixture fixture, AlloyAppFactory factory) 
         Assert.Equal((actor.Id, actor.Id), (saved.UserId, saved.CreatedBy));
         var membership = Assert.Single(saved.Memberships);
         Assert.Equal((actor.Id, TestData.EventRoles.Manager), (membership.UserId, membership.RoleId));
+    }
+
+    [Fact]
+    public async Task Launch_broadcasts_the_new_event_to_its_group_and_the_admin_group()
+    {
+        var template = await SeedTemplate();
+
+        var created = await ReadAsync<Event>(await Launch(Root, template.Id, new CreateEventCommand()));
+
+        var broadcast = Assert.Single(Factory.Hub.ToGroup(created.Id));
+        Assert.Equal(EngineHubMethods.EventCreated, broadcast.Method);
+        Assert.Equal(created.Id, Assert.IsType<Event>(broadcast.Arguments[0]).Id);
+        Assert.Single(Factory.Hub.ToGroups(created.Id.ToString(), EngineHub.ADMIN_EVENT_GROUP));
     }
 
     [Fact]

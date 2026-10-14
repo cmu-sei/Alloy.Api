@@ -301,7 +301,7 @@ public class AuthorizationService(
         {
             var t when t == typeof(EventTemplate) => resourceId,
             var t when t == typeof(Event) => await GetEventTemplateIdFromEvent(resourceId, cancellationToken),
-            var t when t == typeof(EventMembership) => await GetEventTemplateIdFromEventTemplateMembership(resourceId, cancellationToken),
+            var t when t == typeof(EventTemplateMembership) => await GetEventTemplateIdFromEventTemplateMembership(resourceId, cancellationToken),
             _ => throw new NotImplementedException($"Handler for type {typeof(T).Name} is not implemented.")
         };
     }
@@ -329,14 +329,6 @@ public class AuthorizationService(
         return await dbContext.GroupMemberships
             .Where(x => x.Id == id)
             .Select(x => (Guid?)x.GroupId)
-            .FirstOrDefaultAsync(cancellationToken);
-    }
-
-    private async Task<Guid> GetEventIdFromPlayerView(Guid id, CancellationToken cancellationToken)
-    {
-        return (Guid)await dbContext.Events
-            .Where(x => x.ViewId == id)
-            .Select(x => x.Id)
             .FirstOrDefaultAsync(cancellationToken);
     }
 

@@ -63,6 +63,7 @@ namespace Alloy.Api.Data
         ViewEventTemplates,
         EditEventTemplates,
         ManageEventTemplates,
+        // Retired: events are created only by launching a template. Kept so stored roles and numbering stay valid.
         CreateEvents,
         ViewEvents,
         EditEvents,

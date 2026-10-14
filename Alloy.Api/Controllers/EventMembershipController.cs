@@ -71,7 +71,9 @@ public class EventMembershipsController : BaseController
     [SwaggerOperation(OperationId = "CreateEventMembership")]
     public async Task<IActionResult> CreateMembership([FromRoute] Guid eventId, EventMembership eventMembership, CancellationToken ct)
     {
-        if (!await _authorizationService.AuthorizeAsync<Event>(eventMembership.EventId, [SystemPermission.ManageEvents], [EventPermission.ManageEvent], ct))
+        // The route names the event. A different EventId in the body is ignored.
+        eventMembership.EventId = eventId;
+        if (!await _authorizationService.AuthorizeAsync<Event>(eventId, [SystemPermission.ManageEvents], [EventPermission.ManageEvent], ct))
             throw new ForbiddenException();
 
         var result = await _eventMembershipService.CreateAsync(eventMembership, ct);
@@ -85,17 +87,18 @@ public class EventMembershipsController : BaseController
     /// Updates a EventMembership with the attributes specified
     /// </remarks>
     /// <param name="id">The Id of the Exericse to update</param>
-    /// <param name="eventMembership">The updated EventMembership values</param>
+    /// <param name="request">The updated EventMembership values</param>
     /// <param name="ct"></param>
     [HttpPut("Events/Memberships/{id}")]
     [ProducesResponseType(typeof(EventMembership), (int)HttpStatusCode.OK)]
     [SwaggerOperation(OperationId = "updateEventMembership")]
-    public async Task<IActionResult> Update([FromRoute] Guid id, [FromBody] EventMembership eventMembership, CancellationToken ct)
+    public async Task<IActionResult> Update([FromRoute] Guid id, [FromBody] UpdateEventMembershipRequest request, CancellationToken ct)
     {
-        if (!await _authorizationService.AuthorizeAsync<Event>(eventMembership.EventId, [SystemPermission.ManageEvents], [EventPermission.ManageEvent], ct))
+        // Authorize the event the stored membership belongs to, not one named by the caller.
+        if (!await _authorizationService.AuthorizeAsync<EventMembership>(id, [SystemPermission.ManageEvents], [EventPermission.ManageEvent], ct))
             throw new ForbiddenException();
 
-        var updatedEventMembership = await _eventMembershipService.UpdateAsync(id, eventMembership, ct);
+        var updatedEventMembership = await _eventMembershipService.UpdateAsync(id, request, ct);
         return Ok(updatedEventMembership);
     }
 

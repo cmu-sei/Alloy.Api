@@ -594,7 +594,7 @@ namespace Alloy.Api.Migrations.PostgreSQL.Migrations
                             Description = "Can create and manage their own Event Templates and Events.",
                             Immutable = false,
                             Name = "Content Developer",
-                            Permissions = new[] { 0, 4, 7 }
+                            Permissions = new[] { 0, 7 }
                         },
                         new
                         {
