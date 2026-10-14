@@ -17,6 +17,7 @@ namespace Alloy.Api.Services
     {
         // Task<IEnumerable<View>> GetViewsAsync(CancellationToken ct);
         Task<IEnumerable<Directory>> GetDirectoriesAsync(CancellationToken ct);
+        Task<Directory> GetDirectoryAsync(Guid directoryId, CancellationToken ct);
         Task<IEnumerable<Resource>> GetWorkspaceResourcesAsync(Guid workspaceId, CancellationToken ct);
         Task<object> GetWorkspaceOutputsAsync(Guid workspaceId, CancellationToken ct);
         Task<Resource> RefreshResourceAsync(Guid workspaceId, Resource resource, CancellationToken ct);
@@ -49,6 +50,11 @@ namespace Alloy.Api.Services
             var directories = await _casterApiClient.GetAllDirectoriesAsync(false, false, ct);
 
             return directories;
+        }
+
+        public async Task<Directory> GetDirectoryAsync(Guid directoryId, CancellationToken ct)
+        {
+            return await _casterApiClient.GetDirectoryAsync(directoryId, false, false, ct);
         }
 
         public async Task<IEnumerable<Resource>> GetWorkspaceResourcesAsync(Guid workspaceId, CancellationToken ct)

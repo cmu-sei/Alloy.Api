@@ -26,9 +26,11 @@ namespace Alloy.Api.Infrastructure.Authorization
             {
                 context.Fail();
             }
+            // An empty list must not pass. A passing system check skips every scoped
+            // check in AuthorizationService.Authorize, so it would grant admin access.
             else if (requirement.RequiredPermissions == null || requirement.RequiredPermissions.Length == 0)
             {
-                context.Succeed(requirement);
+                context.Fail();
             }
             else if (requirement.RequiredPermissions.Any(p => context.User.HasClaim(AuthorizationConstants.PermissionClaimType, p.ToString())))
             {

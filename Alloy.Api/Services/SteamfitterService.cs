@@ -15,6 +15,7 @@ namespace Alloy.Api.Services
     public interface ISteamfitterService
     {
         Task<IEnumerable<ScenarioTemplate>> GetScenarioTemplatesAsync(CancellationToken ct);
+        Task<ScenarioTemplate> GetScenarioTemplateAsync(Guid scenarioTemplateId, CancellationToken ct);
     }
 
     public class SteamfitterService : ISteamfitterService
@@ -33,6 +34,11 @@ namespace Alloy.Api.Services
             var scenarioTemplates = await _steamfitterApiClient.GetScenarioTemplatesAsync(ct);
 
             return scenarioTemplates;
+        }
+
+        public async Task<ScenarioTemplate> GetScenarioTemplateAsync(Guid scenarioTemplateId, CancellationToken ct)
+        {
+            return await _steamfitterApiClient.GetScenarioTemplateAsync(scenarioTemplateId, ct);
         }
 
 

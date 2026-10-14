@@ -55,7 +55,6 @@ public class SystemRoleEntityConfiguration : IEntityTypeConfiguration<SystemRole
                 Immutable = false,
                 Permissions = [
                     SystemPermission.CreateEventTemplates,
-                    SystemPermission.CreateEvents,
                     SystemPermission.ExecuteEvents
                 ],
                 Description = "Can create and manage their own Event Templates and Events."
