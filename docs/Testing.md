@@ -12,7 +12,7 @@ dotnet test Alloy.Api.Tests -- xUnit.DiagnosticMessages=true    # prints the dat
 dotnet test Alloy.Api.Tests --filter "FullyQualifiedName~.EventControllerTests"
 ```
 
-Docker must be running. The suite starts and disposes its own PostgreSQL container (`postgres:16-alpine`) through Testcontainers when the first test asks for a database, so nothing is installed and no development database is touched; tests that take no database (the Caster run helpers, the queue, the mapping and handler tests) run without Docker.
+Docker must be running. The suite starts and disposes its own PostgreSQL container (`postgres:16-alpine`) through Testcontainers when the first test asks for a database, so nothing is installed and no development database is touched; tests that take no database (the Caster run helpers, the Caster workspace name, the queue, the mapping and handler tests) run without Docker.
 
 # Coverage
 
@@ -83,12 +83,17 @@ A denied test names what the caller holds: `Update_is_forbidden_for_a_member_hol
 
 Follow `agent-docs/api-testing/CONVENTIONS.md`: sentences for names, `Ct` everywhere, re-read through `NewContext()`, mothers from `TestData`, callers from `Actor()`, near misses for every denied case, recorders keyed on ids the test owns. Derive from `ApiTestBase` to send a request, `ServiceTestBase` to construct the worker or a service with options, `DatabaseTestBase` for the database alone, or nothing.
 
+Authorization is covered per call site (CONVENTIONS.md section 4). For every authorization call site, each permission value it reads has an allowed test whose caller holds exactly that value, never `Root`. Each tier of a multi-tier gate (the system tier, and the resource tier: an event, an event template or a group) has a near miss of its own: a caller holding a neighbouring permission of that tier, or the same value on another resource, refused by that site. For example, `EventTemplateController.Update` asks for `SystemPermission.EditEventTemplates` or `EventTemplatePermission.EditEventTemplate` on the route's template, so it has an allowed test for each (`Update_by_a_caller_holding_EditEventTemplates_stores_the_change`, `Update_by_a_member_holding_EditEventTemplate_stores_the_change`) and a near miss for each tier (`Update_is_forbidden_for_a_caller_holding_only_CreateEventTemplates`, `Update_is_forbidden_for_a_member_holding_only_ViewEventTemplate`, `Update_is_forbidden_for_a_caller_holding_EditEventTemplate_only_on_another_template`).
+
 A defect the tests find is characterized by a passing test of the current behaviour and described in `agent-docs/api-test-bugs/alloy.api.md` of the workspace, never in a test comment (CONVENTIONS.md section 3).
 
 # Layout
 
 ```
 Alloy.Api.Tests/
+  AssemblyFixtures.cs   the assembly fixtures: DatabaseFixture and AlloyAppFactory
+  CasterWorkspaceNameTests.cs
+                        the Caster workspace name built from a user's display name
   Controllers/          every controller over HTTP: gates, persistence, broadcasts
   Services/             the worker, EventService, EventLifecycle, the queue, UserClaimsService
   Hubs/                 EngineHub through HubHarness, and its [Authorize] over a real WebSocket connection
