@@ -38,7 +38,7 @@
     <PackageReference Include="AspNetCore.HealthChecks.SqlServer" Version="9.0.0" />
     <PackageReference Include="AspNetCore.HealthChecks.Sqlite" Version="9.0.0" />
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.1" />
-    <PackageReference Include="OpenTelemetry.Exporter.Zipkin" Version="1.14.0" />
+    <PackageReference Include="OpenTelemetry.Exporter.Zipkin" Version="1.15.3" />
     <PackageReference Include="Crucible.Common.ServiceDefaults" Version="0.0.2" />
   </ItemGroup>
 
