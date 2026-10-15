@@ -92,6 +92,15 @@ internal sealed class TestEnvironment : IDisposable
         Mapper, NullLogger<EventTemplateService>.Instance, player,
         caster ?? new StubCasterService(), steamfitter ?? new StubSteamfitterService());
 
+    public EventTemplateArchiveService EventTemplateArchiveService(AlloyContext db, IPlayerService player,
+        ICasterService caster = null, ISteamfitterService steamfitter = null)
+    {
+        caster ??= new StubCasterService();
+        steamfitter ??= new StubSteamfitterService();
+        return new(db, EventTemplateService(db, player, caster, steamfitter), player, caster, steamfitter,
+            new ArchiveService(), NullLogger<EventTemplateArchiveService>.Instance);
+    }
+
     /// <summary>
     /// The real Alloy authorization service and requirement handlers, acting as <paramref name="actor"/>.
     /// Unlike the other helpers, nothing here bypasses authorization.
@@ -180,8 +189,10 @@ internal sealed class StubPlayerService : IPlayerService
         return OnGetView(viewId);
     }
 
-    public Task<IEnumerable<Player.Api.Client.View>> GetViewsAsync(CancellationToken ct) =>
-        throw new NotSupportedException();
+    public Func<Task<IEnumerable<Player.Api.Client.View>>> OnGetViews { get; set; } =
+        () => throw new NotSupportedException();
+
+    public Task<IEnumerable<Player.Api.Client.View>> GetViewsAsync(CancellationToken ct) => OnGetViews();
 
     public Task<Player.Api.Client.View> CloneViewAsync(Guid viewId, Player.Api.Client.CloneViewCommand command, CancellationToken ct) =>
         throw new NotSupportedException();
@@ -237,8 +248,10 @@ internal sealed class StubCasterService : ICasterService
         return OnGetDirectory(directoryId);
     }
 
-    public Task<IEnumerable<Caster.Api.Client.Directory>> GetDirectoriesAsync(CancellationToken ct) =>
-        throw new NotSupportedException();
+    public Func<Task<IEnumerable<Caster.Api.Client.Directory>>> OnGetDirectories { get; set; } =
+        () => throw new NotSupportedException();
+
+    public Task<IEnumerable<Caster.Api.Client.Directory>> GetDirectoriesAsync(CancellationToken ct) => OnGetDirectories();
 
     public Task<IEnumerable<Caster.Api.Client.Resource>> GetWorkspaceResourcesAsync(Guid workspaceId, CancellationToken ct) =>
         throw new NotSupportedException();
@@ -278,8 +291,10 @@ internal sealed class StubSteamfitterService : ISteamfitterService
         return OnGetScenarioTemplate(scenarioTemplateId);
     }
 
-    public Task<IEnumerable<Steamfitter.Api.Client.ScenarioTemplate>> GetScenarioTemplatesAsync(CancellationToken ct) =>
-        throw new NotSupportedException();
+    public Func<Task<IEnumerable<Steamfitter.Api.Client.ScenarioTemplate>>> OnGetScenarioTemplates { get; set; } =
+        () => throw new NotSupportedException();
+
+    public Task<IEnumerable<Steamfitter.Api.Client.ScenarioTemplate>> GetScenarioTemplatesAsync(CancellationToken ct) => OnGetScenarioTemplates();
 
     public static StubSteamfitterService Visible() => new()
     {

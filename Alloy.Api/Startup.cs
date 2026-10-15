@@ -215,6 +215,8 @@ namespace Alloy.Api
             services.AddMemoryCache();
 
             services.AddScoped<IEventTemplateService, EventTemplateService>();
+            services.AddScoped<IEventTemplateArchiveService, EventTemplateArchiveService>();
+            services.AddSingleton<IArchiveService, ArchiveService>();
             services.AddScoped<IEventTemplateMembershipService, EventTemplateMembershipService>();
             services.AddScoped<IEventTemplateRoleService, EventTemplateRoleService>();
             services.AddScoped<IEventService, EventService>();
