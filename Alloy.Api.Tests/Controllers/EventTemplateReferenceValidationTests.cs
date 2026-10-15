@@ -25,16 +25,23 @@ public class EventTemplateReferenceValidationTests(DatabaseFixture fixture, Allo
     private const string CasterApi = "http://localhost:4309/";
     private const string SteamfitterApi = "http://localhost:4400/";
 
+    /// <summary>
+    /// Caster is asked with the caller's own token, so its refusal is the caller's: Alloy's service account,
+    /// which would deploy the directory at launch, is not the one asked.
+    /// </summary>
     [Fact]
     public async Task Create_refuses_a_directory_the_caller_cannot_see()
     {
+        var actor = await Actor().WithSystemPermissions(SystemPermission.CreateEventTemplates).SeedAsync();
         var directoryId = ArrangeDirectory(HttpStatusCode.Forbidden);
 
-        var response = await RootClient.PostAsJsonAsync("api/eventTemplates", Template(directoryId: directoryId), AlloyJson, Ct);
+        var response = await Client(actor).PostAsJsonAsync("api/eventTemplates", Template(directoryId: directoryId), AlloyJson, Ct);
 
         var problem = await AssertJsonError(HttpStatusCode.BadRequest, response);
         Assert.Contains("Caster Directory", problem.Title);
         await AssertNoTemplates();
+        var request = Assert.Single(Factory.OutboundHttp.Sent, x => x.Path == DirectoryPath(directoryId));
+        Assert.Equal($"Bearer {BearerToken(actor)}", request.Headers["Authorization"]);
     }
 
     [Fact]
@@ -49,20 +56,37 @@ public class EventTemplateReferenceValidationTests(DatabaseFixture fixture, Allo
         await AssertNoTemplates();
     }
 
+    /// <summary>A Caster request that times out during the directory check is answered with a 500.</summary>
     [Fact]
-    public async Task Create_accepts_references_the_caller_can_see_and_asks_for_each_once()
+    public async Task Create_answers_a_directory_check_that_times_out_with_a_server_error()
     {
+        var directoryId = Guid.NewGuid();
+        Factory.OutboundHttp.RespondByThrowing(DirectoryUrl(directoryId), new TaskCanceledException(SiblingTimedOut, new TimeoutException()));
+
+        var response = await RootClient.PostAsJsonAsync("api/eventTemplates", Template(directoryId: directoryId), AlloyJson, Ct);
+
+        var problem = await AssertJsonError(HttpStatusCode.InternalServerError, response);
+        Assert.Equal(("A server error occurred.", SiblingTimedOut), (problem.Title, problem.Detail));
+        await AssertNoTemplates();
+    }
+
+    [Fact]
+    public async Task Create_accepts_references_the_caller_can_see_asking_each_sibling_once_with_the_callers_token()
+    {
+        var actor = await Actor().WithSystemPermissions(SystemPermission.CreateEventTemplates).SeedAsync();
         var directoryId = ArrangeDirectory(HttpStatusCode.OK);
         var scenarioTemplateId = ArrangeScenarioTemplate(HttpStatusCode.OK);
 
-        var created = await ReadAsync<EventTemplate>(await RootClient.PostAsJsonAsync("api/eventTemplates",
+        var created = await ReadAsync<EventTemplate>(await Client(actor).PostAsJsonAsync("api/eventTemplates",
             Template(directoryId: directoryId, scenarioTemplateId: scenarioTemplateId), AlloyJson, Ct));
 
         Assert.Equal((directoryId, scenarioTemplateId), (created.DirectoryId, created.ScenarioTemplateId));
         var saved = await Stored(created.Id);
         Assert.Equal((directoryId, scenarioTemplateId), (saved.DirectoryId, saved.ScenarioTemplateId));
-        Assert.Single(Factory.OutboundHttp.Sent, x => x.Path == DirectoryPath(directoryId));
-        Assert.Single(Factory.OutboundHttp.Sent, x => x.Path == ScenarioTemplatePath(scenarioTemplateId));
+        var directoryRequest = Assert.Single(Factory.OutboundHttp.Sent, x => x.Path == DirectoryPath(directoryId));
+        var scenarioTemplateRequest = Assert.Single(Factory.OutboundHttp.Sent, x => x.Path == ScenarioTemplatePath(scenarioTemplateId));
+        Assert.Equal($"Bearer {BearerToken(actor)}", directoryRequest.Headers["Authorization"]);
+        Assert.Equal($"Bearer {BearerToken(actor)}", scenarioTemplateRequest.Headers["Authorization"]);
     }
 
     /// <summary>
@@ -82,6 +106,21 @@ public class EventTemplateReferenceValidationTests(DatabaseFixture fixture, Allo
         Assert.Equal("Renamed", (await Stored(stored.Id)).Name);
         Assert.DoesNotContain(Factory.OutboundHttp.Sent, x => x.Path == DirectoryPath(stored.DirectoryId.Value));
         Assert.DoesNotContain(Factory.OutboundHttp.Sent, x => x.Path == ScenarioTemplatePath(stored.ScenarioTemplateId.Value));
+    }
+
+    [Fact]
+    public async Task Update_refuses_a_changed_directory_the_caller_cannot_see_and_leaves_the_template_unchanged()
+    {
+        var stored = await SeedTemplateWithReferences(HttpStatusCode.OK, HttpStatusCode.OK);
+        var changed = ArrangeDirectory(HttpStatusCode.Forbidden);
+
+        var response = await RootClient.PutAsJsonAsync($"api/eventTemplates/{stored.Id}",
+            Template(stored.Id, "Renamed", changed, stored.ScenarioTemplateId), AlloyJson, Ct);
+
+        var problem = await AssertJsonError(HttpStatusCode.BadRequest, response);
+        Assert.Contains("Caster Directory", problem.Title);
+        var saved = await Stored(stored.Id);
+        Assert.Equal((stored.Name, stored.DirectoryId), (saved.Name, saved.DirectoryId));
     }
 
     [Fact]
@@ -112,6 +151,13 @@ public class EventTemplateReferenceValidationTests(DatabaseFixture fixture, Allo
         var saved = await Stored(stored.Id);
         Assert.Equal((null, null), (saved.DirectoryId, saved.ScenarioTemplateId));
     }
+
+    /// <summary>
+    /// The message of what <c>HttpClient</c> throws for a request that runs past its <c>Timeout</c> (100
+    /// seconds by default): a <c>TaskCanceledException</c> over a <c>TimeoutException</c>, while the caller's
+    /// own token is not cancelled.
+    /// </summary>
+    private const string SiblingTimedOut = "The request was canceled due to the configured HttpClient.Timeout of 100 seconds elapsing.";
 
     private static string DirectoryPath(Guid id) => $"api/directories/{id}";
 

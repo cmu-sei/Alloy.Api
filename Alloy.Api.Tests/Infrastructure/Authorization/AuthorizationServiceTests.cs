@@ -74,6 +74,27 @@ public class AuthorizationServiceTests(DatabaseFixture fixture) : DatabaseTestBa
         Assert.False(await service.AuthorizeAsync<EventTemplate>(template.Id, [], (EventTemplatePermission[])null, Ct));
     }
 
+    [Fact]
+    public async Task AuthorizeAsync_on_a_group_refuses_an_empty_group_permission_list_to_a_caller_holding_ManageMembership_on_it()
+    {
+        var group = TestData.Group();
+        await Seed(group);
+        var service = Service(new ClaimsPrincipalBuilder().WithGroup(group.Id, GroupPermission.ManageMembership).Build());
+
+        Assert.False(await service.AuthorizeAsync<Group>(group.Id, [], Array.Empty<GroupPermission>(), Ct));
+    }
+
+    /// <summary>A null scoped list asks no scoped tier at all, so only the empty system list decides.</summary>
+    [Fact]
+    public async Task AuthorizeAsync_on_a_group_refuses_a_null_group_permission_list_to_a_caller_holding_ManageMembership_on_it()
+    {
+        var group = TestData.Group();
+        await Seed(group);
+        var service = Service(new ClaimsPrincipalBuilder().WithGroup(group.Id, GroupPermission.ManageMembership).Build());
+
+        Assert.False(await service.AuthorizeAsync<Group>(group.Id, [], (GroupPermission[])null, Ct));
+    }
+
     /// <summary>
     /// The system tier refuses a caller without <c>ViewEvents</c>, and the event tier then decides: the
     /// caller's <c>ViewEvent</c> admits its own event only.

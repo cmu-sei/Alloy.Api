@@ -39,7 +39,7 @@ public class GroupControllerTests(DatabaseFixture fixture, AlloyAppFactory facto
     public async Task GetAll_returns_only_the_managed_groups_to_a_group_manager()
     {
         var other = await SeedGroup();
-        var actor = await Actor().OnNewGroup(GroupMembershipRole.Manager).SeedAsync();
+        var actor = await Actor().OnNewGroup(GroupPermission.ManageMembership).SeedAsync();
 
         var groups = await ReadAsync<List<Group>>(await Client(actor).GetAsync("api/groups", Ct));
 
@@ -69,7 +69,7 @@ public class GroupControllerTests(DatabaseFixture fixture, AlloyAppFactory facto
     public async Task Get_returns_the_group_to_its_manager()
     {
         var group = await SeedGroup();
-        var actor = await Actor().InGroup(group.Id, GroupMembershipRole.Manager).SeedAsync();
+        var actor = await Actor().InGroup(group.Id, GroupPermission.ManageMembership).SeedAsync();
 
         var read = await ReadAsync<Group>(await Client(actor).GetAsync($"api/groups/{group.Id}", Ct));
 
@@ -109,7 +109,7 @@ public class GroupControllerTests(DatabaseFixture fixture, AlloyAppFactory facto
     public async Task Get_is_forbidden_for_a_manager_of_another_group()
     {
         var group = await SeedGroup();
-        var actor = await Actor().OnNewGroup(GroupMembershipRole.Manager).SeedAsync();
+        var actor = await Actor().OnNewGroup(GroupPermission.ManageMembership).SeedAsync();
 
         await AssertJsonError(HttpStatusCode.Forbidden, await Client(actor).GetAsync($"api/groups/{group.Id}", Ct));
     }
@@ -175,7 +175,7 @@ public class GroupControllerTests(DatabaseFixture fixture, AlloyAppFactory facto
     public async Task Update_is_forbidden_for_the_groups_own_manager()
     {
         var group = await SeedGroup();
-        var actor = await Actor().InGroup(group.Id, GroupMembershipRole.Manager).SeedAsync();
+        var actor = await Actor().InGroup(group.Id, GroupPermission.ManageMembership).SeedAsync();
 
         await AssertJsonError(HttpStatusCode.Forbidden,
             await Client(actor).PutAsJsonAsync($"api/groups/{group.Id}", new Group { Id = group.Id, Name = "Renamed" }, AlloyJson, Ct));
@@ -219,7 +219,7 @@ public class GroupControllerTests(DatabaseFixture fixture, AlloyAppFactory facto
     public async Task Delete_is_forbidden_for_the_groups_own_manager()
     {
         var group = await SeedGroup();
-        var actor = await Actor().InGroup(group.Id, GroupMembershipRole.Manager).SeedAsync();
+        var actor = await Actor().InGroup(group.Id, GroupPermission.ManageMembership).SeedAsync();
 
         await AssertJsonError(HttpStatusCode.Forbidden, await Client(actor).DeleteAsync($"api/groups/{group.Id}", Ct));
 
@@ -233,7 +233,7 @@ public class GroupControllerTests(DatabaseFixture fixture, AlloyAppFactory facto
     public async Task GetMembership_returns_the_membership_to_the_groups_manager()
     {
         var (group, membership) = await SeedMembership();
-        var actor = await Actor().InGroup(group.Id, GroupMembershipRole.Manager).SeedAsync();
+        var actor = await Actor().InGroup(group.Id, GroupPermission.ManageMembership).SeedAsync();
 
         var read = await ReadAsync<GroupMembership>(await Client(actor).GetAsync($"api/groups/memberships/{membership.Id}", Ct));
 
@@ -264,7 +264,7 @@ public class GroupControllerTests(DatabaseFixture fixture, AlloyAppFactory facto
     public async Task GetMembership_is_forbidden_for_a_manager_of_another_group()
     {
         var (_, membership) = await SeedMembership();
-        var actor = await Actor().OnNewGroup(GroupMembershipRole.Manager).SeedAsync();
+        var actor = await Actor().OnNewGroup(GroupPermission.ManageMembership).SeedAsync();
 
         await AssertJsonError(HttpStatusCode.Forbidden, await Client(actor).GetAsync($"api/groups/memberships/{membership.Id}", Ct));
     }
@@ -284,7 +284,7 @@ public class GroupControllerTests(DatabaseFixture fixture, AlloyAppFactory facto
     public async Task GetMemberships_returns_the_groups_memberships_to_its_manager()
     {
         var (group, membership) = await SeedMembership();
-        var actor = await Actor().InGroup(group.Id, GroupMembershipRole.Manager).SeedAsync();
+        var actor = await Actor().InGroup(group.Id, GroupPermission.ManageMembership).SeedAsync();
 
         var memberships = await ReadAsync<List<GroupMembership>>(await Client(actor).GetAsync($"api/groups/{group.Id}/memberships", Ct));
 
@@ -304,7 +304,7 @@ public class GroupControllerTests(DatabaseFixture fixture, AlloyAppFactory facto
     public async Task GetMemberships_is_forbidden_for_a_manager_of_another_group()
     {
         var (group, _) = await SeedMembership();
-        var actor = await Actor().OnNewGroup(GroupMembershipRole.Manager).SeedAsync();
+        var actor = await Actor().OnNewGroup(GroupPermission.ManageMembership).SeedAsync();
 
         await AssertJsonError(HttpStatusCode.Forbidden, await Client(actor).GetAsync($"api/groups/{group.Id}/memberships", Ct));
     }
@@ -327,7 +327,7 @@ public class GroupControllerTests(DatabaseFixture fixture, AlloyAppFactory facto
         var other = await SeedGroup();
         var user = TestData.User();
         await Seed(user);
-        var actor = await Actor().InGroup(group.Id, GroupMembershipRole.Manager).SeedAsync();
+        var actor = await Actor().InGroup(group.Id, GroupPermission.ManageMembership).SeedAsync();
 
         var created = await ReadAsync<GroupMembership>(await Client(actor).PostAsJsonAsync($"api/groups/{group.Id}/memberships",
             new GroupMembership { GroupId = other.Id, UserId = user.Id }, AlloyJson, Ct));
@@ -388,7 +388,7 @@ public class GroupControllerTests(DatabaseFixture fixture, AlloyAppFactory facto
     public async Task CreateMembership_is_forbidden_for_a_manager_of_another_group()
     {
         var group = await SeedGroup();
-        var actor = await Actor().OnNewGroup(GroupMembershipRole.Manager).SeedAsync();
+        var actor = await Actor().OnNewGroup(GroupPermission.ManageMembership).SeedAsync();
 
         var response = await Client(actor).PostAsJsonAsync($"api/groups/{group.Id}/memberships",
             new GroupMembership { GroupId = group.Id, UserId = actor.Id, Role = GroupMembershipRole.Manager }, AlloyJson, Ct);
@@ -414,7 +414,7 @@ public class GroupControllerTests(DatabaseFixture fixture, AlloyAppFactory facto
     public async Task UpdateMembership_by_the_groups_manager_changes_the_role()
     {
         var (group, membership) = await SeedMembership();
-        var actor = await Actor().InGroup(group.Id, GroupMembershipRole.Manager).SeedAsync();
+        var actor = await Actor().InGroup(group.Id, GroupPermission.ManageMembership).SeedAsync();
 
         var response = await Client(actor).PutAsJsonAsync($"api/groups/memberships/{membership.Id}",
             new GroupMembership { Id = membership.Id, GroupId = group.Id, UserId = membership.UserId, Role = GroupMembershipRole.Manager }, AlloyJson, Ct);
@@ -453,7 +453,7 @@ public class GroupControllerTests(DatabaseFixture fixture, AlloyAppFactory facto
     public async Task UpdateMembership_is_forbidden_for_a_manager_of_another_group()
     {
         var (group, membership) = await SeedMembership();
-        var actor = await Actor().OnNewGroup(GroupMembershipRole.Manager).SeedAsync();
+        var actor = await Actor().OnNewGroup(GroupPermission.ManageMembership).SeedAsync();
 
         var response = await Client(actor).PutAsJsonAsync($"api/groups/memberships/{membership.Id}",
             new GroupMembership { Id = membership.Id, GroupId = group.Id, UserId = membership.UserId, Role = GroupMembershipRole.Manager }, AlloyJson, Ct);
@@ -482,7 +482,7 @@ public class GroupControllerTests(DatabaseFixture fixture, AlloyAppFactory facto
     public async Task DeleteMembership_by_the_groups_manager_removes_it()
     {
         var (group, membership) = await SeedMembership();
-        var actor = await Actor().InGroup(group.Id, GroupMembershipRole.Manager).SeedAsync();
+        var actor = await Actor().InGroup(group.Id, GroupPermission.ManageMembership).SeedAsync();
 
         await AssertStatus(HttpStatusCode.NoContent, await Client(actor).DeleteAsync($"api/groups/memberships/{membership.Id}", Ct));
 
@@ -506,7 +506,7 @@ public class GroupControllerTests(DatabaseFixture fixture, AlloyAppFactory facto
     public async Task DeleteMembership_is_forbidden_for_a_manager_of_another_group()
     {
         var (_, membership) = await SeedMembership();
-        var actor = await Actor().OnNewGroup(GroupMembershipRole.Manager).SeedAsync();
+        var actor = await Actor().OnNewGroup(GroupPermission.ManageMembership).SeedAsync();
 
         await AssertJsonError(HttpStatusCode.Forbidden, await Client(actor).DeleteAsync($"api/groups/memberships/{membership.Id}", Ct));
 

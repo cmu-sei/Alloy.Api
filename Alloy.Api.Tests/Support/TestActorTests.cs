@@ -144,6 +144,36 @@ public class TestActorTests(DatabaseFixture fixture) : DatabaseTestBase(fixture)
     }
 
     [Fact]
+    public async Task InGroup_holding_ManageMembership_grants_exactly_ManageMembership_on_that_group()
+    {
+        var group = TestData.Group();
+        await Seed(group);
+
+        var actor = await Actor().InGroup(group.Id, GroupPermission.ManageMembership).SeedAsync();
+
+        var claim = Assert.Single(GroupClaims(await ClaimsOf(actor)));
+        Assert.Equal(group.Id, claim.GroupId);
+        Assert.Equal([GroupPermission.ManageMembership], claim.Permissions);
+    }
+
+    [Fact]
+    public async Task OnNewGroup_holding_ManageMembership_grants_exactly_ManageMembership_on_the_minted_group()
+    {
+        var actor = await Actor().OnNewGroup(GroupPermission.ManageMembership).SeedAsync();
+
+        var claim = Assert.Single(GroupClaims(await ClaimsOf(actor)));
+        Assert.Equal(Assert.Single(actor.NewGroups), claim.GroupId);
+        Assert.Equal([GroupPermission.ManageMembership], claim.Permissions);
+    }
+
+    /// <summary>No membership role grants <c>EditGroup</c>, so asking for it is refused rather than seeding a weaker role.</summary>
+    [Fact]
+    public void InGroup_refuses_a_group_permission_no_membership_role_grants()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() => Actor().InGroup(Guid.NewGuid(), GroupPermission.EditGroup));
+    }
+
+    [Fact]
     public async Task InGroup_as_a_member_grants_nothing_on_the_group()
     {
         var group = TestData.Group();

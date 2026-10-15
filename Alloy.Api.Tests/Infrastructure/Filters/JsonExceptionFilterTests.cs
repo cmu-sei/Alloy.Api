@@ -2,13 +2,16 @@
 // Released under a MIT (SEI)-style license. See LICENSE.md in the project root for license information.
 
 using System;
+using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Json;
 using System.Text;
 using System.Threading.Tasks;
 using Alloy.Api.Data;
+using Alloy.Api.Data.Models;
 using Alloy.Api.Tests.Support;
+using Microsoft.EntityFrameworkCore;
 
 namespace Alloy.Api.Tests.Infrastructure.Filters;
 
@@ -71,6 +74,23 @@ public class JsonExceptionFilterTests(DatabaseFixture fixture, AlloyAppFactory f
     public async Task A_route_id_that_is_not_a_guid_is_a_validation_problem()
     {
         await AssertProblem(HttpStatusCode.BadRequest, await RootClient.GetAsync("api/events/not-a-guid", Ct));
+    }
+
+    /// <summary>An integer outside <see cref="GroupMembershipRole"/> is accepted and stored as a group membership's role.</summary>
+    [Fact]
+    public async Task A_group_membership_role_outside_the_enum_is_stored()
+    {
+        const int undefinedRole = 999;
+        var group = TestData.Group();
+        var user = TestData.User();
+        await Seed(group, user);
+
+        var response = await RootClient.PostAsJsonAsync($"api/groups/{group.Id}/memberships",
+            new { groupId = group.Id, userId = user.Id, role = undefinedRole }, Ct);
+
+        await AssertStatus(HttpStatusCode.Created, response);
+        Assert.Equal((GroupMembershipRole)undefinedRole, await ReadBack(db => db.GroupMemberships
+            .Where(x => x.GroupId == group.Id && x.UserId == user.Id).Select(x => x.Role).SingleAsync(Ct)));
     }
 
     /// <summary>A request with no identity is answered with a 401; the anonymous client is the case under test.</summary>

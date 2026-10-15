@@ -147,6 +147,12 @@ public sealed class TestActorBuilder(AlloyContext db, CancellationToken ct)
     }
 
     /// <summary>
+    /// Puts the actor in an existing group with the membership role that grants exactly
+    /// <paramref name="permission"/> on it, for a test that names the group permission a gate reads.
+    /// </summary>
+    public TestActorBuilder InGroup(Guid groupId, GroupPermission permission) => InGroup(groupId, RoleGranting(permission));
+
+    /// <summary>
     /// Puts the actor on a new event, of <paramref name="eventTemplateId"/> when given (which must already
     /// be saved), holding exactly <paramref name="permissions"/>: the near miss of a denied test. The id is
     /// on <see cref="TestActor.NewEvents"/>.
@@ -176,6 +182,23 @@ public sealed class TestActorBuilder(AlloyContext db, CancellationToken ct)
         _groups.Add((Guid.Empty, role, true));
         return this;
     }
+
+    /// <summary>
+    /// Puts the actor in a new group with the membership role that grants exactly
+    /// <paramref name="permission"/> on it: the near miss of a group gate, the right permission on another
+    /// group. The id is on <see cref="TestActor.NewGroups"/>.
+    /// </summary>
+    public TestActorBuilder OnNewGroup(GroupPermission permission) => OnNewGroup(RoleGranting(permission));
+
+    /// <summary>
+    /// The one membership role granting <paramref name="permission"/>: <c>UserClaimsService</c> gives a
+    /// group's managers <c>ManageMembership</c> and nothing else, and no role grants <c>EditGroup</c>.
+    /// </summary>
+    private static GroupMembershipRole RoleGranting(GroupPermission permission) =>
+        permission == GroupPermission.ManageMembership
+            ? GroupMembershipRole.Manager
+            : throw new ArgumentOutOfRangeException(nameof(permission), permission,
+                "No group membership role grants this permission; only a Manager holds one (ManageMembership).");
 
     /// <summary>Writes the actor and everything above to the database.</summary>
     public async Task<TestActor> SeedAsync()

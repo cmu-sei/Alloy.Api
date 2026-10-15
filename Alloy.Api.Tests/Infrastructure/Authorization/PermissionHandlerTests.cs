@@ -108,6 +108,31 @@ public class PermissionHandlerTests
         Assert.True(context.HasSucceeded);
     }
 
+    /// <summary>A claim for the group is not a permission, so a requirement naming none fails.</summary>
+    [Fact]
+    public async Task A_group_requirement_with_an_empty_permission_list_fails_for_ManageMembership_on_that_group()
+    {
+        var groupId = Guid.NewGuid();
+        var user = new ClaimsPrincipalBuilder().WithGroup(groupId, GroupPermission.ManageMembership).Build();
+
+        var context = await AuthorizationHarness.HandleAsync(new GroupPermissionsHandler(),
+            new GroupPermissionRequirement([], groupId), user);
+
+        Assert.True(context.HasFailed);
+    }
+
+    [Fact]
+    public async Task A_group_requirement_with_a_null_permission_list_fails_for_ManageMembership_on_that_group()
+    {
+        var groupId = Guid.NewGuid();
+        var user = new ClaimsPrincipalBuilder().WithGroup(groupId, GroupPermission.ManageMembership).Build();
+
+        var context = await AuthorizationHarness.HandleAsync(new GroupPermissionsHandler(),
+            new GroupPermissionRequirement(null, groupId), user);
+
+        Assert.True(context.HasFailed);
+    }
+
     [Fact]
     public async Task The_framework_service_wired_as_production_wires_it_runs_the_handlers()
     {
