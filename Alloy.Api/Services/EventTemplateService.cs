@@ -121,7 +121,7 @@ namespace Alloy.Api.Services
                 .SingleOrDefaultAsync(o => o.Id == id, ct);
 
             if (item == null)
-                throw new ForbiddenException();
+                throw new EntityNotFoundException<EventTemplate>($"Event Template {id} was not found.");
 
             return _mapper.Map<EventTemplate>(item);
         }
@@ -194,7 +194,7 @@ namespace Alloy.Api.Services
             if (eventTemplateEntity == null)
             {
                 _logger.LogError($"EventTemplate {eventTemplateId} was not found.");
-                throw new EntityNotFoundException<EventTemplate>();
+                throw new EntityNotFoundException<EventTemplate>($"Event Template {eventTemplateId} was not found.");
             }
 
             return eventTemplateEntity;
