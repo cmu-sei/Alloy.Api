@@ -10,6 +10,7 @@ using System.Threading.Tasks;
 using Alloy.Api.Infrastructure.Extensions;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Logging;
 using Player.Api.Client;
 
 namespace Alloy.Api.Services
@@ -28,14 +29,17 @@ namespace Alloy.Api.Services
         private readonly IAuthorizationService _authorizationService;
         private readonly IUserClaimsService _claimsService;
         private readonly ClaimsPrincipal _user;
+        private readonly ILogger<PlayerService> _logger;
 
         public PlayerService(
             IHttpContextAccessor httpContextAccessor,
             IPlayerApiClient playerApiClient,
             IAuthorizationService authorizationService,
             IPrincipal user,
-            IUserClaimsService claimsService)
+            IUserClaimsService claimsService,
+            ILogger<PlayerService> logger)
         {
+            _logger = logger;
             _playerApiClient = playerApiClient;
             _authorizationService = authorizationService;
             _user = user as ClaimsPrincipal;
@@ -44,8 +48,8 @@ namespace Alloy.Api.Services
 
         public async Task<IEnumerable<View>> GetViewsAsync(CancellationToken ct)
         {
-            var views = await _playerApiClient.GetUserViewsAsync(_user.GetId(), ct);
-            return views;
+            return await _logger.CallUpstreamAsync("Player", "load your Player views",
+                async () => await _playerApiClient.GetUserViewsAsync(_user.GetId(), ct), ct);
         }
 
         public async Task<View> GetViewAsync(Guid viewId, CancellationToken ct)

@@ -219,8 +219,7 @@ namespace Alloy.Api.Services
             }
 
             // check for resource limitations
-            if (!await ResourcesAreAvailableAsync(eventTemplateId, userId.Value, ct))
-                throw new Exception($"The appropriate resources are not available to create an event from the EventTemplate {eventTemplateId}.");
+            await EnsureLaunchAllowedAsync(eventTemplateId, userId.Value, ct);
 
             // create the event from the eventTemplate
             var eventEntity = await CreateEventEntityAsync(eventTemplateId, userId.Value, username, additionalUserIds, ct);
@@ -266,7 +265,7 @@ namespace Alloy.Api.Services
             }
             catch (Exception ex)
             {
-                _logger.LogError($"Error ending Event {eventId}.", ex);
+                _logger.LogError(ex, $"Error ending Event {eventId}.");
                 throw;
             }
 
@@ -280,36 +279,42 @@ namespace Alloy.Api.Services
                 var eventEntity = await GetTheEventAsync(eventId, ct);
                 if (eventEntity.Status != EventStatus.Active || eventEntity.EndRequestedAt != null || eventEntity.EndDate != null)
                 {
-                    var msg = $"Only an Active Event can be redeployed";
-                    _logger.LogError(msg);
-                    throw new Exception(msg);
+                    throw new ConflictException(NotRedeployableMessage(eventEntity));
+                }
+
+                if (!eventEntity.WorkspaceId.HasValue)
+                {
+                    throw new ConflictException("This event has no Caster workspace, so there is nothing to redeploy.");
                 }
 
                 var tokenResponse = await ApiClientsExtensions.RequestTokenAsync(_resourceOwnerAuthorizationOptions, _httpClientFactory.CreateClient());
                 var casterApiClient = CasterApiExtensions.GetCasterApiClient(_httpClientFactory, _clientOptions.urls.casterApi, tokenResponse);
 
-                var result = await casterApiClient.TaintResourcesAsync(
-                    eventEntity.WorkspaceId.Value,
-                    new Caster.Api.Client.TaintResourcesCommand { SelectAll = true },
+                var result = await _logger.CallUpstreamAsync("Caster", "mark the event's resources for redeployment",
+                    () => casterApiClient.TaintResourcesAsync(
+                        eventEntity.WorkspaceId.Value,
+                        new Caster.Api.Client.TaintResourcesCommand { SelectAll = true },
+                        ct),
                     ct);
 
-                if (result.Resources.Any(r => r.Tainted == false))
+                var untainted = result.Resources.Count(r => r.Tainted == false);
+                if (untainted > 0)
                 {
-                    var msg = $"Taint failed";
-                    _logger.LogError(msg);
-                    throw new Exception(msg);
+                    throw new UpstreamServiceException(
+                        $"Caster did not mark {untainted} of the event's {result.Resources.Count} resources for redeployment, " +
+                        "so the event was not redeployed. Try again, or end the event and launch a new one.", null);
                 }
 
                 // Tainting is an external call. An end may have arrived while it ran.
                 if (!await EventLifecycle.ScheduleRedeployAsync(_context, eventEntity, ct))
                 {
-                    throw new InvalidOperationException("The event is no longer active or ending has been requested.");
+                    throw new ConflictException("The event is ending, so it can no longer be redeployed.");
                 }
                 _alloyEventQueue.Add(eventEntity);
             }
             catch (Exception ex)
             {
-                _logger.LogError($"Error ending Event {eventId}.", ex);
+                _logger.LogError(ex, $"Error redeploying Event {eventId}.");
                 throw;
             }
 
@@ -384,44 +389,45 @@ namespace Alloy.Api.Services
             return eventEntity;
         }
 
-        private async Task<bool> ResourcesAreAvailableAsync(Guid eventTemplateId, Guid userId, CancellationToken ct)
+        /// <summary>
+        /// Throws <see cref="ConflictException"/> when the user already has an active Event from this
+        /// EventTemplate, or already has as many active Events as they are allowed.
+        /// </summary>
+        private async System.Threading.Tasks.Task EnsureLaunchAllowedAsync(Guid eventTemplateId, Guid userId, CancellationToken ct)
         {
             // Check if user has ManageEvents permission to bypass resource limits
             // This checks both JWT token roles (if UseRolesFromIdP enabled) and database role
             if (await _alloyAuthorizationService.AuthorizeAsync([Data.SystemPermission.ManageEvents], ct))
             {
-                return true;  // Skip all limit checks for users with manage permissions
+                return;  // Skip all limit checks for users with manage permissions
             }
 
-            var resourcesAvailable = true;
-            // check to see if this user already has this EventTemplate Implemented
+            var forCaller = userId == _user.GetId();
             var notActiveStatuses = new List<EventStatus>() {
                 EventStatus.Failed, EventStatus.Ended,
                 EventStatus.Expired};
-            var items = await _context.Events
-                .Where(x => x.UserId == userId && x.EventTemplateId == eventTemplateId && !notActiveStatuses.Contains(x.Status))
+            var activeEvents = await _context.Events
+                .Where(x => x.UserId == userId && !notActiveStatuses.Contains(x.Status))
                 .ToListAsync(ct);
-            resourcesAvailable = !items.Any();
-            if (!resourcesAvailable)
+
+            // check to see if this user already has this EventTemplate Implemented
+            if (activeEvents.Any(x => x.EventTemplateId == eventTemplateId))
             {
-                _logger.LogError($"User {userId} already has an active Event for EventTemplate {eventTemplateId}.");
-                throw new Exception($"User {userId} already has an active Event for EventTemplate {eventTemplateId}.");
-            }
-            {
-                // check to see if this user has too many Events started
-                items = await _context.Events
-                    .Where(x => x.UserId == userId && !notActiveStatuses.Contains(x.Status))
-                    .ToListAsync(ct);
-                var upperLimit = _resourceOptions.CurrentValue.MaxEventsForBasicUser;
-                resourcesAvailable = items.Count() < upperLimit;
-                if (!resourcesAvailable)
-                {
-                    _logger.LogError($"User {userId} already has {upperLimit} Events active.");
-                    throw new Exception($"User {userId} already has {upperLimit} Events active.");
-                }
+                _logger.LogInformation($"User {userId} already has an active Event for EventTemplate {eventTemplateId}.");
+                throw new ConflictException(forCaller
+                    ? "You already have an active event from this template. End it before launching another."
+                    : "This user already has an active event from this template. It must be ended before another can be launched.");
             }
 
-            return resourcesAvailable;
+            // check to see if this user has too many Events started
+            var upperLimit = _resourceOptions.CurrentValue.MaxEventsForBasicUser;
+            if (activeEvents.Count >= upperLimit)
+            {
+                _logger.LogInformation($"User {userId} already has {upperLimit} Events active.");
+                throw new ConflictException(forCaller
+                    ? $"You already have as many active events as you can have at once ({upperLimit}). End one before launching another."
+                    : $"This user already has as many active events as they can have at once ({upperLimit}). One must be ended before another can be launched.");
+            }
         }
 
         private async Task<EventEntity> GetTheEventAsync(Guid eventId, CancellationToken ct)
@@ -431,7 +437,7 @@ namespace Alloy.Api.Services
             if (eventEntity == null)
             {
                 _logger.LogError($"Event {eventId} was not found.");
-                throw new EntityNotFoundException<EventTemplate>();
+                throw new EntityNotFoundException<Event>($"Event {eventId} was not found.");
             }
 
             return eventEntity;
@@ -586,10 +592,35 @@ namespace Alloy.Api.Services
                 }
                 catch (Exception)
                 {
-                    throw new InviteException("Invite Failed, Accepted Already");
+                    throw new InviteException("You have already joined this event.");
                 }
             }
-            throw new InviteException($"Invite Failed, Event Status: {Enum.GetName(typeof(EventStatus), alloyEvent.Status)}");
+            throw new InviteException(alloyEvent.Status switch
+            {
+                EventStatus.Creating or EventStatus.Planning or EventStatus.Applying =>
+                    "This event is still launching. Try the invitation again in a few minutes.",
+                EventStatus.Ending => "This event is ending, so it can no longer be joined.",
+                EventStatus.Expired => "This event has expired, so it can no longer be joined.",
+                EventStatus.Failed => "This event failed to launch, so it can't be joined.",
+                _ => "This event has ended, so it can no longer be joined."
+            });
+        }
+
+        private static string NotRedeployableMessage(EventEntity eventEntity)
+        {
+            // The status decides first: an ended event has an EndDate too, and is not "ending"
+            return eventEntity.Status switch
+            {
+                EventStatus.Ended or EventStatus.Expired or EventStatus.Failed =>
+                    "This event is no longer active, so it can't be redeployed.",
+                EventStatus.Ending => "This event is ending, so it can no longer be redeployed.",
+                _ when eventEntity.EndRequestedAt != null || eventEntity.EndDate != null =>
+                    "This event is ending, so it can no longer be redeployed.",
+                EventStatus.Creating or EventStatus.Planning or EventStatus.Applying =>
+                    "This event is still launching. It can be redeployed once it is active.",
+                EventStatus.Paused => "This event is paused. Only an active event can be redeployed.",
+                _ => "This event is no longer active, so it can't be redeployed."
+            };
         }
 
         private async Task<UserEntity> EnsureUserAsync(Guid userId, string userName, CancellationToken ct)

@@ -118,11 +118,11 @@ public class EventTemplateControllerTests(DatabaseFixture fixture, AlloyAppFacto
         await AssertJsonError(HttpStatusCode.Forbidden, await Client(actor).GetAsync($"api/eventTemplates/{template.Id}", Ct));
     }
 
-    /// <summary>A template that does not exist is answered with a 403 even for a caller holding every permission.</summary>
+    /// <summary>A template that does not exist is not found for a caller holding every permission.</summary>
     [Fact]
-    public async Task Get_answers_an_unknown_template_with_forbidden()
+    public async Task Get_answers_an_unknown_template_with_not_found()
     {
-        await AssertJsonError(HttpStatusCode.Forbidden, await RootClient.GetAsync($"api/eventTemplates/{Guid.NewGuid()}", Ct));
+        await AssertJsonError(HttpStatusCode.NotFound, await RootClient.GetAsync($"api/eventTemplates/{Guid.NewGuid()}", Ct));
     }
 
     // POST api/eventTemplates
