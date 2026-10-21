@@ -1,0 +1,37 @@
+version: 2
+updates:
+  # GitHub Actions used by .github/workflows, including the floating-tag
+  # cmu-sei/Crucible-Github-Actions refs (bumped only if a dotted tag appears).
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      github-actions:
+        patterns: ["*"]
+    commit-message:
+      prefix: chore(deps)
+
+  # Base images in the root Dockerfile.
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+
+  # The API's NuGet dependencies.
+  - package-ecosystem: nuget
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      minor-and-patch:
+        update-types: [minor, patch]
+
+  # NSwag, used by the client package build (Alloy.Api.Client/package.json).
+  - package-ecosystem: npm
+    directory: /Alloy.Api.Client
+    schedule:
+      interval: weekly
+    groups:
+      minor-and-patch:
+        update-types: [minor, patch]
