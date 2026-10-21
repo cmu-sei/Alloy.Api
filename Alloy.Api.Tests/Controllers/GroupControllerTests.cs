@@ -134,6 +134,21 @@ public class GroupControllerTests(DatabaseFixture fixture, AlloyAppFactory facto
         Assert.Equal("Blue Team", (await context.Groups.SingleAsync(x => x.Id == created.Id, Ct)).Name);
     }
 
+    /// <summary>An existing group id is answered with a 500 and leaves the stored group unchanged.</summary>
+    [Fact]
+    public async Task Create_answers_an_existing_group_id_with_a_server_error()
+    {
+        var group = await SeedGroup();
+
+        var response = await RootClient.PostAsJsonAsync("api/groups", new Group { Id = group.Id, Name = "Replacement" }, AlloyJson, Ct);
+
+        var problem = await AssertJsonError(HttpStatusCode.InternalServerError, response);
+        Assert.Equal("An error occurred while saving the entity changes. See the inner exception for details.", problem.Detail);
+        Assert.Equal(group.Name, (await StoredGroup(group.Id)).Name);
+        await using var context = NewContext();
+        Assert.False(await context.Groups.AnyAsync(x => x.Name == "Replacement", Ct));
+    }
+
     [Fact]
     public async Task Create_is_forbidden_for_a_caller_holding_only_ViewGroups()
     {
@@ -366,6 +381,25 @@ public class GroupControllerTests(DatabaseFixture fixture, AlloyAppFactory facto
 
         var problem = await AssertJsonError(HttpStatusCode.InternalServerError, response);
         Assert.Equal("An error occurred while saving the entity changes. See the inner exception for details.", problem.Detail);
+    }
+
+    /// <summary>An existing group membership id is answered with a 500 even for a different user.</summary>
+    [Fact]
+    public async Task CreateMembership_answers_an_existing_membership_id_with_a_server_error()
+    {
+        var (group, membership) = await SeedMembership();
+        var user = TestData.User();
+        await Seed(user);
+
+        var response = await RootClient.PostAsJsonAsync($"api/groups/{group.Id}/memberships",
+            new GroupMembership { Id = membership.Id, GroupId = group.Id, UserId = user.Id }, AlloyJson, Ct);
+
+        var problem = await AssertJsonError(HttpStatusCode.InternalServerError, response);
+        Assert.Equal("An error occurred while saving the entity changes. See the inner exception for details.", problem.Detail);
+        var saved = await StoredMembership(membership.Id);
+        Assert.Equal((group.Id, membership.UserId, membership.Role), (saved.GroupId, saved.UserId, saved.Role));
+        await using var context = NewContext();
+        Assert.False(await context.GroupMemberships.AnyAsync(x => x.UserId == user.Id, Ct));
     }
 
     [Fact]

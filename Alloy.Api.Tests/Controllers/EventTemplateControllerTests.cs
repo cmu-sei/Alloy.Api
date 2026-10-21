@@ -140,6 +140,21 @@ public class EventTemplateControllerTests(DatabaseFixture fixture, AlloyAppFacto
         Assert.Equal((actor.Id, 2), (saved.CreatedBy, saved.DurationHours));
     }
 
+    /// <summary>An existing template id is answered with a 500 and leaves the stored template unchanged.</summary>
+    [Fact]
+    public async Task Create_answers_an_existing_template_id_with_a_server_error()
+    {
+        var template = await SeedTemplate();
+
+        var response = await RootClient.PostAsJsonAsync("api/eventTemplates", Template("Replacement", template.Id), AlloyJson, Ct);
+
+        var problem = await AssertJsonError(HttpStatusCode.InternalServerError, response);
+        Assert.Equal("An error occurred while saving the entity changes. See the inner exception for details.", problem.Detail);
+        Assert.Equal(template.Name, (await Stored(template.Id)).Name);
+        await using var context = NewContext();
+        Assert.False(await context.EventTemplates.AnyAsync(x => x.Name == "Replacement", Ct));
+    }
+
     /// <summary>The creator of a template gets no membership on it.</summary>
     [Fact]
     public async Task Create_gives_the_creator_no_membership_on_the_new_template()

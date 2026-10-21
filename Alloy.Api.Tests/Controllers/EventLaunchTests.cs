@@ -68,6 +68,23 @@ public class EventLaunchTests(DatabaseFixture fixture, AlloyAppFactory factory) 
         Assert.True(await context.Users.AnyAsync(x => x.Id == additional, Ct));
     }
 
+    /// <summary>An additional user named twice receives two Member memberships on the launched event.</summary>
+    [Fact]
+    public async Task Launch_stores_two_memberships_for_an_additional_user_named_twice()
+    {
+        var template = await SeedTemplate();
+        var additional = Guid.NewGuid();
+
+        var response = await Launch(Root, template.Id, new CreateEventCommand { AdditionalUserIds = [additional, additional] });
+
+        await AssertStatus(HttpStatusCode.Created, response);
+        var created = await ReadAsync<Event>(response);
+        await using var context = NewContext();
+        Assert.Equal(2, await context.EventMemberships.CountAsync(x => x.EventId == created.Id && x.UserId == additional, Ct));
+        Assert.Equal(2, await context.EventMemberships.CountAsync(x => x.EventId == created.Id && x.UserId == additional && x.RoleId == TestData.EventRoles.Member && x.GroupId == null, Ct));
+        Assert.True(await context.Users.AnyAsync(x => x.Id == additional, Ct));
+    }
+
     /// <summary>A published template grants every user ViewEventTemplate, so anyone may launch it.</summary>
     [Fact]
     public async Task Launch_of_a_published_template_is_allowed_for_a_caller_with_no_membership_on_it()

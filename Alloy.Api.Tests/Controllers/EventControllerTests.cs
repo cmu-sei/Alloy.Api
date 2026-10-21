@@ -506,6 +506,25 @@ public class EventControllerTests(DatabaseFixture fixture, AlloyAppFactory facto
             (await context.EventTemplateMemberships.SingleAsync(x => x.EventTemplateId == evt.EventTemplateId && x.UserId == actor.Id, Ct)).RoleId);
     }
 
+    /// <summary>Enlisting an existing template member adds another Observer membership on the same template.</summary>
+    [Fact]
+    public async Task Enlist_stores_a_second_template_membership_for_an_existing_template_member()
+    {
+        var evt = await SeedEvent(x => x.ShareCode = $"code-{Guid.NewGuid():N}");
+        var actor = await Actor().OnEventTemplate(evt.EventTemplateId.Value, roleId: TestData.EventTemplateRoles.Member).SeedAsync();
+
+        var response = await Client(actor).PostAsync($"api/events/enlist/{evt.ShareCode}", null, Ct);
+
+        await AssertStatus(HttpStatusCode.Created, response);
+        await using var context = NewContext();
+        var roles = await context.EventTemplateMemberships
+            .Where(x => x.EventTemplateId == evt.EventTemplateId && x.UserId == actor.Id)
+            .Select(x => x.RoleId).ToListAsync(Ct);
+        Assert.Equal(new[] { TestData.EventTemplateRoles.Member, TestData.EventTemplateRoles.Observer }.Order(), roles.Order());
+        Assert.Equal(TestData.EventRoles.Member,
+            (await context.EventMemberships.SingleAsync(x => x.EventId == evt.Id && x.UserId == actor.Id, Ct)).RoleId);
+    }
+
     [Fact]
     public async Task Enlist_with_an_unknown_code_is_not_found()
     {
