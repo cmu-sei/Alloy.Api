@@ -163,25 +163,24 @@ public class EventLaunchTests(DatabaseFixture fixture, AlloyAppFactory factory) 
         await AssertJsonError(HttpStatusCode.Forbidden, await Launch(actor, template.Id, new CreateEventCommand { UserId = Guid.NewGuid() }));
     }
 
-    /// <summary>A basic user's second active event of the same template is answered with a 500.</summary>
+    /// <summary>A basic user's second active event of the same template is a conflict the user can resolve.</summary>
     [Fact]
-    public async Task Launch_answers_a_second_active_event_of_the_same_template_with_a_server_error()
+    public async Task Launch_answers_a_second_active_event_of_the_same_template_with_a_conflict()
     {
         var template = await SeedTemplate(published: true);
         var actor = await Actor().SeedAsync();
         await Launch(actor, template.Id, new CreateEventCommand());
 
-        var problem = await AssertJsonError(HttpStatusCode.InternalServerError, await Launch(actor, template.Id, new CreateEventCommand()));
+        var problem = await AssertJsonError(HttpStatusCode.Conflict, await Launch(actor, template.Id, new CreateEventCommand()));
 
-        Assert.Equal($"User {actor.Id} already has an active Event for EventTemplate {template.Id}.", problem.Detail);
+        Assert.Equal("You already have an active event from this template. End it before launching another.", problem.Title);
         await using var context = NewContext();
         Assert.Equal(1, await context.Events.CountAsync(x => x.EventTemplateId == template.Id, Ct));
     }
 
-    /// <summary>Resource:MaxEventsForBasicUser is 2 as shipped; the third is answered with a 500.</summary>
-    // Same case as Launch_answers_a_second_active_event_of_the_same_template_with_a_server_error.
+    /// <summary>Resource:MaxEventsForBasicUser is 2 as shipped; the third is a conflict naming the limit.</summary>
     [Fact]
-    public async Task Launch_answers_a_basic_users_third_active_event_with_a_server_error()
+    public async Task Launch_answers_a_basic_users_third_active_event_with_a_conflict()
     {
         var first = await SeedTemplate(published: true);
         var second = await SeedTemplate(published: true);
@@ -190,23 +189,22 @@ public class EventLaunchTests(DatabaseFixture fixture, AlloyAppFactory factory) 
         await Launch(actor, first.Id, new CreateEventCommand());
         await Launch(actor, second.Id, new CreateEventCommand());
 
-        var problem = await AssertJsonError(HttpStatusCode.InternalServerError, await Launch(actor, third.Id, new CreateEventCommand()));
+        var problem = await AssertJsonError(HttpStatusCode.Conflict, await Launch(actor, third.Id, new CreateEventCommand()));
 
-        Assert.Equal($"User {actor.Id} already has 2 Events active.", problem.Detail);
+        Assert.Equal("You already have as many active events as you can have at once (2). End one before launching another.", problem.Title);
     }
 
-    /// <summary>A caller holding ManageEventTemplates but not ManageEvents is limited like a basic user; the second launch is answered with a 500.</summary>
-    // Same case as Launch_answers_a_second_active_event_of_the_same_template_with_a_server_error.
+    /// <summary>A caller holding ManageEventTemplates but not ManageEvents is limited like a basic user; the second launch is a conflict.</summary>
     [Fact]
-    public async Task Launch_answers_a_second_active_event_for_a_caller_holding_ManageEventTemplates_with_a_server_error()
+    public async Task Launch_answers_a_second_active_event_for_a_caller_holding_ManageEventTemplates_with_a_conflict()
     {
         var template = await SeedTemplate();
         var actor = await Actor().WithSystemPermissions(SystemPermission.ViewEventTemplates, SystemPermission.ManageEventTemplates).SeedAsync();
         await Launch(actor, template.Id, new CreateEventCommand());
 
-        var problem = await AssertJsonError(HttpStatusCode.InternalServerError, await Launch(actor, template.Id, new CreateEventCommand()));
+        var problem = await AssertJsonError(HttpStatusCode.Conflict, await Launch(actor, template.Id, new CreateEventCommand()));
 
-        Assert.Equal($"User {actor.Id} already has an active Event for EventTemplate {template.Id}.", problem.Detail);
+        Assert.Equal("You already have an active event from this template. End it before launching another.", problem.Title);
     }
 
     [Fact]

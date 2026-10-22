@@ -25,6 +25,16 @@ public class EventTemplateMembershipControllerTests(DatabaseFixture fixture, All
     // GET api/eventTemplates/memberships/{id}
 
     [Fact]
+    public async Task Get_answers_an_unknown_membership_with_not_found()
+    {
+        var id = Guid.NewGuid();
+
+        var problem = await AssertJsonError(HttpStatusCode.NotFound, await RootClient.GetAsync($"api/eventTemplates/memberships/{id}", Ct));
+
+        Assert.Equal($"Event Template Membership {id} was not found.", problem.Title);
+    }
+
+    [Fact]
     public async Task Get_returns_the_membership_to_a_member_holding_ViewEventTemplate_on_its_template()
     {
         var (template, membership) = await SeedMembership();

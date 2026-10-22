@@ -114,11 +114,24 @@ public class GroupControllerTests(DatabaseFixture fixture, AlloyAppFactory facto
         await AssertJsonError(HttpStatusCode.Forbidden, await Client(actor).GetAsync($"api/groups/{group.Id}", Ct));
     }
 
-    /// <summary>A group that does not exist is answered with a 204 and no body.</summary>
     [Fact]
-    public async Task Get_answers_an_unknown_group_with_no_content()
+    public async Task Get_answers_an_unknown_group_with_not_found()
     {
-        await AssertStatus(HttpStatusCode.NoContent, await RootClient.GetAsync($"api/groups/{Guid.NewGuid()}", Ct));
+        var id = Guid.NewGuid();
+
+        var problem = await AssertJsonError(HttpStatusCode.NotFound, await RootClient.GetAsync($"api/groups/{id}", Ct));
+
+        Assert.Equal($"Group {id} was not found.", problem.Title);
+    }
+
+    [Fact]
+    public async Task GetMembership_answers_an_unknown_membership_with_not_found()
+    {
+        var id = Guid.NewGuid();
+
+        var problem = await AssertJsonError(HttpStatusCode.NotFound, await RootClient.GetAsync($"api/groups/memberships/{id}", Ct));
+
+        Assert.Equal($"Group Membership {id} was not found.", problem.Title);
     }
 
     // POST api/groups

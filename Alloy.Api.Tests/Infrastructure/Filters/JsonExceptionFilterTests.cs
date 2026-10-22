@@ -2,6 +2,7 @@
 // Released under a MIT (SEI)-style license. See LICENSE.md in the project root for license information.
 
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
@@ -10,8 +11,17 @@ using System.Text;
 using System.Threading.Tasks;
 using Alloy.Api.Data;
 using Alloy.Api.Data.Models;
+using Alloy.Api.Infrastructure.Filters;
 using Alloy.Api.Tests.Support;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.Abstractions;
+using Microsoft.AspNetCore.Mvc.Filters;
+using Microsoft.AspNetCore.Routing;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging.Abstractions;
+using NSubstitute;
 
 namespace Alloy.Api.Tests.Infrastructure.Filters;
 
@@ -52,6 +62,27 @@ public class JsonExceptionFilterTests(DatabaseFixture fixture, AlloyAppFactory f
 
         Assert.Equal("A server error occurred.", problem.Title);
         Assert.DoesNotContain(" at ", problem.Detail);
+    }
+
+    /// <summary>
+    /// A sibling API's ApiException that no service wrapped is a 502 naming the service, not a 500.
+    /// Exercised directly: every request path wraps its calls, so this is the net under the next one.
+    /// </summary>
+    [Fact]
+    public void An_unwrapped_sibling_failure_is_a_bad_gateway_naming_the_service()
+    {
+        var filter = new JsonExceptionFilter(Substitute.For<IWebHostEnvironment>(), NullLogger<JsonExceptionFilter>.Instance);
+        var context = new ExceptionContext(new ActionContext(new DefaultHttpContext(), new RouteData(), new ActionDescriptor()), [])
+        {
+            Exception = new Steamfitter.Api.Client.ApiException("The HTTP status code of the response was not expected (404).", 404, "",
+                new Dictionary<string, IEnumerable<string>>(), null)
+        };
+
+        filter.OnException(context);
+
+        var result = Assert.IsType<JsonResult>(context.Result);
+        Assert.Equal((int)HttpStatusCode.BadGateway, result.StatusCode);
+        Assert.Equal("Could not complete the request. It was not found in Steamfitter.", Assert.IsType<ProblemDetails>(result.Value).Title);
     }
 
     [Fact]

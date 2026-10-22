@@ -25,6 +25,16 @@ public class EventMembershipControllerTests(DatabaseFixture fixture, AlloyAppFac
     // GET api/events/memberships/{id}
 
     [Fact]
+    public async Task Get_answers_an_unknown_membership_with_not_found()
+    {
+        var id = Guid.NewGuid();
+
+        var problem = await AssertJsonError(HttpStatusCode.NotFound, await RootClient.GetAsync($"api/events/memberships/{id}", Ct));
+
+        Assert.Equal($"Event Membership {id} was not found.", problem.Title);
+    }
+
+    [Fact]
     public async Task Get_returns_the_membership_to_a_member_holding_ViewEvent_on_its_event()
     {
         var (evt, membership) = await SeedMembership();
