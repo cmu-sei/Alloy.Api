@@ -87,6 +87,8 @@ Authorization is covered per call site (CONVENTIONS.md section 4). For every aut
 
 A defect the tests find is characterized by a passing test of the current behaviour and described in `agent-docs/api-test-bugs/alloy.api.md` of the workspace, never in a test comment (CONVENTIONS.md section 3).
 
+`FakeSiblingApis` rejects an HTTP request whose supplied cancellation token is already cancelled before dispatching it to the script. Its `LastRequestToken` exposes the token of the last sibling request for forwarding assertions. The handler belongs to one test's service host, and the application services and generated HTTP clients remain real.
+
 # Layout
 
 ```

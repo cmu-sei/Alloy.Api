@@ -206,6 +206,25 @@ public class EventTemplateMembershipControllerTests(DatabaseFixture fixture, All
         Assert.Equal(2, await context.EventTemplateMemberships.CountAsync(x => x.EventTemplateId == template.Id && x.UserId == membership.UserId, Ct));
     }
 
+    /// <summary>An existing membership id is answered with a 500 and leaves the stored membership unchanged.</summary>
+    [Fact]
+    public async Task Create_answers_an_existing_membership_id_with_a_server_error()
+    {
+        var (template, membership) = await SeedMembership();
+        var user = TestData.User();
+        await Seed(user);
+
+        var response = await RootClient.PostAsJsonAsync($"api/eventTemplates/{template.Id}/memberships",
+            new EventTemplateMembership { Id = membership.Id, EventTemplateId = template.Id, UserId = user.Id, RoleId = TestData.EventTemplateRoles.Observer }, AlloyJson, Ct);
+
+        var problem = await AssertJsonError(HttpStatusCode.InternalServerError, response);
+        Assert.Equal("An error occurred while saving the entity changes. See the inner exception for details.", problem.Detail);
+        var saved = await StoredMembership(membership.Id);
+        Assert.Equal((template.Id, membership.UserId, membership.RoleId), (saved.EventTemplateId, saved.UserId, saved.RoleId));
+        await using var context = NewContext();
+        Assert.False(await context.EventTemplateMemberships.AnyAsync(x => x.UserId == user.Id, Ct));
+    }
+
     [Fact]
     public async Task Create_is_forbidden_for_a_member_holding_only_EditEventTemplate()
     {
@@ -250,6 +269,7 @@ public class EventTemplateMembershipControllerTests(DatabaseFixture fixture, All
 
     // PUT api/EventTemplates/Memberships/{id}
 
+    /// <summary>A caller holding only ManageEventTemplate changes a Member membership to the all-permissions Manager role.</summary>
     [Fact]
     public async Task Update_by_a_member_holding_ManageEventTemplate_changes_the_role()
     {

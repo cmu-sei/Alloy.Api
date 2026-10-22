@@ -49,6 +49,9 @@ public sealed class FakeSiblingApis : HttpMessageHandler, IHttpClientFactory
     /// </summary>
     public IReadOnlyList<string> Urls => [.. _urls];
 
+    /// <summary>The token supplied to the last sibling request, for cancellation forwarding assertions.</summary>
+    public CancellationToken LastRequestToken { get; private set; }
+
     /// <summary>
     /// The script. By default every request fails the test that made it, so a test lists only the calls it
     /// expects.
@@ -73,6 +76,7 @@ public sealed class FakeSiblingApis : HttpMessageHandler, IHttpClientFactory
 
     protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         var uri = request.RequestUri;
 
         if (uri.Host == IdentityHost)
@@ -97,6 +101,7 @@ public sealed class FakeSiblingApis : HttpMessageHandler, IHttpClientFactory
 
         _requests.Enqueue($"{request.Method} {uri.AbsolutePath}");
         _urls.Enqueue($"{request.Method} {uri.GetLeftPart(UriPartial.Path)}");
+        LastRequestToken = cancellationToken;
 
         return Handle(request);
     }

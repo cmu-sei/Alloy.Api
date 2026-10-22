@@ -18,6 +18,9 @@ namespace Alloy.Api.Tests.Controllers;
 /// <summary><c>SystemRoleController</c> over HTTP: ViewRoles to read, ManageRoles to write.</summary>
 public class SystemRoleControllerTests(DatabaseFixture fixture, AlloyAppFactory factory) : ApiTestBase(fixture, factory)
 {
+    /// <summary>An integer with no SystemPermission member, accepted in the JSON permissions array.</summary>
+    private const SystemPermission UndefinedPermission = (SystemPermission)999;
+
     [Fact]
     public async Task GetAll_returns_the_seeded_roles_to_a_caller_holding_ViewRoles()
     {
@@ -88,6 +91,38 @@ public class SystemRoleControllerTests(DatabaseFixture fixture, AlloyAppFactory 
         Assert.Equal(1, await context.SystemRoles.CountAsync(x => x.Name == "Administrator", Ct));
     }
 
+    /// <summary>An existing role id with a new name is answered with a 500.</summary>
+    [Fact]
+    public async Task Create_answers_an_existing_role_id_with_a_server_error()
+    {
+        var role = TestData.SystemRole(permissions: [SystemPermission.ViewEvents]);
+        await Seed(role);
+
+        var response = await RootClient.PostAsJsonAsync("api/system-roles",
+            new SystemRole { Id = role.Id, Name = "Replacement", Permissions = [] }, AlloyJson, Ct);
+
+        var problem = await AssertJsonError(HttpStatusCode.InternalServerError, response);
+        Assert.Equal("An error occurred while saving the entity changes. See the inner exception for details.", problem.Detail);
+        var saved = await StoredRole(role.Id);
+        Assert.Equal(role.Name, saved.Name);
+        Assert.Equal([SystemPermission.ViewEvents], saved.Permissions);
+        await using var context = NewContext();
+        Assert.False(await context.SystemRoles.AnyAsync(x => x.Name == "Replacement", Ct));
+    }
+
+    /// <summary>A permission value outside the enum is returned and stored on create.</summary>
+    [Fact]
+    public async Task Create_stores_a_permission_value_outside_the_enum()
+    {
+        var response = await RootClient.PostAsJsonAsync("api/system-roles",
+            new SystemRole { Name = "Undefined permission", Permissions = [UndefinedPermission] }, AlloyJson, Ct);
+
+        await AssertStatus(HttpStatusCode.Created, response);
+        var created = await ReadAsync<SystemRole>(response);
+        Assert.Equal([UndefinedPermission], created.Permissions);
+        Assert.Equal([UndefinedPermission], (await StoredRole(created.Id)).Permissions);
+    }
+
     [Fact]
     public async Task Create_is_forbidden_for_a_caller_holding_only_ViewRoles()
     {
@@ -112,6 +147,38 @@ public class SystemRoleControllerTests(DatabaseFixture fixture, AlloyAppFactory 
 
         await AssertStatus(HttpStatusCode.OK, response);
         Assert.Equal([SystemPermission.ViewEvents, SystemPermission.EditEvents], (await StoredRole(role.Id)).Permissions);
+    }
+
+    [Fact]
+    public async Task Update_answers_a_name_that_is_already_taken_with_a_server_error()
+    {
+        var role = TestData.SystemRole(permissions: [SystemPermission.ViewEvents]);
+        await Seed(role);
+
+        var response = await RootClient.PutAsJsonAsync($"api/system-roles/{role.Id}",
+            new SystemRole { Id = role.Id, Name = "Administrator", Permissions = [] }, AlloyJson, Ct);
+
+        var problem = await AssertJsonError(HttpStatusCode.InternalServerError, response);
+        Assert.Equal("An error occurred while saving the entity changes. See the inner exception for details.", problem.Detail);
+        var saved = await StoredRole(role.Id);
+        Assert.Equal(role.Name, saved.Name);
+        Assert.Equal([SystemPermission.ViewEvents], saved.Permissions);
+    }
+
+    // Same case as Create_stores_a_permission_value_outside_the_enum.
+    [Fact]
+    public async Task Update_stores_a_permission_value_outside_the_enum()
+    {
+        var role = TestData.SystemRole(permissions: [SystemPermission.ViewEvents]);
+        await Seed(role);
+
+        var response = await RootClient.PutAsJsonAsync($"api/system-roles/{role.Id}",
+            new SystemRole { Id = role.Id, Name = role.Name, Permissions = [UndefinedPermission] }, AlloyJson, Ct);
+
+        await AssertStatus(HttpStatusCode.OK, response);
+        var updated = await ReadAsync<SystemRole>(response);
+        Assert.Equal([UndefinedPermission], updated.Permissions);
+        Assert.Equal([UndefinedPermission], (await StoredRole(role.Id)).Permissions);
     }
 
     /// <summary>The seeded Administrator role is marked immutable, and an update of it is stored anyway.</summary>
