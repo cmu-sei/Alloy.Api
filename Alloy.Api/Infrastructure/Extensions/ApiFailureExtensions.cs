@@ -58,38 +58,18 @@ namespace Alloy.Api.Infrastructure.Extensions
             }
 
             // The connection never completed, or completed badly. Always worth another try.
-            if (ex is HttpRequestException ||
-                ex is SocketException ||
-                ex is IOException ||
-                ex is OperationCanceledException || // includes TaskCanceledException
-                ex is TimeoutException)
+            if (IsConnectionFailure(ex))
             {
                 return (FailureKind.Transient,
                     $"Failed to {operation}. The service could not be reached; retrying.",
                     BuildDetail(ex, null));
             }
 
-            // The three generated clients each declare their own ApiException with no shared base
-            // class, so each one has to be named explicitly.
-            var statusCode = ex switch
-            {
-                Caster.Api.Client.ApiException caster => caster.StatusCode,
-                Player.Api.Client.ApiException player => player.StatusCode,
-                Steamfitter.Api.Client.ApiException steamfitter => steamfitter.StatusCode,
-                _ => (int?)null
-            };
-
-            var response = ex switch
-            {
-                Caster.Api.Client.ApiException caster => caster.Response,
-                Player.Api.Client.ApiException player => player.Response,
-                Steamfitter.Api.Client.ApiException steamfitter => steamfitter.Response,
-                _ => null
-            };
+            var statusCode = StatusCode(ex);
 
             if (statusCode.HasValue)
             {
-                return ClassifyStatusCode(statusCode.Value, operation, BuildDetail(ex, response));
+                return ClassifyStatusCode(statusCode.Value, operation, BuildDetail(ex, Response(ex)));
             }
 
             // Deliberately transient: treating an unrecognized exception as permanent is what makes
@@ -99,6 +79,47 @@ namespace Alloy.Api.Infrastructure.Extensions
                 $"Failed to {operation}. An unexpected error occurred; retrying.",
                 BuildDetail(ex, null));
         }
+
+        /// <summary>
+        /// Whether the call never got a usable response: the connection failed, broke or timed out.
+        /// An OperationCanceledException counts, since that is how HttpClient reports a timeout; a
+        /// caller that can also be cancelled has to rule that out itself.
+        /// </summary>
+        internal static bool IsConnectionFailure(Exception ex) =>
+            ex is HttpRequestException ||
+            ex is SocketException ||
+            ex is IOException ||
+            ex is OperationCanceledException || // includes TaskCanceledException
+            ex is TimeoutException;
+
+        // The three generated clients each declare their own ApiException with no shared base
+        // class, so each one has to be named explicitly.
+
+        /// <summary>The HTTP status of a generated client's ApiException, or null for any other exception.</summary>
+        internal static int? StatusCode(Exception ex) => ex switch
+        {
+            Caster.Api.Client.ApiException caster => caster.StatusCode,
+            Player.Api.Client.ApiException player => player.StatusCode,
+            Steamfitter.Api.Client.ApiException steamfitter => steamfitter.StatusCode,
+            _ => null
+        };
+
+        /// <summary>The service a generated client's ApiException came from, or null for any other exception.</summary>
+        internal static string ServiceName(Exception ex) => ex switch
+        {
+            Caster.Api.Client.ApiException => "Caster",
+            Player.Api.Client.ApiException => "Player",
+            Steamfitter.Api.Client.ApiException => "Steamfitter",
+            _ => null
+        };
+
+        private static string Response(Exception ex) => ex switch
+        {
+            Caster.Api.Client.ApiException caster => caster.Response,
+            Player.Api.Client.ApiException player => player.Response,
+            Steamfitter.Api.Client.ApiException steamfitter => steamfitter.Response,
+            _ => null
+        };
 
         private static (FailureKind kind, string summary, string detail) ClassifyStatusCode(
             int statusCode, string operation, string detail)

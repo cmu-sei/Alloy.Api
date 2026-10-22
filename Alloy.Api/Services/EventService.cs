@@ -300,6 +300,8 @@ namespace Alloy.Api.Services
                 var untainted = result.Resources.Count(r => r.Tainted == false);
                 if (untainted > 0)
                 {
+                    _logger.LogWarning("Caster left {Untainted} of {Total} resources untainted for Event {EventId}.",
+                        untainted, result.Resources.Count, eventId);
                     throw new UpstreamServiceException(
                         $"Caster did not mark {untainted} of the event's {result.Resources.Count} resources for redeployment, " +
                         "so the event was not redeployed. Try again, or end the event and launch a new one.", null);
@@ -312,7 +314,8 @@ namespace Alloy.Api.Services
                 }
                 _alloyEventQueue.Add(eventEntity);
             }
-            catch (Exception ex)
+            // A refusal is expected and an upstream failure was logged where it happened.
+            catch (Exception ex) when (ex is not IApiException)
             {
                 _logger.LogError(ex, $"Error redeploying Event {eventId}.");
                 throw;
@@ -522,12 +525,14 @@ namespace Alloy.Api.Services
                     }
                     catch (Exception)
                     {
-                        await playerApiClient.CreateUserAsync(
-                            new Player.Api.Client.CreateUserCommand
-                            {
-                                Id = user.Id,
-                                Name = user.Name
-                            });
+                        await _logger.CallUpstreamAsync("Player", "add you to Player",
+                            () => playerApiClient.CreateUserAsync(
+                                new Player.Api.Client.CreateUserCommand
+                                {
+                                    Id = user.Id,
+                                    Name = user.Name
+                                }, ct),
+                            ct);
                     }
 
                     // Surface the failure rather than discarding it. Nothing has been persisted at this
@@ -559,41 +564,39 @@ namespace Alloy.Api.Services
                             Id = userId,
                             Name = user.Name
                         };
-                        await steamfitterApiClient.CreateUserAsync(newUser);
+                        await _logger.CallUpstreamAsync("Steamfitter", "add you to Steamfitter",
+                            () => steamfitterApiClient.CreateUserAsync(newUser, ct), ct);
                     }
 
                     var scenarioMembership = new ScenarioMembership() { UserId = userId, ScenarioId = alloyEvent.ScenarioId.Value };
-                    await steamfitterApiClient.CreateScenarioMembershipAsync(alloyEvent.ScenarioId.Value, scenarioMembership, ct);
+                    await _logger.CallUpstreamAsync("Steamfitter", "add you to the event's Steamfitter scenario",
+                        () => steamfitterApiClient.CreateScenarioMembershipAsync(alloyEvent.ScenarioId.Value, scenarioMembership, ct),
+                        ct);
                 }
 
-                try
+                // An existing member is answered with success above, so a failure here is a real
+                // database error, not a second join; it is left to reach the log as one.
+                var entity = await _context.EventMemberships.Where(m => m.UserId == userId && m.EventId == alloyEvent.Id).FirstOrDefaultAsync();
+                if (entity == null)
                 {
-                    var entity = await _context.EventMemberships.Where(m => m.UserId == userId && m.EventId == alloyEvent.Id).FirstOrDefaultAsync();
-                    if (entity == null)
+                    var eventMembership = new EventMembershipEntity
                     {
-                        var eventMembership = new EventMembershipEntity
-                        {
-                            EventId = alloyEvent.Id,
-                            UserId = userId,
-                            RoleId = EventRoleDefaults.EventMemberRoleId
-                        };
-                        _context.EventMemberships.Add(eventMembership);
-                        var eventTemplateMembership = new EventTemplateMembershipEntity
-                        {
-                            EventTemplateId = (Guid)alloyEvent.EventTemplateId,
-                            UserId = userId,
-                            RoleId = EventTemplateRoleEntityDefaults.EventTemplateReadOnlyRoleId
-                        };
-                        _context.EventTemplateMemberships.Add(eventTemplateMembership);
-                        await _context.SaveChangesAsync();
-                    }
+                        EventId = alloyEvent.Id,
+                        UserId = userId,
+                        RoleId = EventRoleDefaults.EventMemberRoleId
+                    };
+                    _context.EventMemberships.Add(eventMembership);
+                    var eventTemplateMembership = new EventTemplateMembershipEntity
+                    {
+                        EventTemplateId = (Guid)alloyEvent.EventTemplateId,
+                        UserId = userId,
+                        RoleId = EventTemplateRoleEntityDefaults.EventTemplateReadOnlyRoleId
+                    };
+                    _context.EventTemplateMemberships.Add(eventTemplateMembership);
+                    await _context.SaveChangesAsync();
+                }
 
-                    return alloyEvent;
-                }
-                catch (Exception)
-                {
-                    throw new InviteException("You have already joined this event.");
-                }
+                return alloyEvent;
             }
             throw new InviteException(alloyEvent.Status switch
             {

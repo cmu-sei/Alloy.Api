@@ -3,8 +3,6 @@
 
 using System;
 using System.Net;
-using System.Net.Http;
-using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks;
 using Alloy.Api.Infrastructure.Exceptions;
@@ -26,18 +24,15 @@ namespace Alloy.Api.Infrastructure.Extensions
     {
         /// <summary>
         /// Whether <paramref name="ex"/> is a failure of the call itself rather than a bug in Alloy.
-        /// A TaskCanceledException counts only when the request was not cancelled, since that is how
+        /// A cancellation counts only when the request was not cancelled, since that is how
         /// HttpClient reports a timeout.
         /// </summary>
         public static bool IsUpstreamFailure(this Exception ex, bool requestCancelled)
         {
-            if (ex is TaskCanceledException)
+            if (ex is OperationCanceledException)
                 return !requestCancelled;
 
-            return ex is HttpRequestException ||
-                ex is SocketException ||
-                ex is TimeoutException ||
-                StatusCode(ex).HasValue;
+            return ApiFailureExtensions.IsConnectionFailure(ex) || ApiFailureExtensions.StatusCode(ex).HasValue;
         }
 
         /// <param name="ex">The exception that was caught.</param>
@@ -46,29 +41,30 @@ namespace Alloy.Api.Infrastructure.Extensions
         /// What was being attempted, phrased to read after "Could not" - for example
         /// "load the Caster directories".
         /// </param>
+        /// <remarks>
+        /// Always a 502, whatever the service answered: a 404 from Caster passed on as Alloy's own
+        /// would tell the client that the Alloy resource it asked for does not exist.
+        /// </remarks>
         public static Exception ToUserFacing(this Exception ex, string service, string operation)
         {
-            var statusCode = StatusCode(ex);
+            var statusCode = ApiFailureExtensions.StatusCode(ex);
 
             // nswag reports 0 when the request never produced a response at all.
             if (!statusCode.HasValue || statusCode == 0)
                 return new UpstreamServiceException($"Could not {operation}. {service} could not be reached.", ex);
 
-            switch (statusCode.Value)
+            var reason = statusCode.Value switch
             {
-                case (int)HttpStatusCode.Unauthorized:
-                    return new UpstreamServiceException($"Could not {operation}. {service} did not accept your sign-in.", ex);
-                case (int)HttpStatusCode.Forbidden:
-                    return new UpstreamServiceException(
-                        $"Could not {operation}. You do not have permission to do this in {service}.", ex, HttpStatusCode.Forbidden);
-                case (int)HttpStatusCode.NotFound:
-                    return new UpstreamServiceException(
-                        $"Could not {operation}. It was not found in {service}.", ex, HttpStatusCode.NotFound);
-                default:
-                    return statusCode >= 500
-                        ? new UpstreamServiceException($"Could not {operation}. {service} reported an error (HTTP {statusCode}).", ex)
-                        : new UpstreamServiceException($"Could not {operation}. {service} rejected the request (HTTP {statusCode}).", ex);
-            }
+                // nswag throws on a success it cannot deserialize
+                >= 200 and < 300 => $"{service} sent a response Alloy could not read.",
+                (int)HttpStatusCode.Unauthorized => $"{service} did not accept your sign-in.",
+                (int)HttpStatusCode.Forbidden => $"You do not have permission to do this in {service}.",
+                (int)HttpStatusCode.NotFound => $"It was not found in {service}.",
+                >= 500 => $"{service} reported an error (HTTP {statusCode}).",
+                _ => $"{service} rejected the request (HTTP {statusCode})."
+            };
+
+            return new UpstreamServiceException($"Could not {operation}. {reason}", ex);
         }
 
         /// <summary>
@@ -88,14 +84,5 @@ namespace Alloy.Api.Infrastructure.Extensions
                 throw ex.ToUserFacing(service, operation);
             }
         }
-
-        // The three generated clients each declare their own ApiException with no shared base class.
-        private static int? StatusCode(Exception ex) => ex switch
-        {
-            Caster.Api.Client.ApiException caster => caster.StatusCode,
-            Player.Api.Client.ApiException player => player.StatusCode,
-            Steamfitter.Api.Client.ApiException steamfitter => steamfitter.StatusCode,
-            _ => null
-        };
     }
 }

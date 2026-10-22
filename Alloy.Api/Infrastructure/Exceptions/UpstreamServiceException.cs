@@ -17,22 +17,14 @@ namespace Alloy.Api.Infrastructure.Exceptions
     /// </remarks>
     public class UpstreamServiceException : Exception, IApiException
     {
-        private readonly HttpStatusCode _statusCode;
-
         public UpstreamServiceException(string message, Exception innerException)
-            : this(message, innerException, HttpStatusCode.BadGateway)
-        {
-        }
-
-        public UpstreamServiceException(string message, Exception innerException, HttpStatusCode statusCode)
             : base(message, innerException)
         {
-            _statusCode = statusCode;
         }
 
         public HttpStatusCode GetStatusCode()
         {
-            return _statusCode;
+            return HttpStatusCode.BadGateway;
         }
     }
 }

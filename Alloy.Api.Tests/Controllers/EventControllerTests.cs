@@ -438,6 +438,18 @@ public class EventControllerTests(DatabaseFixture fixture, AlloyAppFactory facto
         Assert.Equal(EventStatus.Active, (await Stored(evt.Id)).Status);
     }
 
+    /// <summary>Caster's 404 is a 502: passed on as Alloy's own, it would read as "event not found".</summary>
+    [Fact]
+    public async Task Redeploy_answers_a_workspace_Caster_cannot_find_with_a_bad_gateway_not_a_not_found()
+    {
+        var evt = await SeedEvent(x => x.WorkspaceId = Guid.NewGuid());
+        Factory.OutboundHttp.RespondWithStatus($"http://localhost:4309/api/workspaces/{evt.WorkspaceId}/resources/actions/taint", HttpStatusCode.NotFound);
+
+        var problem = await AssertJsonError(HttpStatusCode.BadGateway, await RootClient.PostAsync($"api/events/{evt.Id}/redeploy", null, Ct));
+
+        Assert.Equal("Could not mark the event's resources for redeployment. It was not found in Caster.", problem.Title);
+    }
+
     [Fact]
     public async Task Redeploy_answers_resources_Caster_did_not_taint_with_a_bad_gateway_counting_them()
     {
@@ -564,6 +576,26 @@ public class EventControllerTests(DatabaseFixture fixture, AlloyAppFactory facto
         Assert.Equal(TestData.EventRoles.Member, (await context.EventMemberships.SingleAsync(x => x.EventId == evt.Id && x.UserId == actor.Id, Ct)).RoleId);
         Assert.Equal(TestData.EventTemplateRoles.Observer,
             (await context.EventTemplateMemberships.SingleAsync(x => x.EventTemplateId == evt.EventTemplateId && x.UserId == actor.Id, Ct)).RoleId);
+    }
+
+    /// <summary>A Player failure while adding the caller is a 502 naming Player, and nothing is saved in Alloy.</summary>
+    [Fact]
+    public async Task Enlist_answers_a_Player_failure_with_a_bad_gateway_naming_Player()
+    {
+        var evt = await SeedEvent(x =>
+        {
+            x.ShareCode = $"code-{Guid.NewGuid():N}";
+            x.ViewId = Guid.NewGuid();
+        });
+        var actor = await Actor().WithSystemPermissions(SystemPermission.ViewEventTemplates).SeedAsync();
+        Factory.OutboundHttp.RespondWithStatus($"http://localhost:4300/api/users/{actor.Id}", HttpStatusCode.NotFound);
+        Factory.OutboundHttp.RespondWithStatus("http://localhost:4300/api/users", HttpStatusCode.InternalServerError);
+
+        var problem = await AssertJsonError(HttpStatusCode.BadGateway, await Client(actor).PostAsync($"api/events/enlist/{evt.ShareCode}", null, Ct));
+
+        Assert.Equal("Could not add you to Player. Player reported an error (HTTP 500).", problem.Title);
+        await using var context = NewContext();
+        Assert.False(await context.EventMemberships.AnyAsync(x => x.EventId == evt.Id && x.UserId == actor.Id, Ct));
     }
 
     [Fact]
