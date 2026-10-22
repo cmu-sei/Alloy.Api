@@ -66,6 +66,8 @@ namespace Alloy.Api.Services
         public async STT.Task<Group> GetAsync(Guid id, CancellationToken ct)
         {
             var item = await _context.Groups.SingleOrDefaultAsync(o => o.Id == id, ct);
+            if (item == null)
+                throw new EntityNotFoundException<Group>($"Group {id} was not found.");
 
             return _mapper.Map<Group>(item);
         }
@@ -84,7 +86,7 @@ namespace Alloy.Api.Services
         {
             var groupToUpdate = await _context.Groups.SingleOrDefaultAsync(v => v.Id == id, ct);
             if (groupToUpdate == null)
-                throw new EntityNotFoundException<Group>();
+                throw new EntityNotFoundException<Group>($"Group {id} was not found.");
 
             _mapper.Map(group, groupToUpdate);
             await _context.SaveChangesAsync(ct);
@@ -97,7 +99,7 @@ namespace Alloy.Api.Services
         {
             var groupToDelete = await _context.Groups.SingleOrDefaultAsync(v => v.Id == id, ct);
             if (groupToDelete == null)
-                throw new EntityNotFoundException<Group>();
+                throw new EntityNotFoundException<Group>($"Group {id} was not found.");
 
             _context.Groups.Remove(groupToDelete);
             await _context.SaveChangesAsync(ct);
@@ -113,6 +115,8 @@ namespace Alloy.Api.Services
         public async STT.Task<GroupMembership> GetMembershipAsync(Guid id, CancellationToken ct)
         {
             var item = await _context.GroupMemberships.SingleOrDefaultAsync(o => o.Id == id, ct);
+            if (item == null)
+                throw new EntityNotFoundException<GroupMembership>($"Group Membership {id} was not found.");
 
             return _mapper.Map<GroupMembership>(item);
         }
@@ -131,7 +135,7 @@ namespace Alloy.Api.Services
         {
             var groupMembershipToUpdate = await _context.GroupMemberships.SingleOrDefaultAsync(v => v.Id == id, ct);
             if (groupMembershipToUpdate == null)
-                throw new EntityNotFoundException<GroupMembership>();
+                throw new EntityNotFoundException<GroupMembership>($"Group Membership {id} was not found.");
 
             groupMembershipToUpdate.Role = groupMembership.Role;
             await _context.SaveChangesAsync(ct);
@@ -143,7 +147,7 @@ namespace Alloy.Api.Services
         {
             var groupMembershipToDelete = await _context.GroupMemberships.SingleOrDefaultAsync(v => v.Id == id, ct);
             if (groupMembershipToDelete == null)
-                throw new EntityNotFoundException<Group>();
+                throw new EntityNotFoundException<GroupMembership>($"Group Membership {id} was not found.");
 
             _context.GroupMemberships.Remove(groupMembershipToDelete);
             await _context.SaveChangesAsync(ct);

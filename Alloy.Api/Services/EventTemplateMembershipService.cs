@@ -45,7 +45,7 @@ namespace Alloy.Api.Services
                 .SingleOrDefaultAsync(o => o.Id == id, ct);
 
             if (item == null)
-                throw new EntityNotFoundException<EventTemplateMembership>();
+                throw new EntityNotFoundException<EventTemplateMembership>($"Event Template Membership {id} was not found.");
 
             return _mapper.Map<EventTemplateMembership>(item);
         }
@@ -73,7 +73,7 @@ namespace Alloy.Api.Services
         {
             var eventTemplateMembershipToUpdate = await _context.EventTemplateMemberships.SingleOrDefaultAsync(v => v.Id == id, ct);
             if (eventTemplateMembershipToUpdate == null)
-                throw new EntityNotFoundException<Event>();
+                throw new EntityNotFoundException<EventTemplateMembership>($"Event Template Membership {id} was not found.");
 
             eventTemplateMembershipToUpdate.RoleId = eventTemplateMembership.RoleId;
             eventTemplateMembershipToUpdate.Role = null;
@@ -86,7 +86,7 @@ namespace Alloy.Api.Services
             var eventTemplateMembershipToDelete = await _context.EventTemplateMemberships.SingleOrDefaultAsync(v => v.Id == id, ct);
 
             if (eventTemplateMembershipToDelete == null)
-                throw new EntityNotFoundException<EventTemplateMembership>();
+                throw new EntityNotFoundException<EventTemplateMembership>($"Event Template Membership {id} was not found.");
 
             _context.EventTemplateMemberships.Remove(eventTemplateMembershipToDelete);
             await _context.SaveChangesAsync(ct);

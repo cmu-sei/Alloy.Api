@@ -124,13 +124,14 @@ public class EventControllerTests(DatabaseFixture fixture, AlloyAppFactory facto
         await AssertJsonError(HttpStatusCode.Forbidden, await Client(actor).GetAsync($"api/events/{evt.Id}", Ct));
     }
 
-    /// <summary>A missing event is answered with a 404 whose title names an event template.</summary>
     [Fact]
-    public async Task Get_answers_an_unknown_event_with_a_not_found_naming_an_event_template()
+    public async Task Get_answers_an_unknown_event_with_a_not_found_naming_the_event()
     {
-        var problem = await AssertJsonError(HttpStatusCode.NotFound, await RootClient.GetAsync($"api/events/{Guid.NewGuid()}", Ct));
+        var id = Guid.NewGuid();
 
-        Assert.Equal("Event Template not found", problem.Title);
+        var problem = await AssertJsonError(HttpStatusCode.NotFound, await RootClient.GetAsync($"api/events/{id}", Ct));
+
+        Assert.Equal($"Event {id} was not found.", problem.Title);
     }
 
     // GET api/events/{id}/error-detail
@@ -382,15 +383,86 @@ public class EventControllerTests(DatabaseFixture fixture, AlloyAppFactory facto
         Assert.Equal(EventStatus.Planning, (await Stored(evt.Id)).Status);
     }
 
-    /// <summary>A redeploy of an event that is not active is answered with a 500.</summary>
     [Fact]
-    public async Task Redeploy_answers_an_event_that_is_not_active_with_a_server_error()
+    public async Task Redeploy_answers_an_event_that_is_not_active_with_a_conflict()
     {
         var evt = await SeedEvent(x => x.Status = EventStatus.Ended);
 
-        var problem = await AssertJsonError(HttpStatusCode.InternalServerError, await RootClient.PostAsync($"api/events/{evt.Id}/redeploy", null, Ct));
+        var problem = await AssertJsonError(HttpStatusCode.Conflict, await RootClient.PostAsync($"api/events/{evt.Id}/redeploy", null, Ct));
 
-        Assert.Equal("Only an Active Event can be redeployed", problem.Detail);
+        Assert.Equal("This event is no longer active, so it can't be redeployed.", problem.Title);
+    }
+
+    /// <summary>Each status the user can meet gets its own reason; an end leaves EndRequestedAt, and EndDate once ended.</summary>
+    [Theory]
+    [InlineData(EventStatus.Creating, false, false, "This event is still launching. It can be redeployed once it is active.")]
+    [InlineData(EventStatus.Paused, false, false, "This event is paused. Only an active event can be redeployed.")]
+    [InlineData(EventStatus.Ending, true, false, "This event is ending, so it can no longer be redeployed.")]
+    [InlineData(EventStatus.Ended, true, true, "This event is no longer active, so it can't be redeployed.")]
+    [InlineData(EventStatus.Failed, false, false, "This event is no longer active, so it can't be redeployed.")]
+    public async Task Redeploy_answers_each_inactive_status_with_its_own_reason(EventStatus status, bool endRequested, bool ended, string message)
+    {
+        var evt = await SeedEvent(x =>
+        {
+            x.Status = status;
+            x.WorkspaceId = Guid.NewGuid();
+            x.EndRequestedAt = endRequested ? TestData.DefaultDate : null;
+            x.EndDate = ended ? TestData.DefaultDate : null;
+        });
+
+        var problem = await AssertJsonError(HttpStatusCode.Conflict, await RootClient.PostAsync($"api/events/{evt.Id}/redeploy", null, Ct));
+
+        Assert.Equal(message, problem.Title);
+        Assert.DoesNotContain(Factory.OutboundHttp.Sent, x => x.Uri.Contains(evt.WorkspaceId.ToString()));
+    }
+
+    [Fact]
+    public async Task Redeploy_answers_an_event_with_no_workspace_with_a_conflict()
+    {
+        var evt = await SeedEvent(x => x.WorkspaceId = null);
+
+        var problem = await AssertJsonError(HttpStatusCode.Conflict, await RootClient.PostAsync($"api/events/{evt.Id}/redeploy", null, Ct));
+
+        Assert.Equal("This event has no Caster workspace, so there is nothing to redeploy.", problem.Title);
+    }
+
+    [Fact]
+    public async Task Redeploy_answers_a_Caster_failure_with_a_bad_gateway_naming_Caster()
+    {
+        var evt = await SeedEvent(x => x.WorkspaceId = Guid.NewGuid());
+        Factory.OutboundHttp.RespondWithStatus($"http://localhost:4309/api/workspaces/{evt.WorkspaceId}/resources/actions/taint", HttpStatusCode.ServiceUnavailable);
+
+        var problem = await AssertJsonError(HttpStatusCode.BadGateway, await RootClient.PostAsync($"api/events/{evt.Id}/redeploy", null, Ct));
+
+        Assert.Equal("Could not mark the event's resources for redeployment. Caster reported an error (HTTP 503).", problem.Title);
+        Assert.Equal(EventStatus.Active, (await Stored(evt.Id)).Status);
+    }
+
+    /// <summary>Caster's 404 is a 502: passed on as Alloy's own, it would read as "event not found".</summary>
+    [Fact]
+    public async Task Redeploy_answers_a_workspace_Caster_cannot_find_with_a_bad_gateway_not_a_not_found()
+    {
+        var evt = await SeedEvent(x => x.WorkspaceId = Guid.NewGuid());
+        Factory.OutboundHttp.RespondWithStatus($"http://localhost:4309/api/workspaces/{evt.WorkspaceId}/resources/actions/taint", HttpStatusCode.NotFound);
+
+        var problem = await AssertJsonError(HttpStatusCode.BadGateway, await RootClient.PostAsync($"api/events/{evt.Id}/redeploy", null, Ct));
+
+        Assert.Equal("Could not mark the event's resources for redeployment. It was not found in Caster.", problem.Title);
+    }
+
+    [Fact]
+    public async Task Redeploy_answers_resources_Caster_did_not_taint_with_a_bad_gateway_counting_them()
+    {
+        var evt = await SeedEvent(x => x.WorkspaceId = Guid.NewGuid());
+        Factory.OutboundHttp.RespondJson($"http://localhost:4309/api/workspaces/{evt.WorkspaceId}/resources/actions/taint", new
+        {
+            resources = new[] { new { id = "a", tainted = true }, new { id = "b", tainted = false } }
+        });
+
+        var problem = await AssertJsonError(HttpStatusCode.BadGateway, await RootClient.PostAsync($"api/events/{evt.Id}/redeploy", null, Ct));
+
+        Assert.StartsWith("Caster did not mark 1 of the event's 2 resources for redeployment", problem.Title);
+        Assert.Equal(EventStatus.Active, (await Stored(evt.Id)).Status);
     }
 
     [Fact]
@@ -525,6 +597,26 @@ public class EventControllerTests(DatabaseFixture fixture, AlloyAppFactory facto
             (await context.EventMemberships.SingleAsync(x => x.EventId == evt.Id && x.UserId == actor.Id, Ct)).RoleId);
     }
 
+    /// <summary>A Player failure while adding the caller is a 502 naming Player, and nothing is saved in Alloy.</summary>
+    [Fact]
+    public async Task Enlist_answers_a_Player_failure_with_a_bad_gateway_naming_Player()
+    {
+        var evt = await SeedEvent(x =>
+        {
+            x.ShareCode = $"code-{Guid.NewGuid():N}";
+            x.ViewId = Guid.NewGuid();
+        });
+        var actor = await Actor().WithSystemPermissions(SystemPermission.ViewEventTemplates).SeedAsync();
+        Factory.OutboundHttp.RespondWithStatus($"http://localhost:4300/api/users/{actor.Id}", HttpStatusCode.NotFound);
+        Factory.OutboundHttp.RespondWithStatus("http://localhost:4300/api/users", HttpStatusCode.InternalServerError);
+
+        var problem = await AssertJsonError(HttpStatusCode.BadGateway, await Client(actor).PostAsync($"api/events/enlist/{evt.ShareCode}", null, Ct));
+
+        Assert.Equal("Could not add you to Player. Player reported an error (HTTP 500).", problem.Title);
+        await using var context = NewContext();
+        Assert.False(await context.EventMemberships.AnyAsync(x => x.EventId == evt.Id && x.UserId == actor.Id, Ct));
+    }
+
     [Fact]
     public async Task Enlist_with_an_unknown_code_is_not_found()
     {
@@ -542,7 +634,7 @@ public class EventControllerTests(DatabaseFixture fixture, AlloyAppFactory facto
 
         var problem = await AssertJsonError(HttpStatusCode.Conflict, await RootClient.PostAsync($"api/events/enlist/{evt.ShareCode}", null, Ct));
 
-        Assert.Equal("Invite Failed, Event Status: Ended", problem.Title);
+        Assert.Equal("This event has ended, so it can no longer be joined.", problem.Title);
     }
 
     // POST api/events/{id}/enlist/{userId}
