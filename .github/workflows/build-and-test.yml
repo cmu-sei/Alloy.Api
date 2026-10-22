@@ -21,10 +21,10 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Setup dotnet
-        uses: actions/setup-dotnet@v5
+        uses: actions/setup-dotnet@v6
         with:
           # The SDK version lives in global.json; never pin a second copy of it here.
           global-json-file: global.json
@@ -32,7 +32,7 @@ jobs:
       # Keyed on the files that decide what gets restored: Directory.Packages.props holds every
       # version, and a project file changing is what adds or drops a reference.
       - name: Cache NuGet packages
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.nuget/packages
           key: nuget-${{ runner.os }}-${{ hashFiles('Directory.Packages.props', '**/*.csproj') }}
