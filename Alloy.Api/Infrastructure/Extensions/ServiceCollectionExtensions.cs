@@ -13,7 +13,6 @@ using Alloy.Api.Infrastructure.Options;
 using Alloy.Api.Services;
 using Caster.Api.Client;
 using Microsoft.AspNetCore.Http;
-using Microsoft.CodeAnalysis;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.OpenApi;
 using Player.Api.Client;
@@ -57,15 +56,6 @@ namespace Alloy.Api.Infrastructure.Extensions
                 c.IncludeXmlComments(commentsFile);
                 c.EnableAnnotations();
                 c.OperationFilter<DefaultResponseOperationFilter>();
-                c.MapType<Optional<Guid?>>(() => new OpenApiSchema
-                {
-                    OneOf = new List<IOpenApiSchema>
-                    {
-                        new OpenApiSchema { Type = JsonSchemaType.String, Format = "uuid" },
-                        new OpenApiSchema { Type = JsonSchemaType.Null }
-                    }
-                });
-
                 c.MapType<JsonElement?>(() => new OpenApiSchema
                 {
                     OneOf = new List<IOpenApiSchema>
