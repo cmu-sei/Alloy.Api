@@ -427,6 +427,10 @@ namespace Alloy.Api.Controllers
         /// <returns>
         /// Returns a list of questions for an event
         /// </returns>
+        /// <remarks>
+        /// Gameboard's Crucible game engine calls this through Alloy.Api.Client
+        /// (CrucibleService.GetEventQuestionsAsync), so it must not be removed.
+        /// </remarks>
         [HttpGet("events/{id}/questions")]
         [ProducesResponseType(typeof(IEnumerable<QuestionView>), (int)HttpStatusCode.OK)]
         [SwaggerOperation(OperationId = "GetEventQuestions")]
@@ -445,6 +449,11 @@ namespace Alloy.Api.Controllers
         /// <returns>
         /// Returns a score for an event
         /// </returns>
+        /// <remarks>
+        /// "qrade" is a misspelling of "grade", but it is the published route and must not be
+        /// renamed or removed: Gameboard's Crucible game engine calls it, and GET
+        /// events/{id}/questions, through Alloy.Api.Client (CrucibleService.GradeEventAsync).
+        /// </remarks>
         [HttpPost("events/{id}/qrade")]
         [ProducesResponseType(typeof(IEnumerable<QuestionView>), (int)HttpStatusCode.OK)]
         [SwaggerOperation(OperationId = "GradeEvent")]
