@@ -177,6 +177,11 @@ namespace Alloy.Api.Services
             var names = (await _context.EventTemplates.Select(x => x.Name).ToListAsync(ct)).ToHashSet(StringComparer.Ordinal);
             var resolver = new ReferenceResolver(_playerService, _casterService, _steamfitterService, matchReferencesByName, ct);
 
+            // One transaction, so a request that is cancelled part way (the user closed the dialog) imports nothing
+            // rather than the templates before it. EF Core puts each SaveChanges in it under a savepoint, so one
+            // template that cannot be saved still fails on its own. Entity events are published on commit.
+            await using var transaction = await _context.Database.BeginTransactionAsync(ct);
+
             for (var i = 0; i < items.Count; i++)
             {
                 EventTemplateExport template;
@@ -266,6 +271,8 @@ namespace Alloy.Api.Services
                     failures.Add(new(template.Id, template.Name, "The Event Template could not be saved"));
                 }
             }
+
+            await transaction.CommitAsync(ct);
 
             return new ImportEventTemplatesResult(imported.ToArray(), failures.ToArray(), warnings.ToArray());
         }

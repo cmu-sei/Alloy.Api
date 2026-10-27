@@ -6,6 +6,7 @@ using System.IO;
 using System.Net;
 using System.Net.Http;
 using System.Text.Json;
+using System.Threading;
 using System.Threading.Tasks;
 using Alloy.Api.Data;
 using Alloy.Api.Services;
@@ -134,6 +135,37 @@ public class EventTemplateArchiveServiceTests(DatabaseFixture fixture) : Service
 
         var imported = Assert.Single(result.Imported);
         Assert.Equal(viewId, (await ReadBack(db => db.EventTemplates.AsNoTracking().SingleAsync(x => x.Id == imported.Id, Ct))).ViewId);
+    }
+
+    /// <summary>
+    /// A request cancelled part way through a file imports nothing, not the templates before the cancellation:
+    /// the import runs in one transaction that is rolled back.
+    /// </summary>
+    [Fact]
+    public async Task Import_cancelled_part_way_imports_none_of_the_templates()
+    {
+        var host = HostFor(new ClaimsPrincipalBuilder().WithSystemPermissions(SystemPermission.CreateEventTemplates).Build());
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(Ct);
+        var secondViewId = Guid.NewGuid();
+        host.SiblingApis.Handle = message =>
+        {
+            // the second template's reference is looked up after the first template is saved
+            if (message.RequestUri.AbsolutePath == $"/api/views/{secondViewId}")
+                cancellation.Cancel();
+
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound));
+        };
+        var prefix = $"Cancelled {Guid.NewGuid()}";
+        var first = new EventTemplateExport { Id = Guid.NewGuid(), Name = $"{prefix} first", DurationHours = 1 };
+        var second = new EventTemplateExport { Id = Guid.NewGuid(), Name = $"{prefix} second", DurationHours = 1, ViewId = secondViewId };
+
+        using var file = new MemoryStream(JsonSerializer.SerializeToUtf8Bytes(new[] { first, second }));
+        using var scope = host.CreateScope();
+        var service = scope.ServiceProvider.GetRequiredService<IEventTemplateArchiveService>();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => service.ImportAsync(file, false, cancellation.Token));
+
+        Assert.False(await ReadBack(db => db.EventTemplates.AnyAsync(x => x.Name.StartsWith(prefix), Ct)));
     }
 
     private static object View(Guid id, string name) => new { id, name, defaultTeamId = Guid.NewGuid() };
