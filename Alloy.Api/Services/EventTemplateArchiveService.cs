@@ -370,7 +370,7 @@ namespace Alloy.Api.Services
                         var view = await playerService.GetViewAsync(id, ct);
                         return view.DefaultTeamId.HasValue ? null : "has no default team";
                     },
-                    async () => (_views ??= (await playerService.GetViewsAsync(ct)).ToList())
+                    async () => (_views ??= (await playerService.GetVisibleViewsAsync(ct)).ToList())
                         .Select(x => (x.Id, x.Name, x.DefaultTeamId.HasValue ? null : "has no default team")));
 
             public Task<Guid?> ResolveDirectoryAsync(EventTemplateExport template, List<string> messages) =>

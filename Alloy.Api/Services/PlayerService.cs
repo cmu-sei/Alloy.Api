@@ -3,6 +3,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Net;
 using System.Security.Claims;
 using System.Security.Principal;
 using System.Threading;
@@ -18,6 +19,7 @@ namespace Alloy.Api.Services
     public interface IPlayerService
     {
         Task<IEnumerable<View>> GetViewsAsync(CancellationToken ct);
+        Task<IEnumerable<View>> GetVisibleViewsAsync(CancellationToken ct);
         Task<View> GetViewAsync(Guid viewId, CancellationToken ct);
         Task<View> CloneViewAsync(Guid viewId, CloneViewCommand cloneViewCommand, CancellationToken ct);
         Task DeleteViewAsync(Guid viewId, CancellationToken ct);
@@ -50,6 +52,22 @@ namespace Alloy.Api.Services
         {
             return await _logger.CallUpstreamAsync("Player", "load your Player views",
                 async () => await _playerApiClient.GetUserViewsAsync(_user.GetId(), ct), ct);
+        }
+
+        /// <summary>
+        /// Every Player view the user can see: all of them when Player grants the user ViewViews, otherwise the
+        /// views the user is a member of. Player answers its list of all views with a 403 to anyone else.
+        /// </summary>
+        public async Task<IEnumerable<View>> GetVisibleViewsAsync(CancellationToken ct)
+        {
+            try
+            {
+                return await _playerApiClient.GetViewsAsync(ct);
+            }
+            catch (Exception ex) when (ApiFailureExtensions.StatusCode(ex) == (int)HttpStatusCode.Forbidden)
+            {
+                return await GetViewsAsync(ct);
+            }
         }
 
         public async Task<View> GetViewAsync(Guid viewId, CancellationToken ct)

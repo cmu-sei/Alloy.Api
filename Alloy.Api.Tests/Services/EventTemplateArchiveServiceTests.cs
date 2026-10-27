@@ -18,9 +18,9 @@ namespace Alloy.Api.Tests.Services;
 
 /// <summary>
 /// <see cref="EventTemplateArchiveService"/> matching a reference by name. A reference whose id does not
-/// resolve is looked for in the sibling's list of what the caller can see (Player's views of the user,
-/// Caster's directories, Steamfitter's scenario templates), urls that are the same for every test and so
-/// cannot be arranged on the run-wide host; each test here scripts its own. The export, the gates and the
+/// resolve is looked for in the sibling's list of what the caller can see (every Player view when Player grants
+/// ViewViews, otherwise the user's own; Caster's directories; Steamfitter's scenario templates), urls that are
+/// the same for every test and so cannot be arranged on the run-wide host; each test here scripts its own. The export, the gates and the
 /// other import rules are tested over HTTP in <c>Controllers/EventTemplateArchiveTests</c>.
 /// </summary>
 public class EventTemplateArchiveServiceTests(DatabaseFixture fixture) : ServiceTestBase(fixture)
@@ -34,6 +34,7 @@ public class EventTemplateArchiveServiceTests(DatabaseFixture fixture) : Service
         host.SiblingApis.Handle = message => Task.FromResult(message.RequestUri.AbsolutePath switch
         {
             var path when path == $"/api/views/{viewId}" => FakeSiblingApis.Json(View(viewId, "Range")),
+            "/api/views" => new HttpResponseMessage(HttpStatusCode.Forbidden),
             var path when path == $"/api/users/{principal.UserId}/views" => FakeSiblingApis.Json(new[] { View(viewId, "Range") }),
             var path when path == $"/api/directories/{directoryId}" => FakeSiblingApis.Json(new { id = directoryId, name = "Network" }),
             "/api/directories" => FakeSiblingApis.Json(new[] { new { id = directoryId, name = "Network" } }),
@@ -77,6 +78,62 @@ public class EventTemplateArchiveServiceTests(DatabaseFixture fixture) : Service
         Assert.Contains("more than one", warning.Message);
         var imported = Assert.Single(result.Imported);
         Assert.Null((await ReadBack(db => db.EventTemplates.AsNoTracking().SingleAsync(x => x.Id == imported.Id, Ct))).DirectoryId);
+    }
+
+    /// <summary>
+    /// A caller Player grants ViewViews is matched against every view, not only the ones they are a member of,
+    /// so an administrator importing into an environment where they belong to no view keeps the reference.
+    /// </summary>
+    [Fact]
+    public async Task Import_matching_by_name_finds_a_view_the_caller_is_not_a_member_of_when_Player_lists_all_views()
+    {
+        var principal = new ClaimsPrincipalBuilder().WithSystemPermissions(SystemPermission.CreateEventTemplates);
+        var host = HostFor(principal.Build());
+        var viewId = Guid.NewGuid();
+        host.SiblingApis.Handle = message => Task.FromResult(message.RequestUri.AbsolutePath switch
+        {
+            // the view the template is created with, which Player shows a ViewViews holder or a member
+            var path when path == $"/api/views/{viewId}" => FakeSiblingApis.Json(View(viewId, "Range")),
+            "/api/views" => FakeSiblingApis.Json(new[] { View(viewId, "Range") }),
+            var path when path == $"/api/users/{principal.UserId}/views" => FakeSiblingApis.Json(Array.Empty<object>()),
+            _ => new HttpResponseMessage(HttpStatusCode.NotFound)
+        });
+        var exported = new EventTemplateExport
+        {
+            Id = Guid.NewGuid(), Name = "Moved", DurationHours = 1, ViewId = Guid.NewGuid(), ViewName = "Range"
+        };
+
+        var result = await Import(host, exported);
+
+        Assert.Contains("Matched by name", Assert.Single(result.Warnings).Message);
+        var imported = Assert.Single(result.Imported);
+        Assert.Equal(viewId, (await ReadBack(db => db.EventTemplates.AsNoTracking().SingleAsync(x => x.Id == imported.Id, Ct))).ViewId);
+    }
+
+    /// <summary>A caller Player refuses the list of all views is matched against the views they are a member of.</summary>
+    [Fact]
+    public async Task Import_matching_by_name_falls_back_to_the_callers_views_when_Player_refuses_the_list_of_all()
+    {
+        var principal = new ClaimsPrincipalBuilder().WithSystemPermissions(SystemPermission.CreateEventTemplates);
+        var host = HostFor(principal.Build());
+        var viewId = Guid.NewGuid();
+        host.SiblingApis.Handle = message => Task.FromResult(message.RequestUri.AbsolutePath switch
+        {
+            // the view the template is created with, which Player shows a ViewViews holder or a member
+            var path when path == $"/api/views/{viewId}" => FakeSiblingApis.Json(View(viewId, "Range")),
+            "/api/views" => new HttpResponseMessage(HttpStatusCode.Forbidden),
+            var path when path == $"/api/users/{principal.UserId}/views" => FakeSiblingApis.Json(new[] { View(viewId, "Range") }),
+            _ => new HttpResponseMessage(HttpStatusCode.NotFound)
+        });
+        var exported = new EventTemplateExport
+        {
+            Id = Guid.NewGuid(), Name = "Moved", DurationHours = 1, ViewId = Guid.NewGuid(), ViewName = "Range"
+        };
+
+        var result = await Import(host, exported);
+
+        var imported = Assert.Single(result.Imported);
+        Assert.Equal(viewId, (await ReadBack(db => db.EventTemplates.AsNoTracking().SingleAsync(x => x.Id == imported.Id, Ct))).ViewId);
     }
 
     private static object View(Guid id, string name) => new { id, name, defaultTeamId = Guid.NewGuid() };
