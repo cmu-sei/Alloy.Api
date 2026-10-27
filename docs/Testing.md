@@ -29,7 +29,7 @@ dotnet test Alloy.Api.Tests --results-directory TestResults/coverage \
   --coverlet-skip-auto-props
 ```
 
-Coverage comes from `coverlet.MTP`, the Microsoft.Testing.Platform form of coverlet, and is opt-in through `--coverlet`. The options carry the exclusions the standard's `coverlet.runsettings` applied under VSTest: the include filters keep the figure to `Alloy.Api` and `Alloy.Api.Data` (without them coverlet also instruments third-party assemblies that ship sources), and the rest exclude `Alloy.Api.Migrations.PostgreSQL`, the test assembly, the `Crucible.Common.EntityEvents` content files and generated code. On the same code this reports the same figure as the VSTest run did (4,565 of 5,643 lines). Read cobertura totals from the root element's `lines-covered` and `lines-valid` (the standard's README, "Known pitfalls"). Coverage is a local diagnostic; CI neither collects nor gates on it.
+Coverage comes from `coverlet.MTP`, the Microsoft.Testing.Platform form of coverlet, and is opt-in through `--coverlet`. The include filters keep the figure to `Alloy.Api` and `Alloy.Api.Data` (without them coverlet also instruments third-party assemblies that ship sources), and the rest exclude `Alloy.Api.Migrations.PostgreSQL`, the test assembly, the `Crucible.Common.EntityEvents` content files and generated code. On the same code this reports the same figure as the VSTest run did (4,565 of 5,643 lines). Read cobertura totals from the root element's `lines-covered` and `lines-valid`. Coverage is a local diagnostic; CI neither collects nor gates on it.
 
 # Build settings
 
@@ -38,7 +38,7 @@ Coverage comes from `coverlet.MTP`, the Microsoft.Testing.Platform form of cover
 - There is no central package management in this repository, so the test packages carry the standard's pinned versions (`agent-docs/api-testing/test-packages.props`) as `Version=` attributes in `Alloy.Api.Tests.csproj`; `sync.sh` checks them there. The optional `Microsoft.AspNetCore.SignalR.Client` (10.0.1, the standard's pin) is referenced for `EngineHub`'s real-connection test.
 - `ImplicitUsings` stays off, as in the API projects; each file names its usings. Nullable is off.
 - A build of the test project rebuilds `Alloy.Api`, which reports CS1573 for documented actions whose `CancellationToken` has no `<param>` tag. The test project's own build is warning-free apart from the NuGet audit.
-- The suite runs on Microsoft.Testing.Platform rather than the standard's VSTest mode: `global.json` selects it for `dotnet test`, and `UseMicrosoftTestingPlatformRunner` in the project file builds the test app for it. The test packages differ from the standard's pins accordingly: `xunit.v3` 4.0.1, `coverlet.MTP` in place of `coverlet.collector`, and no `xunit.runner.visualstudio` or `Microsoft.NET.Test.Sdk` (both VSTest only); `coverlet.runsettings` is gone, since nothing reads it.
+- The suite runs on Microsoft.Testing.Platform: `global.json` selects it for `dotnet test`, and `UseMicrosoftTestingPlatformRunner` in the project file builds the test app for it. Coverage comes from `coverlet.MTP`; `xunit.runner.visualstudio` and `Microsoft.NET.Test.Sdk` are not referenced (both VSTest only).
 - CI is the shared `dotnet-test.yaml` workflow in cmu-sei/Crucible-Github-Actions, called from `.github/workflows/build-and-test.yml`; it reads the runner from `global.json`.
 
 # How the harness works
