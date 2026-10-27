@@ -2,6 +2,7 @@
 // Released under a MIT (SEI)-style license. See LICENSE.md in the project root for license information.
 
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Logging;
 using Caster.Api.Client;
 using Alloy.Api.Infrastructure.Extensions;
 using Alloy.Api.Infrastructure.Options;
@@ -30,9 +31,12 @@ namespace Alloy.Api.Services
         private readonly ICasterApiClient _casterApiClient;
         private readonly Guid _userId;
         private readonly string _userName;
+        private readonly ILogger<CasterService> _logger;
 
-        public CasterService(IHttpContextAccessor httpContextAccessor, ClientOptions clientSettings, ICasterApiClient casterApiClient)
+        public CasterService(IHttpContextAccessor httpContextAccessor, ClientOptions clientSettings, ICasterApiClient casterApiClient,
+            ILogger<CasterService> logger)
         {
+            _logger = logger;
             _userId = httpContextAccessor.HttpContext.User.GetId();
             _userName = httpContextAccessor.HttpContext.User.Claims.First(c => c.Type.ToLower() == "name").Value;
             _casterApiClient = casterApiClient;
@@ -47,9 +51,8 @@ namespace Alloy.Api.Services
 
         public async Task<IEnumerable<Directory>> GetDirectoriesAsync(CancellationToken ct)
         {
-            var directories = await _casterApiClient.GetAllDirectoriesAsync(false, false, ct);
-
-            return directories;
+            return await _logger.CallUpstreamAsync("Caster", "load the Caster directories",
+                async () => await _casterApiClient.GetAllDirectoriesAsync(false, false, ct), ct);
         }
 
         public async Task<Directory> GetDirectoryAsync(Guid directoryId, CancellationToken ct)
@@ -59,7 +62,8 @@ namespace Alloy.Api.Services
 
         public async Task<IEnumerable<Resource>> GetWorkspaceResourcesAsync(Guid workspaceId, CancellationToken ct)
         {
-            return await _casterApiClient.GetResourcesByWorkspaceAsync(workspaceId, ct);
+            return await _logger.CallUpstreamAsync("Caster", "load the event's Caster resources",
+                async () => await _casterApiClient.GetResourcesByWorkspaceAsync(workspaceId, ct), ct);
         }
 
         public async Task<object> GetWorkspaceOutputsAsync(Guid workspaceId, CancellationToken ct)
@@ -69,7 +73,8 @@ namespace Alloy.Api.Services
 
         public async Task<Resource> RefreshResourceAsync(Guid workspaceId, Resource resource, CancellationToken ct)
         {
-            return await _casterApiClient.GetResourceAsync(workspaceId, resource.Id, ct);
+            return await _logger.CallUpstreamAsync("Caster", $"refresh Caster resource {resource.Name}",
+                () => _casterApiClient.GetResourceAsync(workspaceId, resource.Id, ct), ct);
         }
 
         // public async Task<IEnumerable<Workspace>> GetWorkspacesAsync(CancellationToken ct)

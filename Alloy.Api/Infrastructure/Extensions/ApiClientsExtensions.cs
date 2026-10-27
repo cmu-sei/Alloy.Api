@@ -1,4 +1,5 @@
 using System;
+using Alloy.Api.Infrastructure.Exceptions;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
@@ -45,7 +46,11 @@ namespace Alloy.Api.Infrastructure.Extensions
                 }
             );
 
-            if (disco.IsError) throw new Exception(disco.Error);
+            // disco.Error names the identity provider's address, which is for the log, not the user.
+            if (disco.IsError)
+                throw new UpstreamServiceException(
+                    "Alloy could not sign in its service account. The identity provider could not be reached.",
+                    disco.Exception ?? new Exception(disco.Error));
 
             PasswordTokenRequest request = new PasswordTokenRequest
             {
