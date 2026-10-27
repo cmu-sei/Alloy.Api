@@ -2,7 +2,6 @@
 // Released under a MIT (SEI)-style license. See LICENSE.md in the project root for license information.
 
 using System;
-using System.Collections.Generic;
 using System.IO;
 using System.Net;
 using System.Net.Http;
@@ -84,12 +83,10 @@ public class EventTemplateArchiveServiceTests(DatabaseFixture fixture) : Service
 
     private static async Task<ImportEventTemplatesResult> Import(ApiTestHost host, params EventTemplateExport[] templates)
     {
-        var archiveService = host.Resolve<IArchiveService>();
-        using var archive = await archiveService.ArchiveData("event_templates", ArchiveType.zip,
-            new Dictionary<string, string> { [EventTemplateArchiveService.ExportFileName] = JsonSerializer.Serialize(templates) }, Ct);
+        using var file = new MemoryStream(JsonSerializer.SerializeToUtf8Bytes(templates));
         using var scope = host.CreateScope();
         var service = scope.ServiceProvider.GetRequiredService<IEventTemplateArchiveService>();
 
-        return await service.ImportAsync(archive.Data, archive.Name, matchReferencesByName: true, Ct);
+        return await service.ImportAsync(file, matchReferencesByName: true, Ct);
     }
 }

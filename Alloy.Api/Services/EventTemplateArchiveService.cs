@@ -5,11 +5,15 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Security.Claims;
+using System.Security.Principal;
+using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Alloy.Api.Data;
 using Alloy.Api.Infrastructure.Exceptions;
+using Alloy.Api.Infrastructure.Extensions;
 using Alloy.Api.ViewModels;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -17,24 +21,37 @@ using Microsoft.Extensions.Logging;
 namespace Alloy.Api.Services
 {
     /// <summary>
-    /// Exports Event Templates to an archive and imports them back, following Player's View export:
-    /// a zip or tar.gz holding one JSON file, ids preserved, and a per-template list of failures.
+    /// Exports Event Templates to a JSON file and imports them back as new templates: a JSON object for one
+    /// template, a JSON array for several, with a per-template list of failures and warnings. An import also
+    /// reads a zip archive holding the JSON file, as earlier exports wrote it.
     /// </summary>
     public interface IEventTemplateArchiveService
     {
-        Task<ArchiveResult> ExportAsync(Guid[] ids, ArchiveType archiveType, CancellationToken ct);
-        Task<ImportEventTemplatesResult> ImportAsync(Stream archive, string archiveFileName, bool matchReferencesByName, CancellationToken ct);
+        Task<ExportFile> ExportAsync(Guid[] ids, CancellationToken ct);
+        Task<ImportEventTemplatesResult> ImportAsync(Stream file, bool matchReferencesByName, CancellationToken ct);
     }
 
     public class EventTemplateArchiveService : IEventTemplateArchiveService
     {
-        public const string ExportFileName = "event_templates.json";
-        public const string ArchiveName = "event_templates";
+        /// <summary>The file name of an export of several Event Templates.</summary>
+        public const string ExportFileName = "event-templates.json";
 
-        private static readonly JsonSerializerOptions WriteOptions = new() { WriteIndented = true };
+        /// <summary>The file earlier exports wrapped in a zip archive.</summary>
+        public const string LegacyExportFileName = "event_templates.json";
+
+        public const string JsonContentType = "application/json";
+
+        private static readonly JsonSerializerOptions WriteOptions = new(JsonSerializerDefaults.Web)
+        {
+            WriteIndented = true,
+            // Names and descriptions are written as typed, not as \u escapes; the file is a download, not HTML.
+            Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+        };
+
         private static readonly JsonSerializerOptions ReadOptions = new() { PropertyNameCaseInsensitive = true };
 
         private readonly AlloyContext _context;
+        private readonly ClaimsPrincipal _user;
         private readonly IEventTemplateService _eventTemplateService;
         private readonly IPlayerService _playerService;
         private readonly ICasterService _casterService;
@@ -44,6 +61,7 @@ namespace Alloy.Api.Services
 
         public EventTemplateArchiveService(
             AlloyContext context,
+            IPrincipal user,
             IEventTemplateService eventTemplateService,
             IPlayerService playerService,
             ICasterService casterService,
@@ -52,6 +70,7 @@ namespace Alloy.Api.Services
             ILogger<EventTemplateArchiveService> logger)
         {
             _context = context;
+            _user = user as ClaimsPrincipal;
             _eventTemplateService = eventTemplateService;
             _playerService = playerService;
             _casterService = casterService;
@@ -62,16 +81,21 @@ namespace Alloy.Api.Services
 
         #region Export
 
-        public async Task<ArchiveResult> ExportAsync(Guid[] ids, ArchiveType archiveType, CancellationToken ct)
+        public async Task<ExportFile> ExportAsync(Guid[] ids, CancellationToken ct)
         {
+            ids = (ids ?? []).Distinct().ToArray();
             var query = _context.EventTemplates.AsNoTracking();
 
-            if (ids != null && ids.Length > 0)
+            if (ids.Length > 0)
             {
                 query = query.Where(x => ids.Contains(x.Id));
             }
 
             var entities = await query.OrderBy(x => x.Name).ToListAsync(ct);
+            var missing = ids.Except(entities.Select(x => x.Id)).ToList();
+
+            if (missing.Count > 0)
+                throw new EntityNotFoundException<EventTemplate>($"Event Template {missing[0]} was not found.");
 
             // Names are a convenience for the importer, so a reference that cannot be read now is still exported by id.
             var viewNames = await GetNamesAsync(entities.Select(x => x.ViewId),
@@ -97,12 +121,21 @@ namespace Alloy.Api.Services
                 ScenarioTemplateName = x.ScenarioTemplateId.HasValue ? scenarioTemplateNames.GetValueOrDefault(x.ScenarioTemplateId.Value) : null,
             }).ToArray();
 
-            var data = new Dictionary<string, string>
-            {
-                [ExportFileName] = JsonSerializer.Serialize(export, WriteOptions)
-            };
+            // One requested template is written as an object named after it, anything else as an array.
+            return ids.Length == 1
+                ? new ExportFile(SingleFileName(export[0].Name), JsonContentType, JsonSerializer.SerializeToUtf8Bytes(export[0], WriteOptions))
+                : new ExportFile(ExportFileName, JsonContentType, JsonSerializer.SerializeToUtf8Bytes(export, WriteOptions));
+        }
 
-            return await _archiveService.ArchiveData(ArchiveName, archiveType, data, ct);
+        // The characters Windows refuses in a file name, a superset of what the server's own OS refuses, since the
+        // file is saved on the user's machine.
+        private static readonly char[] InvalidFileNameChars = ['\\', '/', ':', '*', '?', '"', '<', '>', '|'];
+
+        private static string SingleFileName(string templateName)
+        {
+            var name = new string(templateName.Select(c => InvalidFileNameChars.Contains(c) || char.IsControl(c) ? '_' : c).ToArray()).Trim(' ', '.');
+
+            return string.IsNullOrEmpty(name) ? "event-template.json" : $"{name}.json";
         }
 
         private async Task<Dictionary<Guid, string>> GetNamesAsync(IEnumerable<Guid?> ids, Func<Guid, Task<string>> getName, string description)
@@ -132,59 +165,55 @@ namespace Alloy.Api.Services
 
         #region Import
 
-        public async Task<ImportEventTemplatesResult> ImportAsync(Stream archive, string archiveFileName, bool matchReferencesByName, CancellationToken ct)
+        public async Task<ImportEventTemplatesResult> ImportAsync(Stream file, bool matchReferencesByName, CancellationToken ct)
         {
-            Dictionary<string, byte[]> entries;
-
-            try
-            {
-                entries = await _archiveService.ExtractArchive(archive, archiveFileName, ct);
-            }
-            catch (OperationCanceledException)
-            {
-                throw;
-            }
-            catch (Exception ex) when (ex is InvalidDataException or ArgumentException or IOException)
-            {
-                throw new ValidationException($"The file could not be read as an archive: {ex.Message}", ex);
-            }
-
-            var templates = Deserialize(entries);
-
-            if (templates == null)
-            {
-                return new ImportEventTemplatesResult([],
-                    [new(null, ExportFileName, $"Missing or invalid {ExportFileName} in archive")], []);
-            }
+            var items = await ReadItemsAsync(file, ct);
 
             var imported = new List<EventTemplate>();
             var failures = new List<ImportEventTemplateFailure>();
             var warnings = new List<ImportEventTemplateWarning>();
 
-            var incomingIds = templates.Select(x => x.Id).Where(x => x != Guid.Empty).ToList();
-            var takenIds = (await _context.EventTemplates
-                .Where(x => incomingIds.Contains(x.Id))
-                .Select(x => x.Id)
-                .ToListAsync(ct)).ToHashSet();
-
+            var userName = await GetUserNameAsync(ct);
+            var names = (await _context.EventTemplates.Select(x => x.Name).ToListAsync(ct)).ToHashSet(StringComparer.Ordinal);
             var resolver = new ReferenceResolver(_playerService, _casterService, _steamfitterService, matchReferencesByName, ct);
 
-            foreach (var template in templates)
+            for (var i = 0; i < items.Count; i++)
             {
+                EventTemplateExport template;
+
+                try
+                {
+                    template = items[i].ValueKind == JsonValueKind.Object
+                        ? items[i].Deserialize<EventTemplateExport>(ReadOptions)
+                        : null;
+                }
+                catch (JsonException ex)
+                {
+                    failures.Add(new(null, null, $"Item {i + 1} could not be read as an Event Template: {ex.Message}"));
+                    continue;
+                }
+
+                if (template == null)
+                {
+                    failures.Add(new(null, null, $"Item {i + 1} is not an Event Template"));
+                    continue;
+                }
+
                 if (string.IsNullOrWhiteSpace(template.Name))
                 {
                     failures.Add(new(template.Id, template.Name, "An Event Template must have a Name"));
                     continue;
                 }
 
-                if (template.Id != Guid.Empty && !takenIds.Add(template.Id))
+                var messages = new List<string>();
+                var name = template.Name;
+
+                if (names.Contains(name))
                 {
-                    failures.Add(new(template.Id, template.Name, "An Event Template with this Id already exists",
-                        ImportEventTemplateFailureType.EventTemplateExists));
-                    continue;
+                    name = $"{template.Name} - {userName}";
+                    messages.Add($"Renamed to \"{name}\" because an Event Template named \"{template.Name}\" already exists.");
                 }
 
-                var messages = new List<string>();
                 var viewId = await resolver.ResolveViewAsync(template, messages);
                 var directoryId = await resolver.ResolveDirectoryAsync(template, messages);
                 var scenarioTemplateId = await resolver.ResolveScenarioTemplateAsync(template, messages);
@@ -204,10 +233,10 @@ namespace Alloy.Api.Services
                     messages.Add("Imported unpublished because a reference was cleared. Publish it after choosing the missing reference.");
                 }
 
+                // The id in the file is not reused: an import always creates a new template.
                 var eventTemplate = new EventTemplate
                 {
-                    Id = template.Id,
-                    Name = template.Name,
+                    Name = name,
                     Description = template.Description,
                     DurationHours = template.DurationHours,
                     UseDynamicHost = template.UseDynamicHost,
@@ -223,6 +252,7 @@ namespace Alloy.Api.Services
                     // every reference, so an import cannot attach resources the caller could not choose by hand.
                     var created = await _eventTemplateService.CreateAsync(eventTemplate, ct);
                     imported.Add(created);
+                    names.Add(created.Name);
                     warnings.AddRange(messages.Select(m => new ImportEventTemplateWarning(created.Id, created.Name, m)));
                 }
                 catch (ValidationException ex)
@@ -231,7 +261,7 @@ namespace Alloy.Api.Services
                 }
                 catch (DbUpdateException ex)
                 {
-                    _logger.LogWarning(ex, "Could not import Event Template {Id}.", template.Id);
+                    _logger.LogWarning(ex, "Could not import Event Template {Name}.", template.Name);
                     _context.ChangeTracker.Clear();
                     failures.Add(new(template.Id, template.Name, "The Event Template could not be saved"));
                 }
@@ -240,25 +270,81 @@ namespace Alloy.Api.Services
             return new ImportEventTemplatesResult(imported.ToArray(), failures.ToArray(), warnings.ToArray());
         }
 
-        private static EventTemplateExport[] Deserialize(Dictionary<string, byte[]> entries)
+        /// <summary>
+        /// The templates in an uploaded file: a JSON object or array, or a zip archive holding one, told apart by
+        /// content rather than by the file's name.
+        /// </summary>
+        private async Task<List<JsonElement>> ReadItemsAsync(Stream file, CancellationToken ct)
         {
-            var json = entries.TryGetValue(ExportFileName, out var bytes)
-                ? bytes
-                : entries.Where(x => x.Key.EndsWith("/" + ExportFileName, StringComparison.Ordinal))
-                    .Select(x => x.Value)
-                    .FirstOrDefault();
-
-            if (json == null)
-                return null;
+            byte[] json;
 
             try
             {
-                return JsonSerializer.Deserialize<EventTemplateExport[]>(json, ReadOptions);
+                json = await ArchiveService.ReadBounded(file, ArchiveService.MaxBytes, ct);
+
+                if (ArchiveService.IsZip(json))
+                {
+                    json = FindJson(await _archiveService.ExtractZip(new MemoryStream(json), ct));
+                }
             }
-            catch (JsonException)
+            catch (OperationCanceledException)
             {
-                return null;
+                throw;
             }
+            catch (Exception ex) when (ex is InvalidDataException or IOException)
+            {
+                throw new ValidationException($"The file could not be read: {ex.Message}", ex);
+            }
+
+            // A file saved by an editor may start with a UTF-8 byte order mark, which the JSON reader rejects.
+            var content = json.AsMemory();
+
+            if (content.Span.StartsWith((ReadOnlySpan<byte>)[0xEF, 0xBB, 0xBF]))
+                content = content[3..];
+
+            JsonElement root;
+
+            try
+            {
+                using var document = JsonDocument.Parse(content);
+                root = document.RootElement.Clone();
+            }
+            catch (JsonException ex)
+            {
+                throw new ValidationException($"The file is not an Event Template export (a .json file, or a .zip archive holding one): {ex.Message}", ex);
+            }
+
+            return root.ValueKind switch
+            {
+                JsonValueKind.Object => [root],
+                JsonValueKind.Array => root.EnumerateArray().ToList(),
+                _ => throw new ValidationException("The file is not an Event Template export: expected a JSON object or array.")
+            };
+        }
+
+        /// <summary>The JSON file in a zip archive: the one earlier exports wrote, otherwise the only .json entry.</summary>
+        private static byte[] FindJson(Dictionary<string, byte[]> entries)
+        {
+            var legacy = entries.Where(x => x.Key == LegacyExportFileName || x.Key.EndsWith("/" + LegacyExportFileName, StringComparison.Ordinal)).ToList();
+
+            if (legacy.Count > 0)
+                return legacy[0].Value;
+
+            var json = entries.Where(x => x.Key.EndsWith(".json", StringComparison.OrdinalIgnoreCase)).ToList();
+
+            return json.Count == 1
+                ? json[0].Value
+                : throw new ValidationException(json.Count == 0
+                    ? "The zip archive holds no .json file."
+                    : "The zip archive holds more than one .json file, so it is not clear which to import.");
+        }
+
+        private async Task<string> GetUserNameAsync(CancellationToken ct)
+        {
+            var userId = _user.GetId();
+            var name = await _context.Users.Where(x => x.Id == userId).Select(x => x.Name).SingleOrDefaultAsync(ct);
+
+            return string.IsNullOrWhiteSpace(name) ? _user.FindFirst("name")?.Value ?? userId.ToString() : name;
         }
 
         /// <summary>

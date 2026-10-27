@@ -3,118 +3,58 @@
 
 using System;
 using System.Collections.Generic;
-using System.Formats.Tar;
 using System.IO;
 using System.IO.Compression;
-using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using Alloy.Api.ViewModels;
 
 namespace Alloy.Api.Services
 {
     /// <summary>
-    /// Writes and reads the zip and tar.gz archives used for export and import, in the same
-    /// shape as Player's ArchiveService: a flat set of named entries.
+    /// Reads the zip archives an import accepts alongside plain JSON: a flat set of named entries, as
+    /// earlier exports wrapped their JSON file.
     /// </summary>
     public interface IArchiveService
     {
-        Task<ArchiveResult> ArchiveData(string archiveName, ArchiveType type, Dictionary<string, string> data, CancellationToken ct);
-        Task<Dictionary<string, byte[]>> ExtractArchive(Stream archiveStream, string archiveFileName, CancellationToken ct);
+        Task<Dictionary<string, byte[]>> ExtractZip(Stream archiveStream, CancellationToken ct);
     }
 
     public class ArchiveService : IArchiveService
     {
         /// <summary>
-        /// Upper bound on the size of a single extracted entry, so a crafted archive cannot exhaust memory.
+        /// Upper bound on the bytes read from an upload or extracted from an archive, in total, so a crafted
+        /// file cannot exhaust memory.
         /// </summary>
-        public const long MaxEntryBytes = 10 * 1024 * 1024;
+        public const long MaxBytes = 10 * 1024 * 1024;
 
-        public async Task<ArchiveResult> ArchiveData(string archiveName, ArchiveType type, Dictionary<string, string> data, CancellationToken ct)
-        {
-            var stream = new MemoryStream();
+        /// <summary>Whether <paramref name="content"/> starts with a zip file's local file header signature.</summary>
+        public static bool IsZip(ReadOnlySpan<byte> content) =>
+            content.Length >= 4 && content[0] == 'P' && content[1] == 'K' && content[2] == 3 && content[3] == 4;
 
-            switch (type)
-            {
-                case ArchiveType.zip:
-                    using (var zip = new ZipArchive(stream, ZipArchiveMode.Create, leaveOpen: true))
-                    {
-                        foreach (var (name, content) in data)
-                        {
-                            var entry = zip.CreateEntry(name, CompressionLevel.Optimal);
-                            await using var entryStream = entry.Open();
-                            var bytes = Encoding.UTF8.GetBytes(content);
-                            await entryStream.WriteAsync(bytes, ct);
-                        }
-                    }
-                    break;
-                case ArchiveType.tgz:
-                    await using (var gzip = new GZipStream(stream, CompressionLevel.Optimal, leaveOpen: true))
-                    await using (var tar = new TarWriter(gzip, TarEntryFormat.Pax, leaveOpen: true))
-                    {
-                        foreach (var (name, content) in data)
-                        {
-                            var entry = new PaxTarEntry(TarEntryType.RegularFile, name)
-                            {
-                                DataStream = new MemoryStream(Encoding.UTF8.GetBytes(content))
-                            };
-                            await tar.WriteEntryAsync(entry, ct);
-                        }
-                    }
-                    break;
-                default:
-                    throw new ArgumentException($"Unsupported archive type {type}");
-            }
-
-            stream.Position = 0;
-
-            return new ArchiveResult
-            {
-                Data = stream,
-                Name = $"{archiveName}.{type.GetExtension()}",
-                Type = type.GetContentType()
-            };
-        }
-
-        public async Task<Dictionary<string, byte[]>> ExtractArchive(Stream archiveStream, string archiveFileName, CancellationToken ct)
+        public async Task<Dictionary<string, byte[]>> ExtractZip(Stream archiveStream, CancellationToken ct)
         {
             var entries = new Dictionary<string, byte[]>(StringComparer.Ordinal);
+            long total = 0;
 
-            switch (ArchiveTypeHelpers.GetType(archiveFileName))
+            using var zip = new ZipArchive(archiveStream, ZipArchiveMode.Read, leaveOpen: true);
+
+            foreach (var entry in zip.Entries)
             {
-                case ArchiveType.zip:
-                    using (var zip = new ZipArchive(archiveStream, ZipArchiveMode.Read, leaveOpen: true))
-                    {
-                        foreach (var entry in zip.Entries)
-                        {
-                            // Directory entries have an empty Name
-                            if (string.IsNullOrEmpty(entry.Name))
-                                continue;
+                // Directory entries have an empty Name
+                if (string.IsNullOrEmpty(entry.Name))
+                    continue;
 
-                            await using var entryStream = entry.Open();
-                            entries[entry.FullName] = await ReadBounded(entryStream, ct);
-                        }
-                    }
-                    break;
-                case ArchiveType.tgz:
-                    await using (var gzip = new GZipStream(archiveStream, CompressionMode.Decompress, leaveOpen: true))
-                    await using (var tar = new TarReader(gzip, leaveOpen: true))
-                    {
-                        while (await tar.GetNextEntryAsync(copyData: false, ct) is TarEntry entry)
-                        {
-                            if (entry.EntryType is not (TarEntryType.RegularFile or TarEntryType.V7RegularFile) || entry.DataStream == null)
-                                continue;
-
-                            entries[entry.Name] = await ReadBounded(entry.DataStream, ct);
-                        }
-                    }
-                    break;
+                await using var entryStream = entry.Open();
+                var bytes = await ReadBounded(entryStream, MaxBytes - total, ct);
+                total += bytes.Length;
+                entries[entry.FullName] = bytes;
             }
 
             return entries;
         }
 
-        private static async Task<byte[]> ReadBounded(Stream source, CancellationToken ct)
+        /// <summary>Reads <paramref name="source"/> to its end, failing once more than <paramref name="limit"/> bytes arrive.</summary>
+        public static async Task<byte[]> ReadBounded(Stream source, long limit, CancellationToken ct)
         {
             using var target = new MemoryStream();
             var buffer = new byte[81920];
@@ -122,8 +62,8 @@ namespace Alloy.Api.Services
 
             while ((read = await source.ReadAsync(buffer, ct)) > 0)
             {
-                if (target.Length + read > MaxEntryBytes)
-                    throw new InvalidDataException($"An archive entry is larger than {MaxEntryBytes / (1024 * 1024)} MB.");
+                if (target.Length + read > limit)
+                    throw new InvalidDataException($"The file is larger than {MaxBytes / (1024 * 1024)} MB.");
 
                 target.Write(buffer, 0, read);
             }

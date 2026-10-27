@@ -173,20 +173,20 @@ namespace Alloy.Api.Controllers
         /// Exports EventTemplates
         /// </summary>
         /// <remarks>
-        /// Exports the specified EventTemplates, or all EventTemplates if none are specified, as a zip or tar.gz
-        /// archive containing event_templates.json. The Player View, Caster Directory and Steamfitter Scenario
-        /// Template are exported as ids, each with its name at export time. Memberships are not exported.
+        /// Exports the specified EventTemplates, or all EventTemplates if none are specified, as a JSON file: an
+        /// object when one id is specified, otherwise an array. The Player View, Caster Directory and Steamfitter
+        /// Scenario Template are exported as ids, each with its name at export time. Memberships are not exported.
         /// <para />
         /// Exporting specific EventTemplates requires permission to view each of them.
         /// Exporting all EventTemplates requires the ViewEventTemplates system permission.
         /// </remarks>
         /// <param name="ids">The ids of the EventTemplates to export. If empty, all EventTemplates are exported.</param>
-        /// <param name="archiveType">The archive format</param>
         /// <param name="ct"></param>
         [HttpGet("eventTemplates/actions/export")]
-        [ProducesResponseType(typeof(FileResult), (int)HttpStatusCode.OK)]
+        [ProducesResponseType(typeof(FileResult), (int)HttpStatusCode.OK, EventTemplateArchiveService.JsonContentType)]
+        [ProducesResponseType(typeof(ProblemDetails), (int)HttpStatusCode.NotFound)]
         [SwaggerOperation(OperationId = "exportEventTemplates")]
-        public async Task<IActionResult> Export([FromQuery] Guid[] ids, [FromQuery] ArchiveType archiveType, CancellationToken ct)
+        public async Task<IActionResult> Export([FromQuery] Guid[] ids, CancellationToken ct)
         {
             ids ??= [];
 
@@ -204,16 +204,18 @@ namespace Alloy.Api.Controllers
                 }
             }
 
-            var result = await _eventTemplateArchiveService.ExportAsync(ids, archiveType, ct);
-            return File(result.Data, result.Type, result.Name);
+            var file = await _eventTemplateArchiveService.ExportAsync(ids, ct);
+            return File(file.Data, file.ContentType, file.Name);
         }
 
         /// <summary>
         /// Imports EventTemplates
         /// </summary>
         /// <remarks>
-        /// Imports the EventTemplates in an archive created by exportEventTemplates. Ids are preserved, so an
-        /// EventTemplate whose id already exists is not imported; use clone to copy a template within one system.
+        /// Imports the EventTemplates in a .json file created by exportEventTemplates, or in a .zip archive holding
+        /// one. Each EventTemplate is created as a new EventTemplate with a new id; the ids in the file are not
+        /// reused. If an EventTemplate with the same name already exists, " - " and the caller's name are appended
+        /// to the name and a warning says so.
         /// <para />
         /// Each Player View, Caster Directory and Steamfitter Scenario Template is kept if it exists and is visible
         /// to the caller, otherwise it is matched by name if requested, otherwise it is cleared and a warning is
@@ -221,7 +223,7 @@ namespace Alloy.Api.Controllers
         /// <para />
         /// Requires the CreateEventTemplates system permission
         /// </remarks>
-        /// <param name="form">The archive, and whether to match references by name</param>
+        /// <param name="form">The file, and whether to match references by name</param>
         /// <param name="ct"></param>
         [HttpPost("eventTemplates/actions/import")]
         [ProducesResponseType(typeof(ImportEventTemplatesResult), (int)HttpStatusCode.OK)]
@@ -232,14 +234,11 @@ namespace Alloy.Api.Controllers
             if (!await _authorizationService.AuthorizeAsync([SystemPermission.CreateEventTemplates], ct))
                 throw new ForbiddenException();
 
-            if (form?.Archive == null)
-                throw new ValidationException("An archive file is required");
+            if (form?.File == null)
+                throw new ValidationException("A .json or .zip file is required");
 
-            if (!ArchiveTypeHelpers.IsValidFileName(form.Archive.FileName))
-                throw new ValidationException($"File extension must be one of {string.Join(", ", ArchiveTypeHelpers.GetValidExtensions())}");
-
-            await using var stream = form.Archive.OpenReadStream();
-            var result = await _eventTemplateArchiveService.ImportAsync(stream, form.Archive.FileName, form.MatchReferencesByName, ct);
+            await using var stream = form.File.OpenReadStream();
+            var result = await _eventTemplateArchiveService.ImportAsync(stream, form.MatchReferencesByName, ct);
 
             foreach (var eventTemplate in result.Imported)
             {
