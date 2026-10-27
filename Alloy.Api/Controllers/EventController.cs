@@ -445,7 +445,7 @@ namespace Alloy.Api.Controllers
         /// <returns>
         /// Returns a score for an event
         /// </returns>
-        [HttpPost("events/{id}/grade")]
+        [HttpPost("events/{id}/qrade")]
         [ProducesResponseType(typeof(IEnumerable<QuestionView>), (int)HttpStatusCode.OK)]
         [SwaggerOperation(OperationId = "GradeEvent")]
         public async Task<IActionResult> GradeEventAsync(Guid id, [FromBody] IEnumerable<string> answers, CancellationToken ct)
@@ -456,19 +456,6 @@ namespace Alloy.Api.Controllers
             var list = await _eventService.GradeEventAsync(id, answers, ct);
             return Ok(list);
         }
-
-        /// <summary>
-        /// Grade an event (deprecated misspelled route)
-        /// </summary>
-        /// <remarks>
-        /// The original route was published as events/{id}/qrade. It stays as an alias so
-        /// existing clients keep working; it is left out of the OpenAPI document so generated
-        /// clients use events/{id}/grade.
-        /// </remarks>
-        [HttpPost("events/{id}/qrade")]
-        [ApiExplorerSettings(IgnoreApi = true)]
-        public Task<IActionResult> GradeEventMisspelledRouteAsync(Guid id, [FromBody] IEnumerable<string> answers, CancellationToken ct)
-            => GradeEventAsync(id, answers, ct);
 
         private void AddPermissions(IEnumerable<Event> list)
         {

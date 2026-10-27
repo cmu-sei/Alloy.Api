@@ -668,7 +668,7 @@ public class EventControllerTests(DatabaseFixture fixture, AlloyAppFactory facto
         Assert.False(await context.Users.AnyAsync(x => x.Id == userId, Ct));
     }
 
-    // GET api/events/{id}/virtual-machines, questions; POST grade (and the legacy qrade alias)
+    // GET api/events/{id}/virtual-machines, questions; POST qrade
 
     [Fact]
     public async Task GetVirtualMachines_of_an_event_without_a_workspace_is_empty_for_a_member_holding_ViewEvent()
@@ -748,7 +748,7 @@ public class EventControllerTests(DatabaseFixture fixture, AlloyAppFactory facto
         var evt = await SeedEvent();
         var actor = await Actor().OnEvent(evt.Id, [EventPermission.ManageEvent]).SeedAsync();
 
-        var graded = await ReadAsync<List<QuestionView>>(await Client(actor).PostAsJsonAsync($"api/events/{evt.Id}/grade", new[] { "a" }, Ct));
+        var graded = await ReadAsync<List<QuestionView>>(await Client(actor).PostAsJsonAsync($"api/events/{evt.Id}/qrade", new[] { "a" }, Ct));
 
         Assert.Empty(graded);
     }
@@ -759,7 +759,7 @@ public class EventControllerTests(DatabaseFixture fixture, AlloyAppFactory facto
         var evt = await SeedEvent();
         var actor = await Actor().WithSystemPermissions(SystemPermission.ManageEvents).SeedAsync();
 
-        Assert.Empty(await ReadAsync<List<QuestionView>>(await Client(actor).PostAsJsonAsync($"api/events/{evt.Id}/grade", new[] { "a" }, Ct)));
+        Assert.Empty(await ReadAsync<List<QuestionView>>(await Client(actor).PostAsJsonAsync($"api/events/{evt.Id}/qrade", new[] { "a" }, Ct)));
     }
 
     [Fact]
@@ -768,7 +768,7 @@ public class EventControllerTests(DatabaseFixture fixture, AlloyAppFactory facto
         var evt = await SeedEvent();
         var actor = await Actor().OnEvent(evt.Id, [EventPermission.ViewEvent]).SeedAsync();
 
-        await AssertJsonError(HttpStatusCode.Forbidden, await Client(actor).PostAsJsonAsync($"api/events/{evt.Id}/grade", new[] { "a" }, Ct));
+        await AssertJsonError(HttpStatusCode.Forbidden, await Client(actor).PostAsJsonAsync($"api/events/{evt.Id}/qrade", new[] { "a" }, Ct));
     }
 
     [Fact]
@@ -777,34 +777,7 @@ public class EventControllerTests(DatabaseFixture fixture, AlloyAppFactory facto
         var evt = await SeedEvent();
         var actor = await Actor().WithSystemPermissions(SystemPermission.EditEvents).SeedAsync();
 
-        await AssertJsonError(HttpStatusCode.Forbidden, await Client(actor).PostAsJsonAsync($"api/events/{evt.Id}/grade", new[] { "a" }, Ct));
-    }
-
-    [Fact]
-    public async Task Grade_through_the_legacy_qrade_alias_is_empty_for_a_caller_holding_ManageEvents()
-    {
-        var evt = await SeedEvent();
-        var actor = await Actor().WithSystemPermissions(SystemPermission.ManageEvents).SeedAsync();
-
-        Assert.Empty(await ReadAsync<List<QuestionView>>(await Client(actor).PostAsJsonAsync($"api/events/{evt.Id}/qrade", new[] { "a" }, Ct)));
-    }
-
-    [Fact]
-    public async Task Grade_through_the_legacy_qrade_alias_is_forbidden_for_a_member_holding_only_ViewEvent()
-    {
-        var evt = await SeedEvent();
-        var actor = await Actor().OnEvent(evt.Id, [EventPermission.ViewEvent]).SeedAsync();
-
         await AssertJsonError(HttpStatusCode.Forbidden, await Client(actor).PostAsJsonAsync($"api/events/{evt.Id}/qrade", new[] { "a" }, Ct));
-    }
-
-    [Fact]
-    public async Task The_swagger_document_publishes_grade_and_not_the_qrade_alias()
-    {
-        var swagger = await (await Client().GetAsync("/swagger/v1/swagger.json", Ct)).Content.ReadAsStringAsync(Ct);
-
-        Assert.Contains("/api/events/{id}/grade", swagger);
-        Assert.DoesNotContain("qrade", swagger);
     }
 
     // GET api/events/mine
