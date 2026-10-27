@@ -52,6 +52,9 @@ namespace Alloy.Api.Infrastructure.Extensions
             else
                 policy.DisallowCredentials();
 
+            // Lets the UI read the file name of an export download
+            policy.WithExposedHeaders("Content-Disposition");
+
             return policy.Build();
         }
     }

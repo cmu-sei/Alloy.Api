@@ -95,6 +95,8 @@ public sealed class ApiTestHost : IDisposable
         services.AddScoped<ISteamfitterService, SteamfitterService>();
         services.AddScoped<IEventService, EventService>();
         services.AddScoped<IEventTemplateService, EventTemplateService>();
+        services.AddScoped<IEventTemplateArchiveService, EventTemplateArchiveService>();
+        services.AddSingleton<IArchiveService, ArchiveService>();
 
         services.AddSingleton<IAlloyEventQueue, AlloyEventQueue>();
         services.AddSingleton<StartupHealthCheck>();
