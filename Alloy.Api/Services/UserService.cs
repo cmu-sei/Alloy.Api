@@ -47,6 +47,14 @@ namespace Alloy.Api.Services
             _logger = logger;
         }
 
+        private static string SanitizeForLog(string value)
+        {
+            if (string.IsNullOrEmpty(value))
+                return string.Empty;
+
+            return value.Replace("\r", string.Empty).Replace("\n", string.Empty);
+        }
+
         public async STT.Task<IEnumerable<User>> GetAsync(CancellationToken ct)
         {
             var items = await _context.Users
@@ -67,7 +75,7 @@ namespace Alloy.Api.Services
 
             _context.Users.Add(userEntity);
             await _context.SaveChangesAsync(ct);
-            _logger.LogWarning($"User {user.Name} ({userEntity.Id}) created by {_user.GetId()}");
+            _logger.LogWarning($"User {SanitizeForLog(user.Name)} ({userEntity.Id}) created by {_user.GetId()}");
             return await GetAsync(user.Id, ct);
         }
 
@@ -88,7 +96,7 @@ namespace Alloy.Api.Services
 
             _context.Users.Update(userToUpdate);
             await _context.SaveChangesAsync(ct);
-            _logger.LogWarning($"User {userToUpdate.Name} ({userToUpdate.Id}) updated by {_user.GetId()}");
+            _logger.LogWarning($"User {SanitizeForLog(userToUpdate.Name)} ({userToUpdate.Id}) updated by {_user.GetId()}");
             return await GetAsync(id, ct);
         }
 
@@ -106,7 +114,7 @@ namespace Alloy.Api.Services
 
             _context.Users.Remove(userToDelete);
             await _context.SaveChangesAsync(ct);
-            _logger.LogWarning($"User {userToDelete.Name} ({userToDelete.Id}) deleted by {_user.GetId()}");
+            _logger.LogWarning($"User {SanitizeForLog(userToDelete.Name)} ({userToDelete.Id}) deleted by {_user.GetId()}");
             return true;
         }
 
