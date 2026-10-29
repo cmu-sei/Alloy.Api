@@ -38,4 +38,3 @@ jobs:
           version: ${{ needs.pack.outputs.version }}
           nuget-user: ${{ vars.NUGET_USER }}
           unlist: true
-          unlist-api-key: ${{ secrets.NUGET_APIKEY_UNLIST }}
