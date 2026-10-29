@@ -37,4 +37,3 @@ jobs:
           package-id: ${{ needs.pack.outputs.package-id }}
           version: ${{ needs.pack.outputs.version }}
           nuget-user: ${{ vars.NUGET_USER }}
-          unlist: true
