@@ -14,12 +14,14 @@ jobs:
     uses: cmu-sei/Crucible-Github-Actions/.github/workflows/nuget-release.yaml@nuget-v1
     permissions:
       contents: write          # tag + GitHub release with the .nupkg
+      id-token: write          # NuGet trusted publishing (OIDC -> short-lived push key)
     with:
       version: ${{ inputs.clientVersion }}
       project: Alloy.Api.Client/Alloy.Api.Client.csproj
       openapi-project: Alloy.Api
       description: NSwag generated client for Crucible's Alloy.Api
       unlist: true
+      auth-mode: trusted
+      nuget-user: ${{ vars.NUGET_USER }}
     secrets:
-      NUGET_APIKEY: ${{ secrets.NUGET_APIKEY }}
       NUGET_APIKEY_UNLIST: ${{ secrets.NUGET_APIKEY_UNLIST }}
