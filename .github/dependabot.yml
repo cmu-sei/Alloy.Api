@@ -37,6 +37,8 @@ updates:
       semver-patch-days: 3
     groups:
       minor-and-patch:
+        # A group without patterns outranks every other group's wildcard.
+        patterns: ["*"]
         update-types: [minor, patch]
     # These later versions need a commercial license.
     ignore:
@@ -58,4 +60,5 @@ updates:
       semver-patch-days: 3
     groups:
       minor-and-patch:
+        patterns: ["*"]
         update-types: [minor, patch]

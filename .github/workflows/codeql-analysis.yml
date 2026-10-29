@@ -1,10 +1,8 @@
-name: "Security - CodeQL"
+name: CodeQL
 
 on:
-  push:
-    branches: [main]
   pull_request:
-    # The branches below must be a subset of the branches above
+  push:
     branches: [main]
   schedule:
     - cron: "0 5 * * 5"
