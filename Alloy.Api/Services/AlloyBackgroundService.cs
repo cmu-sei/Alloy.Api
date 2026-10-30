@@ -316,7 +316,8 @@ namespace Alloy.Api.Services
                                                         .Where(m => m.EventId == eventEntity.Id)
                                                         .Select(m => m.User)
                                                         .ToListAsync(ct);
-                                                    var result = await PlayerApiExtensions.CreatePlayerViewAsync(playerApiClient, eventEntity, eventTemplateEntity, users, _logger, ct);
+                                                    var clientOptions = _clientOptions.CurrentValue;
+                                                    var result = await PlayerApiExtensions.CreatePlayerViewAsync(playerApiClient, eventEntity, eventTemplateEntity, users, clientOptions.ClonedViewServiceUserIds, clientOptions.ClonedViewServiceTeamRoleId, _logger, ct);
                                                     if (result.IsSuccess)
                                                     {
                                                         eventEntity.ViewId = result.Value;
