@@ -227,6 +227,34 @@ public class EventTemplateControllerTests(DatabaseFixture fixture, AlloyAppFacto
         Assert.Contains("name", Assert.IsType<string[]>(broadcast.Arguments[1]));
     }
 
+    /// <summary>The permissions in an update's response are the caller's, whatever the body carried.</summary>
+    [Fact]
+    public async Task Update_returns_the_callers_permissions_rather_than_the_bodys()
+    {
+        var template = await SeedTemplate();
+        var body = Template("Renamed", template.Id);
+        body.EventTemplatePermissions = ["sent-in-the-body"];
+
+        var updated = await ReadAsync<EventTemplate>(await RootClient.PutAsJsonAsync($"api/eventTemplates/{template.Id}", body, AlloyJson, Ct));
+
+        Assert.Equal("Renamed", updated.Name);
+        Assert.NotNull(updated.EventTemplatePermissions);
+        Assert.DoesNotContain("sent-in-the-body", updated.EventTemplatePermissions);
+    }
+
+    /// <summary>An update without a description clears the stored one.</summary>
+    [Fact]
+    public async Task Update_without_a_description_clears_it()
+    {
+        var template = await SeedTemplate();
+        var body = Template("Renamed", template.Id);
+        body.Description = null;
+
+        await AssertStatus(HttpStatusCode.OK, await RootClient.PutAsJsonAsync($"api/eventTemplates/{template.Id}", body, AlloyJson, Ct));
+
+        Assert.Null((await Stored(template.Id)).Description);
+    }
+
     /// <summary>The body's id is mapped onto the stored row, so an id other than the route's is answered with a 500.</summary>
     [Fact]
     public async Task Update_answers_a_body_id_other_than_the_routes_with_a_server_error()

@@ -202,6 +202,21 @@ public class SystemRoleControllerTests(DatabaseFixture fixture, AlloyAppFactory 
         Assert.Equal([], (await StoredRole(role.Id)).Permissions);
     }
 
+    /// <summary>The view model has no description, so an update keeps the stored one.</summary>
+    [Fact]
+    public async Task Update_keeps_the_roles_description()
+    {
+        var role = TestData.SystemRole(permissions: [SystemPermission.ViewEvents]);
+        role.Description = "Kept";
+        await Seed(role);
+
+        await AssertStatus(HttpStatusCode.OK, await RootClient.PutAsJsonAsync($"api/system-roles/{role.Id}",
+            new SystemRole { Id = role.Id, Name = "Renamed", Permissions = [] }, AlloyJson, Ct));
+
+        var saved = await StoredRole(role.Id);
+        Assert.Equal(("Renamed", "Kept"), (saved.Name, saved.Description));
+    }
+
     // Same case as Create_stores_a_permission_value_outside_the_enum.
     [Fact]
     public async Task Update_stores_a_permission_value_outside_the_enum()

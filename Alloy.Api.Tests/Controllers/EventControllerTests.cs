@@ -211,6 +211,19 @@ public class EventControllerTests(DatabaseFixture fixture, AlloyAppFactory facto
         Assert.Contains("name", Assert.IsType<string[]>(broadcast.Arguments[1]));
     }
 
+    /// <summary>The broadcast carries the event as stored, without the caller's permissions.</summary>
+    [Fact]
+    public async Task Update_broadcasts_the_stored_event_without_permissions()
+    {
+        var evt = await SeedEvent();
+
+        await RootClient.PutAsJsonAsync($"api/events/{evt.Id}", new UpdateEventRequest { Name = "Renamed", Description = evt.Description }, AlloyJson, Ct);
+
+        var sent = Assert.IsType<Event>(Assert.Single(Factory.Hub.ToGroup(evt.Id)).Arguments[0]);
+        Assert.Equal((evt.Id, "Renamed", evt.EventTemplateId), (sent.Id, sent.Name, sent.EventTemplateId));
+        Assert.Null(sent.EventPermissions);
+    }
+
     [Fact]
     public async Task Update_is_forbidden_for_a_member_holding_only_ViewEvent()
     {

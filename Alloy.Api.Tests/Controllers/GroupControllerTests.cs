@@ -381,6 +381,21 @@ public class GroupControllerTests(DatabaseFixture fixture, AlloyAppFactory facto
         Assert.Equal(created.Id, Assert.IsType<GroupMembership>(broadcast.Arguments[0]).Id);
     }
 
+    /// <summary>The broadcast carries the membership as stored.</summary>
+    [Fact]
+    public async Task CreateMembership_broadcasts_the_stored_membership()
+    {
+        var group = await SeedGroup();
+        var user = TestData.User();
+        await Seed(user);
+
+        var created = await ReadAsync<GroupMembership>(await RootClient.PostAsJsonAsync($"api/groups/{group.Id}/memberships",
+            new GroupMembership { GroupId = group.Id, UserId = user.Id, Role = GroupMembershipRole.Manager }, AlloyJson, Ct));
+
+        var sent = Assert.IsType<GroupMembership>(Assert.Single(Factory.Hub.ToGroup(group.Id)).Arguments[0]);
+        Assert.Equal((created.Id, group.Id, user.Id, GroupMembershipRole.Manager), (sent.Id, sent.GroupId, sent.UserId, sent.Role));
+    }
+
     [Fact]
     public async Task CreateMembership_by_a_caller_holding_ManageGroups_stores_it_under_the_route_group()
     {

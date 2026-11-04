@@ -158,7 +158,7 @@ public class UserControllerTests(DatabaseFixture fixture, AlloyAppFactory factor
         Assert.Equal(TestData.Roles.Observer, (await StoredUser(id)).RoleId);
     }
 
-    /// <summary>A role id that is not a GUID cannot be mapped onto the entity, answered with a 500.</summary>
+    /// <summary>A role id that is not a GUID cannot be parsed onto the entity, answered with a 500.</summary>
     [Theory]
     [InlineData("")]
     [InlineData("not-a-guid")]
@@ -168,7 +168,8 @@ public class UserControllerTests(DatabaseFixture fixture, AlloyAppFactory factor
 
         var response = await RootClient.PostAsJsonAsync("api/users", new User { Id = id, Name = "Bad role", RoleId = roleId }, AlloyJson, Ct);
 
-        await AssertJsonError(HttpStatusCode.InternalServerError, response);
+        var problem = await AssertJsonError(HttpStatusCode.InternalServerError, response);
+        Assert.Equal("Unrecognized Guid format.", problem.Detail);
         await using var context = NewContext();
         Assert.False(await context.Users.AnyAsync(x => x.Id == id, Ct));
     }
@@ -212,6 +213,33 @@ public class UserControllerTests(DatabaseFixture fixture, AlloyAppFactory factor
 
         await AssertStatus(HttpStatusCode.OK, response);
         Assert.Equal(TestData.Roles.Administrator, (await StoredUser(actor.Id)).RoleId);
+    }
+
+    /// <summary>An update without a role clears the stored one.</summary>
+    [Fact]
+    public async Task Update_without_a_role_clears_the_stored_role()
+    {
+        var user = TestData.User(name: $"User {Guid.NewGuid():N}", roleId: TestData.Roles.Observer);
+        await Seed(user);
+
+        var updated = await ReadAsync<User>(await RootClient.PutAsJsonAsync($"api/Users/{user.Id}", new User { Id = user.Id, Name = user.Name }, AlloyJson, Ct));
+
+        Assert.Null(updated.RoleId);
+        Assert.Null((await StoredUser(user.Id)).RoleId);
+    }
+
+    /// <summary>A role id that is not a GUID cannot be mapped onto the stored user, answered with a 500 that changes nothing.</summary>
+    [Fact]
+    public async Task Update_answers_a_role_id_that_is_not_a_guid_with_a_server_error_and_keeps_the_user()
+    {
+        var user = TestData.User(name: $"User {Guid.NewGuid():N}", roleId: TestData.Roles.Observer);
+        await Seed(user);
+
+        var response = await RootClient.PutAsJsonAsync($"api/Users/{user.Id}", new User { Id = user.Id, Name = "Renamed", RoleId = "not-a-guid" }, AlloyJson, Ct);
+
+        await AssertJsonError(HttpStatusCode.InternalServerError, response);
+        var saved = await StoredUser(user.Id);
+        Assert.Equal((user.Name, TestData.Roles.Observer), (saved.Name, saved.RoleId));
     }
 
     [Fact]
