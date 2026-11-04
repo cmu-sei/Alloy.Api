@@ -110,6 +110,29 @@ public class SystemRoleControllerTests(DatabaseFixture fixture, AlloyAppFactory 
         Assert.False(await context.SystemRoles.AnyAsync(x => x.Name == "Replacement", Ct));
     }
 
+    /// <summary>A role sent without permissions is stored and returned with an empty list, not null.</summary>
+    [Fact]
+    public async Task Create_without_permissions_stores_and_returns_an_empty_list()
+    {
+        var created = await ReadAsync<SystemRole>(await RootClient.PostAsJsonAsync("api/system-roles",
+            new SystemRole { Name = $"No permissions {Guid.NewGuid():N}", Permissions = null }, AlloyJson, Ct));
+
+        Assert.Equal([], created.Permissions);
+        Assert.Equal([], (await StoredRole(created.Id)).Permissions);
+    }
+
+    [Fact]
+    public async Task Get_returns_a_role_stored_without_permissions_with_an_empty_list()
+    {
+        var role = TestData.SystemRole();
+        role.Permissions = null;
+        await Seed(role);
+
+        var read = await ReadAsync<SystemRole>(await RootClient.GetAsync($"api/system-roles/{role.Id}", Ct));
+
+        Assert.Equal([], read.Permissions);
+    }
+
     /// <summary>A permission value outside the enum is returned and stored on create.</summary>
     [Fact]
     public async Task Create_stores_a_permission_value_outside_the_enum()
@@ -163,6 +186,20 @@ public class SystemRoleControllerTests(DatabaseFixture fixture, AlloyAppFactory 
         var saved = await StoredRole(role.Id);
         Assert.Equal(role.Name, saved.Name);
         Assert.Equal([SystemPermission.ViewEvents], saved.Permissions);
+    }
+
+    /// <summary>An update without permissions clears them, stored and returned as an empty list.</summary>
+    [Fact]
+    public async Task Update_without_permissions_stores_and_returns_an_empty_list()
+    {
+        var role = TestData.SystemRole(permissions: [SystemPermission.ViewEvents]);
+        await Seed(role);
+
+        var updated = await ReadAsync<SystemRole>(await RootClient.PutAsJsonAsync($"api/system-roles/{role.Id}",
+            new SystemRole { Id = role.Id, Name = role.Name, Permissions = null }, AlloyJson, Ct));
+
+        Assert.Equal([], updated.Permissions);
+        Assert.Equal([], (await StoredRole(role.Id)).Permissions);
     }
 
     // Same case as Create_stores_a_permission_value_outside_the_enum.

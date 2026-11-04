@@ -135,6 +135,45 @@ public class UserControllerTests(DatabaseFixture fixture, AlloyAppFactory factor
     }
 
     [Fact]
+    public async Task Create_without_a_role_stores_none_and_returns_a_null_role_id()
+    {
+        var id = Guid.NewGuid();
+
+        var created = await ReadAsync<User>(await RootClient.PostAsJsonAsync("api/users", new User { Id = id, Name = "No role" }, AlloyJson, Ct));
+
+        Assert.Null(created.RoleId);
+        Assert.Null((await StoredUser(id)).RoleId);
+    }
+
+    /// <summary>The role id is a string on the view model, parsed as any GUID format and returned hyphenated.</summary>
+    [Fact]
+    public async Task Create_reads_a_role_id_in_any_guid_format_and_returns_it_hyphenated()
+    {
+        var id = Guid.NewGuid();
+
+        var created = await ReadAsync<User>(await RootClient.PostAsJsonAsync("api/users",
+            new User { Id = id, Name = "Formatted", RoleId = TestData.Roles.Observer.ToString("N").ToUpperInvariant() }, AlloyJson, Ct));
+
+        Assert.Equal(TestData.Roles.Observer.ToString(), created.RoleId);
+        Assert.Equal(TestData.Roles.Observer, (await StoredUser(id)).RoleId);
+    }
+
+    /// <summary>A role id that is not a GUID cannot be mapped onto the entity, answered with a 500.</summary>
+    [Theory]
+    [InlineData("")]
+    [InlineData("not-a-guid")]
+    public async Task Create_answers_a_role_id_that_is_not_a_guid_with_a_server_error(string roleId)
+    {
+        var id = Guid.NewGuid();
+
+        var response = await RootClient.PostAsJsonAsync("api/users", new User { Id = id, Name = "Bad role", RoleId = roleId }, AlloyJson, Ct);
+
+        await AssertJsonError(HttpStatusCode.InternalServerError, response);
+        await using var context = NewContext();
+        Assert.False(await context.Users.AnyAsync(x => x.Id == id, Ct));
+    }
+
+    [Fact]
     public async Task Create_is_forbidden_for_a_caller_holding_only_ViewUsers()
     {
         var actor = await Actor().WithSystemPermissions(SystemPermission.ViewUsers).SeedAsync();
