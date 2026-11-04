@@ -2,7 +2,7 @@ Alloy.Api has an automated test suite in the `Alloy.Api.Tests` project. This doc
 
 # Testing
 
-The suite is built on xUnit v3 and NSubstitute and runs against a real PostgreSQL instance started in a container, with Alloy's real migrations. These are not isolated unit tests. A typical test sends an HTTP request to the application hosted in process, through the real `Startup`, the real MVC filters, the real claims transformer, the real authorization service and handlers, the real AutoMapper profiles and a real database, then asserts on the response, on what changed in the database, and on what was broadcast through `EngineHub`. Only the collaborators that leave the process are replaced: the identity provider, Player, Caster and Steamfitter.
+The suite is built on xUnit v3 and NSubstitute and runs against a real PostgreSQL instance started in a container, with Alloy's real migrations. These are not isolated unit tests. A typical test sends an HTTP request to the application hosted in process, through the real `Startup`, the real MVC filters, the real claims transformer, the real authorization service and handlers, the real mappings and a real database, then asserts on the response, on what changed in the database, and on what was broadcast through `EngineHub`. Only the collaborators that leave the process are replaced: the identity provider, Player, Caster and Steamfitter.
 
 # Running the tests
 

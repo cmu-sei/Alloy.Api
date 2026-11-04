@@ -3,20 +3,20 @@
 
 using System;
 using Alloy.Api.Data.Models;
-using Alloy.Api.Tests.Support;
+using Alloy.Api.Infrastructure.Mappings;
 using Alloy.Api.ViewModels;
 
 namespace Alloy.Api.Tests.Infrastructure.Mappings;
 
-/// <summary>The real AutoMapper configuration, as <see cref="TestMapper"/> builds it from Startup's.</summary>
-public class EventProfileTests
+/// <summary><see cref="EventMapper"/>.</summary>
+public class EventMapperTests
 {
     [Fact]
     public void An_events_end_request_time_is_on_its_view_model()
     {
         var requestedAt = new DateTime(2026, 9, 10, 12, 0, 0, DateTimeKind.Utc);
 
-        var model = TestMapper.Mapper.Map<Event>(new EventEntity { EndRequestedAt = requestedAt });
+        var model = new EventEntity { EndRequestedAt = requestedAt }.ToEvent();
 
         Assert.Equal(requestedAt, model.EndRequestedAt);
     }

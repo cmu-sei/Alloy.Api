@@ -7,7 +7,6 @@ using System.Security.Claims;
 using System.Security.Principal;
 using System.Threading;
 using STT = System.Threading.Tasks;
-using AutoMapper;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -16,6 +15,8 @@ using Alloy.Api.Data.Models;
 using Alloy.Api.Infrastructure.Extensions;
 using Alloy.Api.Infrastructure.Exceptions;
 using Alloy.Api.ViewModels;
+using Alloy.Api.Infrastructure.Mappings;
+using System.Linq;
 
 namespace Alloy.Api.Services
 {
@@ -34,16 +35,14 @@ namespace Alloy.Api.Services
         private readonly ClaimsPrincipal _user;
         private readonly IAuthorizationService _authorizationService;
         private readonly IUserClaimsService _userClaimsService;
-        private readonly IMapper _mapper;
         private readonly ILogger<IUserService> _logger;
 
-        public UserService(AlloyContext context, IPrincipal user, IAuthorizationService authorizationService, IUserClaimsService userClaimsService, ILogger<IUserService> logger, IMapper mapper)
+        public UserService(AlloyContext context, IPrincipal user, IAuthorizationService authorizationService, IUserClaimsService userClaimsService, ILogger<IUserService> logger)
         {
             _context = context;
             _user = user as ClaimsPrincipal;
             _authorizationService = authorizationService;
             _userClaimsService = userClaimsService;
-            _mapper = mapper;
             _logger = logger;
         }
 
@@ -59,19 +58,19 @@ namespace Alloy.Api.Services
         {
             var items = await _context.Users
                 .ToArrayAsync(ct);
-            return _mapper.Map<IEnumerable<User>>(items);
+            return items.Select(x => x.ToUser()).ToList();
         }
 
         public async STT.Task<User> GetAsync(Guid id, CancellationToken ct)
         {
             var item = await _context.Users
                 .SingleOrDefaultAsync(o => o.Id == id, ct);
-            return _mapper.Map<User>(item);
+            return item.ToUser();
         }
 
         public async STT.Task<User> CreateAsync(User user, CancellationToken ct)
         {
-            var userEntity = _mapper.Map<UserEntity>(user);
+            var userEntity = user.ToEntity();
 
             _context.Users.Add(userEntity);
             await _context.SaveChangesAsync(ct);
@@ -92,7 +91,7 @@ namespace Alloy.Api.Services
             if (userToUpdate == null)
                 throw new EntityNotFoundException<User>();
 
-            _mapper.Map(user, userToUpdate);
+            user.ApplyTo(userToUpdate);
 
             _context.Users.Update(userToUpdate);
             await _context.SaveChangesAsync(ct);

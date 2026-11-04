@@ -8,7 +8,6 @@ using System.Security.Claims;
 using System.Security.Principal;
 using System.Threading;
 using System.Threading.Tasks;
-using AutoMapper;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -18,6 +17,7 @@ using Alloy.Api.Infrastructure.Extensions;
 using Alloy.Api.Infrastructure.Authorization;
 using Alloy.Api.Infrastructure.Exceptions;
 using Alloy.Api.ViewModels;
+using Alloy.Api.Infrastructure.Mappings;
 
 namespace Alloy.Api.Services
 {
@@ -38,7 +38,6 @@ namespace Alloy.Api.Services
         private readonly AlloyContext _context;
         private readonly IAuthorizationService _authorizationService;
         private readonly ClaimsPrincipal _user;
-        private readonly IMapper _mapper;
         private readonly ILogger<EventTemplateService> _logger;
         private readonly IPlayerService _playerService;
         private readonly ICasterService _casterService;
@@ -48,7 +47,6 @@ namespace Alloy.Api.Services
             AlloyContext context,
             IAuthorizationService authorizationService,
             IPrincipal user,
-            IMapper mapper,
             ILogger<EventTemplateService> logger,
             IPlayerService playerService,
             ICasterService casterService,
@@ -57,7 +55,6 @@ namespace Alloy.Api.Services
             _context = context;
             _authorizationService = authorizationService;
             _user = user as ClaimsPrincipal;
-            _mapper = mapper;
             _logger = logger;
             _playerService = playerService;
             _casterService = casterService;
@@ -73,7 +70,7 @@ namespace Alloy.Api.Services
         {
             var items = await _context.EventTemplates.ToListAsync(ct);
 
-            return _mapper.Map<IEnumerable<EventTemplate>>(items);
+            return items.Select(x => x.ToEventTemplate()).ToList();
         }
 
         /// <summary>
@@ -94,7 +91,7 @@ namespace Alloy.Api.Services
                 .ToListAsync(ct);
             items.AddRange(publishedItems);
 
-            return _mapper.Map<IEnumerable<EventTemplate>>(items.Distinct());
+            return items.Distinct().Select(x => x.ToEventTemplate()).ToList();
         }
 
         /// <summary>
@@ -106,7 +103,7 @@ namespace Alloy.Api.Services
         {
             var items = await _context.EventTemplates.Where(d => d.IsPublished).ToListAsync(ct);
 
-            return _mapper.Map<IEnumerable<EventTemplate>>(items);
+            return items.Select(x => x.ToEventTemplate()).ToList();
         }
 
         /// <summary>
@@ -123,7 +120,7 @@ namespace Alloy.Api.Services
             if (item == null)
                 throw new EntityNotFoundException<EventTemplate>($"Event Template {id} was not found.");
 
-            return _mapper.Map<EventTemplate>(item);
+            return item.ToEventTemplate();
         }
 
         /// <summary>
@@ -138,7 +135,7 @@ namespace Alloy.Api.Services
             await ValidateReferencesAsync(null, eventTemplate, ct);
 
             eventTemplate.CreatedBy = _user.GetId();
-            var eventTemplateEntity = _mapper.Map<EventTemplateEntity>(eventTemplate);
+            var eventTemplateEntity = eventTemplate.ToEntity();
 
             _context.EventTemplates.Add(eventTemplateEntity);
             await _context.SaveChangesAsync(ct);
@@ -160,12 +157,12 @@ namespace Alloy.Api.Services
             var eventTemplateEntity = await GetTheEventTemplateAsync(id, ct);
             await ValidateReferencesAsync(eventTemplateEntity, eventTemplate, ct);
             eventTemplate.ModifiedBy = _user.GetId();
-            _mapper.Map(eventTemplate, eventTemplateEntity);
+            eventTemplate.ApplyTo(eventTemplateEntity);
 
             _context.EventTemplates.Update(eventTemplateEntity);
             await _context.SaveChangesAsync(ct);
 
-            return _mapper.Map(eventTemplateEntity, eventTemplate);
+            return eventTemplateEntity.ToEventTemplate();
         }
 
         /// <summary>

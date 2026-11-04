@@ -7,11 +7,12 @@ using System.Security.Claims;
 using System.Security.Principal;
 using System.Threading;
 using STT = System.Threading.Tasks;
-using AutoMapper;
 using Microsoft.EntityFrameworkCore;
 using Alloy.Api.Data;
 using Alloy.Api.Infrastructure.Exceptions;
 using Alloy.Api.ViewModels;
+using Alloy.Api.Infrastructure.Mappings;
+using System.Linq;
 
 namespace Alloy.Api.Services
 {
@@ -25,13 +26,11 @@ namespace Alloy.Api.Services
     {
         private readonly AlloyContext _context;
         private readonly ClaimsPrincipal _user;
-        private readonly IMapper _mapper;
 
-        public EventRoleService(AlloyContext context, IPrincipal user, IMapper mapper)
+        public EventRoleService(AlloyContext context, IPrincipal user)
         {
             _context = context;
             _user = user as ClaimsPrincipal;
-            _mapper = mapper;
         }
 
         public async STT.Task<IEnumerable<EventRole>> GetAsync(CancellationToken ct)
@@ -39,7 +38,7 @@ namespace Alloy.Api.Services
             var items = await _context.EventRoles
                 .ToListAsync(ct);
 
-            return _mapper.Map<IEnumerable<EventRole>>(items);
+            return items.Select(x => x.ToEventRole()).ToList();
         }
 
         public async STT.Task<EventRole> GetAsync(Guid id, CancellationToken ct)
@@ -50,7 +49,7 @@ namespace Alloy.Api.Services
             if (item == null)
                 throw new EntityNotFoundException<EventRole>();
 
-            return _mapper.Map<EventRole>(item);
+            return item.ToEventRole();
         }
 
     }

@@ -3,31 +3,28 @@
 
 using System.Threading;
 using System.Threading.Tasks;
-using AutoMapper;
 using MediatR;
 using Microsoft.AspNetCore.SignalR;
 using Alloy.Api.Data.Models;
 using Crucible.Common.EntityEvents.Events;
 using Alloy.Api.Hubs;
+using Alloy.Api.Infrastructure.Mappings;
 
 namespace Alloy.Api.Events.EventHandlers
 {
     public class EventTemplateMembershipCreatedSignalRHandler : INotificationHandler<EntityCreated<EventTemplateMembershipEntity>>
     {
         private readonly IHubContext<EngineHub> _engineHub;
-        private readonly IMapper _mapper;
 
         public EventTemplateMembershipCreatedSignalRHandler(
-            IHubContext<EngineHub> engineHub,
-            IMapper mapper)
+            IHubContext<EngineHub> engineHub)
         {
             _engineHub = engineHub;
-            _mapper = mapper;
         }
 
         public async Task Handle(EntityCreated<EventTemplateMembershipEntity> notification, CancellationToken cancellationToken)
         {
-            var groupMembership = _mapper.Map<ViewModels.EventTemplateMembership>(notification.Entity);
+            var groupMembership = notification.Entity.ToEventTemplateMembership();
             await _engineHub.Clients
                 .Groups(notification.Entity.Id.ToString(), EngineHub.ADMIN_EVENT_TEMPLATE_GROUP)
                 .SendAsync(EngineHubMethods.EventTemplateMembershipCreated, groupMembership);
@@ -55,19 +52,16 @@ namespace Alloy.Api.Events.EventHandlers
     public class EventTemplateMembershipUpdatedSignalRHandler : INotificationHandler<EntityUpdated<EventTemplateMembershipEntity>>
     {
         private readonly IHubContext<EngineHub> _engineHub;
-        private readonly IMapper _mapper;
 
         public EventTemplateMembershipUpdatedSignalRHandler(
-            IHubContext<EngineHub> engineHub,
-            IMapper mapper)
+            IHubContext<EngineHub> engineHub)
         {
             _engineHub = engineHub;
-            _mapper = mapper;
         }
 
         public async Task Handle(EntityUpdated<EventTemplateMembershipEntity> notification, CancellationToken cancellationToken)
         {
-            var groupMembership = _mapper.Map<ViewModels.EventTemplateMembership>(notification.Entity);
+            var groupMembership = notification.Entity.ToEventTemplateMembership();
             await _engineHub.Clients
                 .Groups(notification.Entity.Id.ToString(), EngineHub.ADMIN_EVENT_TEMPLATE_GROUP)
                 .SendAsync(EngineHubMethods.EventTemplateMembershipUpdated, groupMembership);

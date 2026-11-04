@@ -4,8 +4,6 @@
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using AutoMapper;
-using AutoMapper.QueryableExtensions;
 using MediatR;
 using Microsoft.AspNetCore.SignalR;
 using Alloy.Api.Data;
@@ -14,11 +12,12 @@ using Crucible.Common.EntityEvents.Events;
 using Alloy.Api.Hubs;
 using Alloy.Api.ViewModels;
 using Microsoft.EntityFrameworkCore;
+using Alloy.Api.Infrastructure.Mappings;
 
 namespace Alloy.Api.Events.EventHandlers
 {
-    public class GroupMembershipCreatedSignalRHandler(AlloyContext _db, IMapper _mapper, IHubContext<EngineHub> _projectHub) :
-        GroupMembershipBaseSignalRHandler(_db, _mapper, _projectHub),
+    public class GroupMembershipCreatedSignalRHandler(AlloyContext _db, IHubContext<EngineHub> _projectHub) :
+        GroupMembershipBaseSignalRHandler(_db, _projectHub),
         INotificationHandler<EntityCreated<GroupMembershipEntity>>
     {
         public async Task Handle(EntityCreated<GroupMembershipEntity> notification, CancellationToken cancellationToken)
@@ -27,8 +26,8 @@ namespace Alloy.Api.Events.EventHandlers
         }
     }
 
-    public class GroupMembershipUpdatedSignalRHandler(AlloyContext _db, IMapper _mapper, IHubContext<EngineHub> _projectHub) :
-        GroupMembershipBaseSignalRHandler(_db, _mapper, _projectHub),
+    public class GroupMembershipUpdatedSignalRHandler(AlloyContext _db, IHubContext<EngineHub> _projectHub) :
+        GroupMembershipBaseSignalRHandler(_db, _projectHub),
         INotificationHandler<EntityUpdated<GroupMembershipEntity>>
     {
         public async Task Handle(EntityUpdated<GroupMembershipEntity> notification, CancellationToken cancellationToken)
@@ -47,13 +46,13 @@ namespace Alloy.Api.Events.EventHandlers
         }
     }
 
-    public class GroupMembershipBaseSignalRHandler(AlloyContext db, IMapper mapper, IHubContext<EngineHub> projectHub)
+    public class GroupMembershipBaseSignalRHandler(AlloyContext db, IHubContext<EngineHub> projectHub)
     {
         protected async Task Handle(GroupMembershipEntity entity, string method, string[] modifiedProperties, CancellationToken cancellationToken)
         {
             var groupMembership = await db.GroupMemberships
                 .Where(x => x.Id == entity.Id)
-                .ProjectTo<GroupMembership>(mapper.ConfigurationProvider)
+                .ProjectToGroupMembership()
                 .FirstOrDefaultAsync(cancellationToken);
 
             await projectHub.Clients.Group(EngineHub.ADMIN_GROUP_GROUP).SendAsync(method, groupMembership, modifiedProperties, cancellationToken);

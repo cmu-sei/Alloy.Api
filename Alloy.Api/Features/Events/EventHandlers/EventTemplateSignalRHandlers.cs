@@ -13,29 +13,25 @@ using Alloy.Api.Hubs;
 using Alloy.Api.Infrastructure.Extensions;
 using Alloy.Api.Services;
 using Alloy.Api.ViewModels;
-using AutoMapper;
-using AutoMapper.QueryableExtensions;
 using MediatR;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
+using Alloy.Api.Infrastructure.Mappings;
 
 namespace Alloy.Api.Features.Events.EventHandlers
 {
     public class EventTemplateBaseSignlRHandler
     {
         protected readonly AlloyContext _context;
-        protected readonly IMapper _mapper;
         protected readonly IEventService _eventService;
         protected readonly IHubContext<EngineHub> _engineHub;
 
 
         public EventTemplateBaseSignlRHandler(
         AlloyContext context,
-        IMapper mapper,
         IHubContext<EngineHub> engineHub)
         {
             _context = context;
-            _mapper = mapper;
             _engineHub = engineHub;
 
         }
@@ -47,7 +43,7 @@ namespace Alloy.Api.Features.Events.EventHandlers
           CancellationToken ct)
         {
 
-            var alloyEventTemplate = _mapper.Map<EventTemplate>(eventTemplateEntity);
+            var alloyEventTemplate = eventTemplateEntity.ToEventTemplate();
             await _engineHub.Clients
                 .Groups(eventTemplateEntity.Id.ToString(), EngineHub.ADMIN_EVENT_TEMPLATE_GROUP)
                 .SendAsync(method, alloyEventTemplate, modifiedProperties, ct);
@@ -58,8 +54,7 @@ namespace Alloy.Api.Features.Events.EventHandlers
     {
         public EventTemplateCreatedSignalRHandler(
           AlloyContext context,
-          IMapper mapper,
-          IHubContext<EngineHub> engineHub) : base(context, mapper, engineHub) { }
+          IHubContext<EngineHub> engineHub) : base(context, engineHub) { }
 
         public async Task Handle(EntityCreated<EventTemplateEntity> notification, CancellationToken ct)
         {
@@ -71,9 +66,8 @@ namespace Alloy.Api.Features.Events.EventHandlers
     {
         public EventTemplateUpdatedSignalRHandler(
           AlloyContext context,
-          IMapper mapper,
           IHubContext<EngineHub> engineHub)
-           : base(context, mapper, engineHub) { }
+           : base(context, engineHub) { }
         public async Task Handle(EntityUpdated<EventTemplateEntity> notification, CancellationToken ct)
         {
             await base.HandleCreateOrUpdate(
@@ -88,9 +82,8 @@ namespace Alloy.Api.Features.Events.EventHandlers
     {
         public EventTemplateDeletedSignalRHandler(
             AlloyContext context,
-            IMapper mapper,
             IHubContext<EngineHub> engineHub)
-             : base(context, mapper, engineHub) { }
+             : base(context, engineHub) { }
         public async Task Handle(EntityDeleted<EventTemplateEntity> notification, CancellationToken ct)
         {
             await _engineHub.Clients
