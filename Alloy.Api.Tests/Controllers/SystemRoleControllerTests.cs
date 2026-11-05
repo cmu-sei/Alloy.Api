@@ -51,6 +51,15 @@ public class SystemRoleControllerTests(DatabaseFixture fixture, AlloyAppFactory 
             role.Permissions.Order());
     }
 
+    /// <summary>The seeded Administrator role is returned with its all-permissions and immutable flags.</summary>
+    [Fact]
+    public async Task Get_returns_the_administrator_role_with_its_all_permissions_and_immutable_flags()
+    {
+        var role = await ReadAsync<SystemRole>(await RootClient.GetAsync($"api/system-roles/{TestData.Roles.Administrator}", Ct));
+
+        Assert.Equal((true, true), (role.AllPermissions, role.Immutable));
+    }
+
     [Fact]
     public async Task Get_is_forbidden_for_a_caller_holding_only_ViewUsers()
     {
@@ -77,6 +86,18 @@ public class SystemRoleControllerTests(DatabaseFixture fixture, AlloyAppFactory 
         var saved = await StoredRole(created.Id);
         Assert.Equal(("Range Tech", false), (saved.Name, saved.AllPermissions));
         Assert.Equal([SystemPermission.ViewEvents], saved.Permissions);
+    }
+
+    /// <summary>A new role's all-permissions and immutable flags are stored and returned.</summary>
+    [Fact]
+    public async Task Create_stores_and_returns_the_all_permissions_and_immutable_flags()
+    {
+        var created = await ReadAsync<SystemRole>(await RootClient.PostAsJsonAsync("api/system-roles",
+            new SystemRole { Name = $"Flags {Guid.NewGuid():N}", AllPermissions = true, Immutable = true, Permissions = [] }, AlloyJson, Ct));
+
+        Assert.Equal((true, true), (created.AllPermissions, created.Immutable));
+        var saved = await StoredRole(created.Id);
+        Assert.Equal((true, true), (saved.AllPermissions, saved.Immutable));
     }
 
     /// <summary>A name another role holds is refused by the unique index on <c>system_roles.name</c>, answered with a 500.</summary>
@@ -242,6 +263,19 @@ public class SystemRoleControllerTests(DatabaseFixture fixture, AlloyAppFactory 
 
         await AssertStatus(HttpStatusCode.OK, response);
         Assert.False((await StoredRole(TestData.Roles.Administrator)).AllPermissions);
+    }
+
+    /// <summary>An update marking a role immutable stores the flag.</summary>
+    [Fact]
+    public async Task Update_stores_the_immutable_flag_on_a_role_not_marked_immutable()
+    {
+        var role = TestData.SystemRole();
+        await Seed(role);
+
+        await AssertStatus(HttpStatusCode.OK, await RootClient.PutAsJsonAsync($"api/system-roles/{role.Id}",
+            new SystemRole { Id = role.Id, Name = role.Name, Immutable = true, Permissions = [] }, AlloyJson, Ct));
+
+        Assert.True((await StoredRole(role.Id)).Immutable);
     }
 
     /// <summary>The body's id is mapped onto the stored row, so an id other than the route's is answered with a 500.</summary>

@@ -91,6 +91,20 @@ public class EventTemplateControllerTests(DatabaseFixture fixture, AlloyAppFacto
         Assert.Equal((template.Id, template.Name), (read.Id, read.Name));
     }
 
+    /// <summary>A template's dynamic host, published, duration and description values are returned as stored.</summary>
+    [Fact]
+    public async Task Get_returns_the_templates_stored_settings()
+    {
+        var template = TestData.EventTemplate($"Template {Guid.NewGuid():N}", published: true, durationHours: 5);
+        template.UseDynamicHost = true;
+        template.Description = "Stored description";
+        await Seed(template);
+
+        var read = await ReadAsync<EventTemplate>(await RootClient.GetAsync($"api/eventTemplates/{template.Id}", Ct));
+
+        Assert.Equal((true, true, 5, "Stored description"), (read.UseDynamicHost, read.IsPublished, read.DurationHours, read.Description));
+    }
+
     [Fact]
     public async Task Get_returns_a_published_template_to_a_caller_with_no_membership_on_it()
     {
@@ -215,6 +229,22 @@ public class EventTemplateControllerTests(DatabaseFixture fixture, AlloyAppFacto
         Assert.Equal("Renamed", (await Stored(template.Id)).Name);
     }
 
+    /// <summary>An update stores new dynamic host, published and duration values.</summary>
+    [Fact]
+    public async Task Update_stores_the_dynamic_host_published_and_duration_settings()
+    {
+        var template = await SeedTemplate();
+        var body = Template(template.Name, template.Id);
+        body.UseDynamicHost = true;
+        body.IsPublished = true;
+        body.DurationHours = 7;
+
+        await AssertStatus(HttpStatusCode.OK, await RootClient.PutAsJsonAsync($"api/eventTemplates/{template.Id}", body, AlloyJson, Ct));
+
+        var saved = await Stored(template.Id);
+        Assert.Equal((true, true, 7), (saved.UseDynamicHost, saved.IsPublished, saved.DurationHours));
+    }
+
     [Fact]
     public async Task Update_broadcasts_the_modified_properties()
     {
@@ -246,7 +276,9 @@ public class EventTemplateControllerTests(DatabaseFixture fixture, AlloyAppFacto
     [Fact]
     public async Task Update_without_a_description_clears_it()
     {
-        var template = await SeedTemplate();
+        var template = TestData.EventTemplate($"Template {Guid.NewGuid():N}");
+        template.Description = "Old";
+        await Seed(template);
         var body = Template("Renamed", template.Id);
         body.Description = null;
 
