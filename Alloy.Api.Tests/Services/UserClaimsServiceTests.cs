@@ -4,13 +4,16 @@
 using System;
 using System.Linq;
 using System.Security.Claims;
+using System.Threading;
 using System.Threading.Tasks;
 using Alloy.Api.Data;
+using Alloy.Api.Data.Models;
 using Alloy.Api.Infrastructure.Authorization;
 using Alloy.Api.Infrastructure.Options;
 using Alloy.Api.Services;
 using Alloy.Api.Tests.Support;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.IdentityModel.JsonWebTokens;
 
@@ -96,6 +99,31 @@ public class UserClaimsServiceTests(DatabaseFixture fixture) : DatabaseTestBase(
         Assert.Equal("First Login", (await context.Users.SingleAsync(x => x.Id == userId, Ct)).Name);
     }
 
+    /// <summary>
+    /// A new user's first page load sends several requests at once, and each finds no user row. The one
+    /// that inserts second hits the primary key the first just wrote; it must carry on with that row
+    /// rather than fail the request with a 500.
+    /// </summary>
+    [Fact]
+    public async Task A_new_subject_whose_row_another_request_inserts_first_gets_that_rows_claims()
+    {
+        var userId = Guid.NewGuid();
+        // The other request's row carries a role, so the claims show which row they were read from.
+        var otherRequest = new InsertTheUserFirst(NewContext, TestData.Roles.Administrator);
+        await using var context = AlloyContextFactory.CreateContext(
+            builder => builder.UseNpgsql(Session.ConnectionString).AddInterceptors(otherRequest),
+            AlloyContextFactory.CreateServices().Services);
+        using var cache = new MemoryCache(new MemoryCacheOptions());
+        var service = new UserClaimsService(context, cache, new ClaimsTransformationOptions());
+
+        var principal = await service.AddUserClaims(Token(userId, new Claim("name", "First Login")), update: true);
+
+        Assert.True(otherRequest.Inserted);
+        Assert.Contains(nameof(SystemPermission.ViewEvents), SystemPermissions(principal));
+        await using var check = NewContext();
+        Assert.Equal(1, await check.Users.CountAsync(x => x.Id == userId, Ct));
+    }
+
     [Fact]
     public async Task A_subject_with_no_user_row_gets_no_permission_claims_without_update()
     {
@@ -141,4 +169,32 @@ public class UserClaimsServiceTests(DatabaseFixture fixture) : DatabaseTestBase(
 
     private static string[] SystemPermissions(ClaimsPrincipal principal) =>
         [.. principal.Claims.Where(x => x.Type == AuthorizationConstants.PermissionClaimType).Select(x => x.Value).Order()];
+
+    /// <summary>
+    /// Stands in for a concurrent request: just before the service saves its new user row, inserts the
+    /// same user through another context, once.
+    /// </summary>
+    private sealed class InsertTheUserFirst(Func<AlloyContext> otherContext, Guid roleId) : SaveChangesInterceptor
+    {
+        public bool Inserted { get; private set; }
+
+        public override async ValueTask<InterceptionResult<int>> SavingChangesAsync(
+            DbContextEventData eventData,
+            InterceptionResult<int> result,
+            CancellationToken cancellationToken = default)
+        {
+            var added = eventData.Context.ChangeTracker.Entries<UserEntity>()
+                .FirstOrDefault(x => x.State == EntityState.Added)?.Entity;
+
+            if (added is not null && !Inserted)
+            {
+                await using var other = otherContext();
+                other.Users.Add(new UserEntity { Id = added.Id, Name = added.Name, RoleId = roleId });
+                await other.SaveChangesAsync(cancellationToken);
+                Inserted = true;
+            }
+
+            return result;
+        }
+    }
 }
