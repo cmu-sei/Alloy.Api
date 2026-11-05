@@ -138,7 +138,26 @@ namespace Alloy.Api.Services
                     };
 
                     _context.Users.Add(user);
-                    await _context.SaveChangesAsync();
+
+                    try
+                    {
+                        await _context.SaveChangesAsync();
+                    }
+                    catch (DbUpdateException)
+                    {
+                        // A new user's first page load sends several requests at once, and each one
+                        // finds no user row. If another of them inserted it first, carry on with that
+                        // row instead of failing this request.
+                        _context.Entry(user).State = EntityState.Detached;
+                        user = await _context.Users
+                            .Where(u => u.Id == subClaim)
+                            .SingleOrDefaultAsync();
+
+                        if (user == null)
+                        {
+                            throw;
+                        }
+                    }
                 }
                 else
                 {
