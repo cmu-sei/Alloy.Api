@@ -101,6 +101,20 @@ Each step is skipped when the event template has no view, scenario template or d
 
 An event ends when it is requested (`DELETE /api/events/{id}/end`) or when its `ExpirationDate` passes.
 
+### Grace period
+
+`Resource:EndGracePeriodMinutes` (default 5; 0 or less turns it off) keeps an ended or expired event recoverable before anything is destroyed. It applies to events that are `Active` or `Paused` (or being recovered) when the end is picked up; an end during a launch or redeploy tears down at once.
+
+1. Set the Player view `Inactive`, so Player stops listing it, and set the event to `Suspended` with `RecoverableUntil` at the end request time plus the grace period. A view that can't be hidden is recorded in `ErrorMessage` and does not stop the suspension. The Caster workspace and the Steamfitter scenario are left as they are (Steamfitter does not implement pausing a scenario).
+2. Until `RecoverableUntil`, `POST /api/events/{id}/recover` (same permission as ending) sets the view `Active` again and returns the event to `Active`. An `ExpirationDate` that has passed is moved to now plus the template's `DurationHours`.
+3. After `RecoverableUntil`, the background query service hands the event to the teardown below.
+
+A `Suspended` event still counts toward `Resource:MaxEventsForBasicUser` and the one-event-per-template rule, because its resources still exist.
+
+A caller with the system-wide `ManageEvents` permission can skip the grace period with `DELETE /api/events/{id}/end?immediate=true`: a running event goes straight to teardown, and a `Suspended` event's grace period is cut short. The admin event dialog's **End Event Now** button does this.
+
+### Teardown
+
 1. Settle any launch `Run` still in progress on the workspace.
 2. Destroy the Caster workspace.
    - Create an `isDestroy` `Run` for the workspace (skipped when the workspace has no resources)

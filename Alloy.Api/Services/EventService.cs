@@ -39,8 +39,9 @@ namespace Alloy.Api.Services
         Task<Event> LaunchEventFromEventTemplateAsync(CreateEventCommand command, CancellationToken ct);
         Task<Event> UpdateAsync(Guid id, UpdateEventRequest request, CancellationToken ct);
         Task<bool> DeleteAsync(Guid id, CancellationToken ct);
-        Task<Event> EndAsync(Guid eventId, CancellationToken ct);
+        Task<Event> EndAsync(Guid eventId, CancellationToken ct, bool immediate = false);
         Task<Event> RedeployAsync(Guid eventId, CancellationToken ct);
+        Task<Event> RecoverAsync(Guid eventId, CancellationToken ct);
         Task<Event> CreateInviteAsync(Guid eventId, CancellationToken ct);
         Task<Event> EnlistAsync(string code, CancellationToken ct);
         Task<Event> EnlistUserAsync(Guid eventId, Guid userId, string userName, CancellationToken ct);
@@ -252,15 +253,20 @@ namespace Alloy.Api.Services
             return true;
         }
 
-        public async Task<Event> EndAsync(Guid eventId, CancellationToken ct)
+        public async Task<Event> EndAsync(Guid eventId, CancellationToken ct, bool immediate = false)
         {
             try
             {
                 var eventEntity = await GetTheEventAsync(eventId, ct);
-                if (await EventLifecycle.RequestEndAsync(_context, eventEntity, DateTime.UtcNow, ct))
+                if (await EventLifecycle.RequestEndAsync(_context, eventEntity, DateTime.UtcNow, ct, immediate))
                 {
                     // Failed cleanup can be retried explicitly; the worker owns the transition.
                     _alloyEventQueue.Add(eventEntity);
+                }
+
+                if (immediate)
+                {
+                    _logger.LogInformation("Event {EventId} ended by {UserId} without a grace period.", eventId, _user.GetId());
                 }
             }
             catch (Exception ex)
@@ -322,6 +328,50 @@ namespace Alloy.Api.Services
             }
 
             return await GetAsync(eventId, ct);
+        }
+
+        public async Task<Event> RecoverAsync(Guid eventId, CancellationToken ct)
+        {
+            var eventEntity = await GetTheEventAsync(eventId, ct);
+            var now = DateTime.UtcNow;
+            if (eventEntity.Status != EventStatus.Suspended || !(eventEntity.RecoverableUntil > now))
+            {
+                throw new ConflictException(NotRecoverableMessage(eventEntity));
+            }
+
+            // The template's duration, so an Event recovered after it expired gets a full run again.
+            var durationHours = await _context.EventTemplates
+                .Where(x => x.Id == eventEntity.EventTemplateId)
+                .Select(x => x.DurationHours)
+                .FirstOrDefaultAsync(ct);
+
+            // The grace period may lapse, or another recover land, between the read and the update.
+            if (!await EventLifecycle.RecoverAsync(_context, eventEntity, durationHours, now, ct))
+            {
+                throw new ConflictException(NotRecoverableMessage(eventEntity));
+            }
+
+            _logger.LogInformation("Event {EventId} recovered by {UserId}.", eventId, _user.GetId());
+            _alloyEventQueue.Add(eventEntity);
+
+            return await GetAsync(eventId, ct);
+        }
+
+        private static string NotRecoverableMessage(EventEntity eventEntity)
+        {
+            return eventEntity.Status switch
+            {
+                EventStatus.Suspended =>
+                    "The grace period for this event has passed, so it is being torn down and can't be recovered.",
+                EventStatus.Ending when eventEntity.InternalStatus == InternalEventStatus.SuspendingView =>
+                    "This event is still being ended. Try again in a moment.",
+                EventStatus.Ending => "This event is being torn down, so it can't be recovered.",
+                EventStatus.Recovering => "This event is already being recovered.",
+                EventStatus.Ended or EventStatus.Expired => "This event has been torn down, so it can't be recovered.",
+                EventStatus.Failed => "This event failed, so it can't be recovered.",
+                _ when eventEntity.EndRequestedAt != null => "This event is still being ended. Try again in a moment.",
+                _ => "This event has not been ended, so there is nothing to recover."
+            };
         }
 
         private async Task<EventEntity> CreateEventEntityAsync(Guid eventTemplateId, Guid userId, string username, List<Guid> additionalUserIds, CancellationToken ct)
@@ -414,9 +464,20 @@ namespace Alloy.Api.Services
                 .ToListAsync(ct);
 
             // check to see if this user already has this EventTemplate Implemented
-            if (activeEvents.Any(x => x.EventTemplateId == eventTemplateId))
+            var sameTemplate = activeEvents.FirstOrDefault(x => x.EventTemplateId == eventTemplateId);
+            if (sameTemplate != null)
             {
                 _logger.LogInformation($"User {userId} already has an active Event for EventTemplate {eventTemplateId}.");
+
+                // An ended Event keeps its resources through its grace period, so it still counts.
+                if (sameTemplate.Status == EventStatus.Suspended)
+                {
+                    var until = $"{sameTemplate.RecoverableUntil:yyyy-MM-dd HH:mm} UTC";
+                    throw new ConflictException(forCaller
+                        ? $"You ended an event from this template, and it can be recovered until {until}. Recover it, or launch another after that time."
+                        : $"This user ended an event from this template, and it can be recovered until {until}. Another can be launched after that time.");
+                }
+
                 throw new ConflictException(forCaller
                     ? "You already have an active event from this template. End it before launching another."
                     : "This user already has an active event from this template. It must be ended before another can be launched.");
@@ -603,6 +664,8 @@ namespace Alloy.Api.Services
                 EventStatus.Creating or EventStatus.Planning or EventStatus.Applying =>
                     "This event is still launching. Try the invitation again in a few minutes.",
                 EventStatus.Ending => "This event is ending, so it can no longer be joined.",
+                EventStatus.Suspended => "This event has been ended, so it can't be joined unless its owner recovers it.",
+                EventStatus.Recovering => "This event is being recovered. Try the invitation again in a few minutes.",
                 EventStatus.Expired => "This event has expired, so it can no longer be joined.",
                 EventStatus.Failed => "This event failed to launch, so it can't be joined.",
                 _ => "This event has ended, so it can no longer be joined."
@@ -617,6 +680,8 @@ namespace Alloy.Api.Services
                 EventStatus.Ended or EventStatus.Expired or EventStatus.Failed =>
                     "This event is no longer active, so it can't be redeployed.",
                 EventStatus.Ending => "This event is ending, so it can no longer be redeployed.",
+                EventStatus.Suspended => "This event has been ended. Recover it before redeploying it.",
+                EventStatus.Recovering => "This event is being recovered. It can be redeployed once it is active.",
                 _ when eventEntity.EndRequestedAt != null || eventEntity.EndDate != null =>
                     "This event is ending, so it can no longer be redeployed.",
                 EventStatus.Creating or EventStatus.Planning or EventStatus.Applying =>

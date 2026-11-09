@@ -153,6 +153,26 @@ public class EventServiceTests(DatabaseFixture fixture) : ServiceTestBase(fixtur
         Assert.Empty(RootHost.SiblingApis.Requests);
     }
 
+    /// <summary>The recover hands the event to the worker at once rather than leaving it to the next recovery scan.</summary>
+    [Fact]
+    public async Task Recover_queues_the_recovered_event_for_the_worker()
+    {
+        var template = TestData.EventTemplate();
+        var entity = TestData.Event(template.Id, EventStatus.Suspended, InternalEventStatus.Suspended);
+        entity.EndRequestedAt = DateTime.UtcNow.AddMinutes(-1);
+        entity.RecoverableUntil = DateTime.UtcNow.AddMinutes(30);
+        await Seed(template, entity);
+        using var scope = RootHost.CreateScope();
+
+        var recovered = await scope.ServiceProvider.GetRequiredService<IEventService>().RecoverAsync(entity.Id, Ct);
+
+        using var taken = CancellationTokenSource.CreateLinkedTokenSource(Ct);
+        taken.CancelAfter(TimeSpan.FromSeconds(5));
+        Assert.Equal(entity.Id, RootHost.Resolve<IAlloyEventQueue>().Take(taken.Token).Id);
+        Assert.Equal(EventStatus.Recovering, recovered.Status);
+        Assert.Equal(EventStatus.Recovering, (await Stored(entity.Id)).Status);
+    }
+
     private async Task<EventEntity> Stored(Guid id)
     {
         await using var context = NewContext();

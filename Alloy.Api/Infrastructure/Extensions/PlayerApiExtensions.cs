@@ -104,6 +104,45 @@ namespace Alloy.Api.Infrastructure.Extensions
             }
         }
 
+        /// <summary>
+        /// Sets a View's status, leaving the rest of it as it is (Player's update replaces every field).
+        /// Player lists only Active views to their members, so Inactive is how an ended Event's view is
+        /// hidden while it can still be recovered. A View that is gone counts as hidden.
+        /// </summary>
+        public static async Task<ApiCallResult> SetPlayerViewStatusAsync(PlayerApiClient playerApiClient, Guid viewId, ViewStatus status, ILogger logger, CancellationToken ct)
+        {
+            var operation = status == ViewStatus.Inactive ? "hide the virtual environment" : "show the virtual environment again";
+            try
+            {
+                var view = await playerApiClient.GetViewAsync(viewId, ct);
+                if (view.Status == status)
+                {
+                    return ApiCallResult.Ok();
+                }
+
+                await playerApiClient.UpdateViewAsync(viewId, new EditViewCommand
+                {
+                    Name = view.Name,
+                    Description = view.Description,
+                    Status = status,
+                    IsTemplate = view.IsTemplate,
+                    DefaultTeamId = view.DefaultTeamId
+                }, ct);
+                return ApiCallResult.Ok();
+            }
+            catch (Player.Api.Client.ApiException ex) when (
+                ex.StatusCode == (int)HttpStatusCode.NotFound && status == ViewStatus.Inactive)
+            {
+                logger.LogInformation("Player returned {StatusCode} hiding View {ViewId}, which no longer exists. Treating it as hidden.", ex.StatusCode, viewId);
+                return ApiCallResult.Ok();
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Error setting Player View {ViewId} to {Status}", viewId, status);
+                return ex.Classify(operation);
+            }
+        }
+
         public static async Task<ApiCallResult> AddUserToViewTeamAsync(PlayerApiClient playerApiClient, Guid viewId, Guid userId, ILogger logger, CancellationToken ct)
         {
             try

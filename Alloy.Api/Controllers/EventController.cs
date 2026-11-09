@@ -318,21 +318,53 @@ namespace Alloy.Api.Controllers
         /// Ends an Event
         /// </summary>
         /// <remarks>
-        /// Ends an Event with the specified id
+        /// Ends an Event with the specified id. With a grace period configured (Resource:EndGracePeriodMinutes),
+        /// a launched Event is first Suspended: its Player view is hidden and nothing is destroyed until its
+        /// RecoverableUntil time, before which POST events/{id}/recover gives it back. With immediate=true the
+        /// grace period is skipped (or cut short, for an Event already Suspended) and teardown starts now.
         /// <para />
-        /// Accessible only to a SuperUser or a User on an Admin Team within the specified Event
+        /// Accessible only to a SuperUser or a User on an Admin Team within the specified Event.
+        /// Ending immediately requires the system-wide ManageEvents permission.
         /// </remarks>
         /// <param name="id">The id of the Event to end</param>
+        /// <param name="immediate">Skip the grace period and tear the Event down now</param>
         /// <param name="ct"></param>
         [HttpDelete("events/{id}/end")]
         [ProducesResponseType((int)HttpStatusCode.NoContent)]
         [SwaggerOperation(OperationId = "endEvent")]
-        public async Task<IActionResult> End(Guid id, CancellationToken ct)
+        public async Task<IActionResult> End(Guid id, [FromQuery] bool? immediate, CancellationToken ct)
         {
             if (!await _authorizationService.AuthorizeAsync<Event>(id, [SystemPermission.ManageEvents], [EventPermission.ManageEvent], ct))
                 throw new ForbiddenException();
 
-            await _eventService.EndAsync(id, ct);
+            if (immediate == true && !await _authorizationService.AuthorizeAsync([SystemPermission.ManageEvents], ct))
+                throw new ForbiddenException("Only administrators who can manage all events can end an event without its grace period.");
+
+            await _eventService.EndAsync(id, ct, immediate == true);
+            return NoContent();
+        }
+
+        /// <summary>
+        /// Recovers an ended Event inside its grace period
+        /// </summary>
+        /// <remarks>
+        /// An ended or expired Event is Suspended for the configured grace period (Resource:EndGracePeriodMinutes)
+        /// before its resources are destroyed. Until its RecoverableUntil time this makes it Active again and makes
+        /// its Player view visible again. An expiration that has passed is pushed out by the template's duration.
+        /// <para />
+        /// Accessible only to a SuperUser or a User on an Admin Team within the specified Event
+        /// </remarks>
+        /// <param name="id">The id of the Event to recover</param>
+        /// <param name="ct"></param>
+        [HttpPost("events/{id}/recover")]
+        [ProducesResponseType((int)HttpStatusCode.NoContent)]
+        [SwaggerOperation(OperationId = "recoverEvent")]
+        public async Task<IActionResult> Recover(Guid id, CancellationToken ct)
+        {
+            if (!await _authorizationService.AuthorizeAsync<Event>(id, [SystemPermission.ManageEvents], [EventPermission.ManageEvent], ct))
+                throw new ForbiddenException();
+
+            await _eventService.RecoverAsync(id, ct);
             return NoContent();
         }
 
