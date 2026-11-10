@@ -7,13 +7,13 @@ using System.Security.Claims;
 using System.Security.Principal;
 using System.Threading;
 using STT = System.Threading.Tasks;
-using AutoMapper;
 using Microsoft.EntityFrameworkCore;
 using Alloy.Api.Data;
 using Alloy.Api.Infrastructure.Exceptions;
 using Alloy.Api.ViewModels;
 using System.Linq;
 using Alloy.Api.Data.Models;
+using Alloy.Api.Infrastructure.Mappings;
 
 namespace Alloy.Api.Services
 {
@@ -30,13 +30,11 @@ namespace Alloy.Api.Services
     {
         private readonly AlloyContext _context;
         private readonly ClaimsPrincipal _user;
-        private readonly IMapper _mapper;
 
-        public EventTemplateMembershipService(AlloyContext context, IPrincipal user, IMapper mapper)
+        public EventTemplateMembershipService(AlloyContext context, IPrincipal user)
         {
             _context = context;
             _user = user as ClaimsPrincipal;
-            _mapper = mapper;
         }
 
         public async STT.Task<EventTemplateMembership> GetAsync(Guid id, CancellationToken ct)
@@ -47,7 +45,7 @@ namespace Alloy.Api.Services
             if (item == null)
                 throw new EntityNotFoundException<EventTemplateMembership>($"Event Template Membership {id} was not found.");
 
-            return _mapper.Map<EventTemplateMembership>(item);
+            return item.ToEventTemplateMembership();
         }
 
         public async STT.Task<IEnumerable<EventTemplateMembership>> GetByEventTemplateAsync(Guid eventTemplateId, CancellationToken ct)
@@ -56,12 +54,12 @@ namespace Alloy.Api.Services
                 .Where(m => m.EventTemplateId == eventTemplateId)
                 .ToListAsync(ct);
 
-            return _mapper.Map<IEnumerable<EventTemplateMembership>>(items);
+            return items.Select(x => x.ToEventTemplateMembership()).ToList();
         }
 
         public async STT.Task<EventTemplateMembership> CreateAsync(EventTemplateMembership eventTemplateMembership, CancellationToken ct)
         {
-            var eventTemplateMembershipEntity = _mapper.Map<EventTemplateMembershipEntity>(eventTemplateMembership);
+            var eventTemplateMembershipEntity = eventTemplateMembership.ToEntity();
 
             _context.EventTemplateMemberships.Add(eventTemplateMembershipEntity);
             await _context.SaveChangesAsync(ct);
@@ -79,7 +77,7 @@ namespace Alloy.Api.Services
             eventTemplateMembershipToUpdate.Role = null;
             await _context.SaveChangesAsync(ct);
 
-            return _mapper.Map<EventTemplateMembership>(eventTemplateMembershipToUpdate);
+            return eventTemplateMembershipToUpdate.ToEventTemplateMembership();
         }
         public async STT.Task DeleteAsync(Guid id, CancellationToken ct)
         {

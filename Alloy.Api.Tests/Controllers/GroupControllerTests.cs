@@ -186,6 +186,20 @@ public class GroupControllerTests(DatabaseFixture fixture, AlloyAppFactory facto
         Assert.Equal("Renamed", (await StoredGroup(group.Id)).Name);
     }
 
+    /// <summary>The view model has no description, so an update keeps the stored one.</summary>
+    [Fact]
+    public async Task Update_keeps_the_groups_description()
+    {
+        var group = TestData.Group($"Group {Guid.NewGuid():N}");
+        group.Description = "Kept";
+        await Seed(group);
+
+        await AssertStatus(HttpStatusCode.OK, await RootClient.PutAsJsonAsync($"api/groups/{group.Id}", new Group { Id = group.Id, Name = "Renamed" }, AlloyJson, Ct));
+
+        var saved = await StoredGroup(group.Id);
+        Assert.Equal(("Renamed", "Kept"), (saved.Name, saved.Description));
+    }
+
     /// <summary>The body's id is mapped onto the stored row, so an id other than the route's is answered with a 500.</summary>
     [Fact]
     public async Task Update_answers_a_body_id_other_than_the_routes_with_a_server_error()
@@ -365,6 +379,21 @@ public class GroupControllerTests(DatabaseFixture fixture, AlloyAppFactory facto
         var broadcast = Assert.Single(Factory.Hub.ToGroup(group.Id));
         Assert.Equal(EngineHubMethods.GroupMembershipCreated, broadcast.Method);
         Assert.Equal(created.Id, Assert.IsType<GroupMembership>(broadcast.Arguments[0]).Id);
+    }
+
+    /// <summary>The broadcast carries the membership as stored.</summary>
+    [Fact]
+    public async Task CreateMembership_broadcasts_the_stored_membership()
+    {
+        var group = await SeedGroup();
+        var user = TestData.User();
+        await Seed(user);
+
+        var created = await ReadAsync<GroupMembership>(await RootClient.PostAsJsonAsync($"api/groups/{group.Id}/memberships",
+            new GroupMembership { GroupId = group.Id, UserId = user.Id, Role = GroupMembershipRole.Manager }, AlloyJson, Ct));
+
+        var sent = Assert.IsType<GroupMembership>(Assert.Single(Factory.Hub.ToGroup(group.Id)).Arguments[0]);
+        Assert.Equal((created.Id, group.Id, user.Id, GroupMembershipRole.Manager), (sent.Id, sent.GroupId, sent.UserId, sent.Role));
     }
 
     [Fact]

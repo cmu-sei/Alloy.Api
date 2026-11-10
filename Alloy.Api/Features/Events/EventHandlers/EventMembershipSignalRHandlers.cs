@@ -11,25 +11,22 @@ using Alloy.Api.Hubs;
 using Alloy.Api.Infrastructure.Extensions;
 using Alloy.Api.Services;
 using Alloy.Api.ViewModels;
-using AutoMapper;
 using MediatR;
 using Microsoft.AspNetCore.SignalR;
+using Alloy.Api.Infrastructure.Mappings;
 
 namespace Alloy.Api.Features.Events.EventHandlers
 {
     public class EventMembershipBaseSignalRHandler
     {
         protected readonly AlloyContext _context;
-        protected readonly IMapper _mapper;
         protected readonly IEventMembershipService _eventService;
         protected readonly IHubContext<EngineHub> _engineHub;
         public EventMembershipBaseSignalRHandler(
         AlloyContext context,
-        IMapper mapper,
         IHubContext<EngineHub> engineHub)
         {
             _context = context;
-            _mapper = mapper;
             _engineHub = engineHub;
 
         }
@@ -41,7 +38,7 @@ namespace Alloy.Api.Features.Events.EventHandlers
           CancellationToken ct)
         {
 
-            var eventMembership = _mapper.Map<EventMembership>(eventEntity);
+            var eventMembership = eventEntity.ToEventMembership();
             await _engineHub.Clients
                 .Groups(eventEntity.Id.ToString(), EngineHub.ADMIN_EVENT_GROUP)
                 .SendAsync(method, eventMembership, modifiedProperties, ct);
@@ -52,9 +49,8 @@ namespace Alloy.Api.Features.Events.EventHandlers
     {
         public EventMembershipCreatedSignalRHandler(
           AlloyContext context,
-          IMapper mapper,
           IHubContext<EngineHub> engineHub)
-           : base(context, mapper, engineHub) { }
+           : base(context, engineHub) { }
 
         public async Task Handle(EntityCreated<EventMembershipEntity> notification, CancellationToken ct)
         {
@@ -66,10 +62,9 @@ namespace Alloy.Api.Features.Events.EventHandlers
     {
         public EventMembershipUpdatedSignalRHandler(
           AlloyContext context,
-          IMapper mapper,
           IHubContext<EngineHub> engineHub
 
-        ) : base(context, mapper, engineHub) { }
+        ) : base(context, engineHub) { }
 
         public async Task Handle(EntityUpdated<EventMembershipEntity> notification, CancellationToken ct)
         {
@@ -85,9 +80,8 @@ namespace Alloy.Api.Features.Events.EventHandlers
     {
         public EventMembershipDeletedSignalRHandler(
             AlloyContext context,
-            IMapper mapper,
             IHubContext<EngineHub> engineHub)
-            : base(context, mapper, engineHub)
+            : base(context, engineHub)
         { }
 
         public async Task Handle(EntityDeleted<EventMembershipEntity> notification, CancellationToken ct)

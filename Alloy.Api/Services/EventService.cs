@@ -17,12 +17,12 @@ using Alloy.Api.Infrastructure.Extensions;
 using Alloy.Api.Infrastructure.Exceptions;
 using Alloy.Api.Infrastructure.Options;
 using Alloy.Api.ViewModels;
-using AutoMapper;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Steamfitter.Api.Client;
+using Alloy.Api.Infrastructure.Mappings;
 
 namespace Alloy.Api.Services
 {
@@ -55,7 +55,6 @@ namespace Alloy.Api.Services
         private readonly IAuthorizationService _authorizationService;
         private readonly IAlloyAuthorizationService _alloyAuthorizationService;
         private readonly ClaimsPrincipal _user;
-        private readonly IMapper _mapper;
         private readonly ICasterService _casterService;
         private readonly IPlayerService _playerService;
         private readonly ISteamfitterService _steamfitterService;
@@ -74,7 +73,6 @@ namespace Alloy.Api.Services
             IAuthorizationService authorizationService,
             IAlloyAuthorizationService alloyAuthorizationService,
             IPrincipal user,
-            IMapper mapper,
             IPlayerService playerService,
             ISteamfitterService steamfitterService,
             ICasterService casterService,
@@ -91,7 +89,6 @@ namespace Alloy.Api.Services
             _authorizationService = authorizationService;
             _alloyAuthorizationService = alloyAuthorizationService;
             _user = user as ClaimsPrincipal;
-            _mapper = mapper;
             _casterService = casterService;
             _playerService = playerService;
             _steamfitterService = steamfitterService;
@@ -109,7 +106,7 @@ namespace Alloy.Api.Services
         {
             var items = await _context.Events.ToListAsync(ct);
 
-            return _mapper.Map<IEnumerable<Event>>(items);
+            return items.Select(x => x.ToEvent()).ToList();
         }
 
         public async Task<IEnumerable<Event>> GetEventTemplateEventsAsync(Guid eventTemplateId, CancellationToken ct)
@@ -118,7 +115,7 @@ namespace Alloy.Api.Services
                 .Where(x => x.EventTemplateId == eventTemplateId)
                 .ToListAsync(ct);
 
-            return _mapper.Map<IEnumerable<Event>>(items);
+            return items.Select(x => x.ToEvent()).ToList();
         }
 
         public async Task<IEnumerable<Event>> GetMyEventTemplateEventsAsync(Guid eventTemplateId, bool includeInvites, CancellationToken ct)
@@ -141,7 +138,7 @@ namespace Alloy.Api.Services
 
             var items = await query.ToListAsync(ct);
 
-            return _mapper.Map<IEnumerable<Event>>(items);
+            return items.Select(x => x.ToEvent()).ToList();
         }
 
         public async Task<IEnumerable<Event>> GetMyViewEventsAsync(Guid viewId, CancellationToken ct)
@@ -154,7 +151,7 @@ namespace Alloy.Api.Services
                 .Select(m => m.Event)
                 .ToListAsync(ct);
 
-            return _mapper.Map<IEnumerable<Event>>(items);
+            return items.Select(x => x.ToEvent()).ToList();
         }
 
         public async Task<IEnumerable<Event>> GetMyEventsAsync(bool? includeEnded, int? days, CancellationToken ct)
@@ -184,14 +181,14 @@ namespace Alloy.Api.Services
 
             var items = await query.ToListAsync(ct);
 
-            return _mapper.Map<IEnumerable<Event>>(items);
+            return items.Select(x => x.ToEvent()).ToList();
         }
 
         public async Task<Event> GetAsync(Guid id, CancellationToken ct)
         {
             var item = await GetTheEventAsync(id, ct);
 
-            return _mapper.Map<Event>(item);
+            return item.ToEvent();
         }
 
         public async Task<EventErrorDetail> GetErrorDetailAsync(Guid id, CancellationToken ct)
@@ -226,7 +223,7 @@ namespace Alloy.Api.Services
             await _claimsService.RefreshClaims((Guid)userId);
             // add the event to the event queue for AlloyBackgroundService to process.
             _alloyEventQueue.Add(eventEntity);
-            return _mapper.Map<Event>(eventEntity);
+            return eventEntity.ToEvent();
         }
 
         public async Task<Event> UpdateAsync(Guid id, UpdateEventRequest request, CancellationToken ct)
@@ -240,7 +237,7 @@ namespace Alloy.Api.Services
             eventEntity.ModifiedBy = _user.GetId();
             await _context.SaveChangesAsync(ct);
 
-            return _mapper.Map<Event>(eventEntity);
+            return eventEntity.ToEvent();
         }
 
         public async Task<bool> DeleteAsync(Guid id, CancellationToken ct)
@@ -458,14 +455,14 @@ namespace Alloy.Api.Services
 
             if (eventEntity.ShareCode != null)
             {
-                return _mapper.Map<Event>(eventEntity);
+                return eventEntity.ToEvent();
             }
             eventEntity.ShareCode = Guid.NewGuid().ToString("N");
 
             _context.Events.Update(eventEntity);
             await _context.SaveChangesAsync();
 
-            return _mapper.Map<Event>(eventEntity);
+            return eventEntity.ToEvent();
         }
 
         private async Task<Event> GetEventByShareCodeAsync(string code, CancellationToken ct)
@@ -476,7 +473,7 @@ namespace Alloy.Api.Services
                 throw new EntityNotFoundException<Event>($"Event not found or has been ended");
             }
 
-            return _mapper.Map<Event>(eventEntity);
+            return eventEntity.ToEvent();
 
         }
 
@@ -501,7 +498,7 @@ namespace Alloy.Api.Services
                 throw new EntityNotFoundException<Event>($"Event {eventId} was not found.");
             }
 
-            var alloyEvent = _mapper.Map<Event>(eventEntity);
+            var alloyEvent = eventEntity.ToEvent();
 
             return await EnlistUserAsync(alloyEvent, userId, userName, ct);
         }

@@ -17,7 +17,6 @@ using Alloy.Api.Infrastructure.JsonConverters;
 using Alloy.Api.Infrastructure.Mappings;
 using Alloy.Api.Infrastructure.Options;
 using Alloy.Api.Services;
-using AutoMapper.Internal;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
@@ -275,15 +274,6 @@ namespace Alloy.Api
             services.AddHttpClient();
 
             ApplyPolicies(services);
-
-            services.AddAutoMapper(cfg =>
-            {
-                cfg.Internal().ForAllPropertyMaps(
-                    pm => pm.SourceType != null && Nullable.GetUnderlyingType(pm.SourceType) == pm.DestinationType,
-                    (pm, c) => c.MapFrom<object, object, object, object>(new IgnoreNullSourceValues(), pm.SourceMember.Name));
-
-
-            }, typeof(Startup));
 
             services.AddMediatR(cfg => cfg.RegisterServicesFromAssemblyContaining<Startup>());
             services.AddScoped<IClaimsTransformation, AuthorizationClaimsTransformer>();

@@ -51,6 +51,15 @@ public class SystemRoleControllerTests(DatabaseFixture fixture, AlloyAppFactory 
             role.Permissions.Order());
     }
 
+    /// <summary>The seeded Administrator role is returned with its all-permissions and immutable flags.</summary>
+    [Fact]
+    public async Task Get_returns_the_administrator_role_with_its_all_permissions_and_immutable_flags()
+    {
+        var role = await ReadAsync<SystemRole>(await RootClient.GetAsync($"api/system-roles/{TestData.Roles.Administrator}", Ct));
+
+        Assert.Equal((true, true), (role.AllPermissions, role.Immutable));
+    }
+
     [Fact]
     public async Task Get_is_forbidden_for_a_caller_holding_only_ViewUsers()
     {
@@ -77,6 +86,18 @@ public class SystemRoleControllerTests(DatabaseFixture fixture, AlloyAppFactory 
         var saved = await StoredRole(created.Id);
         Assert.Equal(("Range Tech", false), (saved.Name, saved.AllPermissions));
         Assert.Equal([SystemPermission.ViewEvents], saved.Permissions);
+    }
+
+    /// <summary>A new role's all-permissions and immutable flags are stored and returned.</summary>
+    [Fact]
+    public async Task Create_stores_and_returns_the_all_permissions_and_immutable_flags()
+    {
+        var created = await ReadAsync<SystemRole>(await RootClient.PostAsJsonAsync("api/system-roles",
+            new SystemRole { Name = $"Flags {Guid.NewGuid():N}", AllPermissions = true, Immutable = true, Permissions = [] }, AlloyJson, Ct));
+
+        Assert.Equal((true, true), (created.AllPermissions, created.Immutable));
+        var saved = await StoredRole(created.Id);
+        Assert.Equal((true, true), (saved.AllPermissions, saved.Immutable));
     }
 
     /// <summary>A name another role holds is refused by the unique index on <c>system_roles.name</c>, answered with a 500.</summary>
@@ -108,6 +129,29 @@ public class SystemRoleControllerTests(DatabaseFixture fixture, AlloyAppFactory 
         Assert.Equal([SystemPermission.ViewEvents], saved.Permissions);
         await using var context = NewContext();
         Assert.False(await context.SystemRoles.AnyAsync(x => x.Name == "Replacement", Ct));
+    }
+
+    /// <summary>A role sent without permissions is stored and returned with an empty list, not null.</summary>
+    [Fact]
+    public async Task Create_without_permissions_stores_and_returns_an_empty_list()
+    {
+        var created = await ReadAsync<SystemRole>(await RootClient.PostAsJsonAsync("api/system-roles",
+            new SystemRole { Name = $"No permissions {Guid.NewGuid():N}", Permissions = null }, AlloyJson, Ct));
+
+        Assert.Equal([], created.Permissions);
+        Assert.Equal([], (await StoredRole(created.Id)).Permissions);
+    }
+
+    [Fact]
+    public async Task Get_returns_a_role_stored_without_permissions_with_an_empty_list()
+    {
+        var role = TestData.SystemRole();
+        role.Permissions = null;
+        await Seed(role);
+
+        var read = await ReadAsync<SystemRole>(await RootClient.GetAsync($"api/system-roles/{role.Id}", Ct));
+
+        Assert.Equal([], read.Permissions);
     }
 
     /// <summary>A permission value outside the enum is returned and stored on create.</summary>
@@ -165,6 +209,35 @@ public class SystemRoleControllerTests(DatabaseFixture fixture, AlloyAppFactory 
         Assert.Equal([SystemPermission.ViewEvents], saved.Permissions);
     }
 
+    /// <summary>An update without permissions clears them, stored and returned as an empty list.</summary>
+    [Fact]
+    public async Task Update_without_permissions_stores_and_returns_an_empty_list()
+    {
+        var role = TestData.SystemRole(permissions: [SystemPermission.ViewEvents]);
+        await Seed(role);
+
+        var updated = await ReadAsync<SystemRole>(await RootClient.PutAsJsonAsync($"api/system-roles/{role.Id}",
+            new SystemRole { Id = role.Id, Name = role.Name, Permissions = null }, AlloyJson, Ct));
+
+        Assert.Equal([], updated.Permissions);
+        Assert.Equal([], (await StoredRole(role.Id)).Permissions);
+    }
+
+    /// <summary>The view model has no description, so an update keeps the stored one.</summary>
+    [Fact]
+    public async Task Update_keeps_the_roles_description()
+    {
+        var role = TestData.SystemRole(permissions: [SystemPermission.ViewEvents]);
+        role.Description = "Kept";
+        await Seed(role);
+
+        await AssertStatus(HttpStatusCode.OK, await RootClient.PutAsJsonAsync($"api/system-roles/{role.Id}",
+            new SystemRole { Id = role.Id, Name = "Renamed", Permissions = [] }, AlloyJson, Ct));
+
+        var saved = await StoredRole(role.Id);
+        Assert.Equal(("Renamed", "Kept"), (saved.Name, saved.Description));
+    }
+
     // Same case as Create_stores_a_permission_value_outside_the_enum.
     [Fact]
     public async Task Update_stores_a_permission_value_outside_the_enum()
@@ -190,6 +263,19 @@ public class SystemRoleControllerTests(DatabaseFixture fixture, AlloyAppFactory 
 
         await AssertStatus(HttpStatusCode.OK, response);
         Assert.False((await StoredRole(TestData.Roles.Administrator)).AllPermissions);
+    }
+
+    /// <summary>An update marking a role immutable stores the flag.</summary>
+    [Fact]
+    public async Task Update_stores_the_immutable_flag_on_a_role_not_marked_immutable()
+    {
+        var role = TestData.SystemRole();
+        await Seed(role);
+
+        await AssertStatus(HttpStatusCode.OK, await RootClient.PutAsJsonAsync($"api/system-roles/{role.Id}",
+            new SystemRole { Id = role.Id, Name = role.Name, Immutable = true, Permissions = [] }, AlloyJson, Ct));
+
+        Assert.True((await StoredRole(role.Id)).Immutable);
     }
 
     /// <summary>The body's id is mapped onto the stored row, so an id other than the route's is answered with a 500.</summary>

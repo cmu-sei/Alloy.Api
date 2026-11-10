@@ -62,7 +62,6 @@ public sealed class ApiTestHost : IDisposable
         // A context per scope over the test's database, publishing to the session's own Mediator. The
         // worker disposes the context it resolves, so a single instance would not survive its first pass.
         services.AddScoped(_ => session.CreateContext());
-        services.AddSingleton(TestMapper.Mapper);
 
         // The Authorization header is what a request carries and the Player, Caster and Steamfitter
         // client registrations forward; the Caster and Steamfitter ones cannot be built without it.

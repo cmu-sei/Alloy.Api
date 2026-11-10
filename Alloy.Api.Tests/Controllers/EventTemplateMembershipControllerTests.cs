@@ -56,6 +56,20 @@ public class EventTemplateMembershipControllerTests(DatabaseFixture fixture, All
         Assert.Equal(membership.Id, read.Id);
     }
 
+    /// <summary>A group's membership is returned with its group and role, and no user.</summary>
+    [Fact]
+    public async Task Get_returns_a_group_membership_with_its_group_and_role()
+    {
+        var template = await SeedTemplate();
+        var group = TestData.Group($"Group {Guid.NewGuid():N}");
+        var membership = TestData.EventTemplateMembership(template.Id, TestData.EventTemplateRoles.Observer, groupId: group.Id);
+        await Seed(group, membership);
+
+        var read = await ReadAsync<EventTemplateMembership>(await RootClient.GetAsync($"api/eventTemplates/memberships/{membership.Id}", Ct));
+
+        Assert.Equal((group.Id, (Guid?)null, TestData.EventTemplateRoles.Observer), (read.GroupId, read.UserId, read.RoleId));
+    }
+
     [Fact]
     public async Task Get_is_forbidden_for_a_caller_holding_ViewEventTemplate_only_on_another_template()
     {
@@ -161,6 +175,22 @@ public class EventTemplateMembershipControllerTests(DatabaseFixture fixture, All
             new EventTemplateMembership { EventTemplateId = template.Id, UserId = user.Id, RoleId = TestData.EventTemplateRoles.Manager }, AlloyJson, Ct));
 
         Assert.Equal(TestData.EventTemplateRoles.Manager, (await StoredMembership(created.Id)).RoleId);
+    }
+
+    /// <summary>A membership of a group, with no user, is stored with its group.</summary>
+    [Fact]
+    public async Task Create_stores_a_group_membership()
+    {
+        var template = await SeedTemplate();
+        var group = TestData.Group($"Group {Guid.NewGuid():N}");
+        await Seed(group);
+
+        var created = await ReadAsync<EventTemplateMembership>(await RootClient.PostAsJsonAsync($"api/eventTemplates/{template.Id}/memberships",
+            new EventTemplateMembership { EventTemplateId = template.Id, GroupId = group.Id, RoleId = TestData.EventTemplateRoles.Member }, AlloyJson, Ct));
+
+        var saved = await StoredMembership(created.Id);
+        Assert.Equal((group.Id, (Guid?)null), (saved.GroupId, saved.UserId));
+        Assert.Equal(group.Id, created.GroupId);
     }
 
     /// <summary>A new membership is broadcast to the group named for the membership's own id.</summary>
