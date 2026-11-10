@@ -337,7 +337,9 @@ namespace Alloy.Api.Controllers
             if (!await _authorizationService.AuthorizeAsync<Event>(id, [SystemPermission.ManageEvents], [EventPermission.ManageEvent], ct))
                 throw new ForbiddenException();
 
-            if (immediate == true && !await _authorizationService.AuthorizeAsync([SystemPermission.ManageEvents], ct))
+            // Checked for every caller, so the query string cannot decide whether the check runs.
+            var canEndImmediately = await _authorizationService.AuthorizeAsync([SystemPermission.ManageEvents], ct);
+            if (immediate == true && !canEndImmediately)
                 throw new ForbiddenException("Only administrators who can manage all events can end an event without its grace period.");
 
             await _eventService.EndAsync(id, ct, immediate == true);
