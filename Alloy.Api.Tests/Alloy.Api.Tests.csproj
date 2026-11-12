@@ -29,7 +29,7 @@
 
   <!-- No central package management in this repository, so the versions of test-packages.props are here. -->
   <ItemGroup>
-    <PackageReference Include="xunit.v3" Version="4.0.2" />
+    <PackageReference Include="xunit.v3" Version="4.0.3" />
     <PackageReference Include="coverlet.MTP" Version="10.1.0" />
     <PackageReference Include="NSubstitute" Version="6.2.0" />
     <!-- Hosts the API in process over TestServer, so the tests drive the real Startup. -->
