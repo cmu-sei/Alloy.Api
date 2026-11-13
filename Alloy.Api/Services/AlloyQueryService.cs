@@ -95,6 +95,12 @@ namespace Alloy.Api.Services
                             }
                         }
 
+                        // Ended Events whose grace period has passed go on to teardown.
+                        foreach (var eventEntity in await EventLifecycle.LapsedSuspensions(alloyContext, currentDateTime).ToListAsync())
+                        {
+                            _eventQueue.Add(eventEntity, requeueIfProcessing: false);
+                        }
+
                         // Recover persisted work after a lost notification or a worker/database
                         // failure. Failed events keep their existing bounded/manual retry policy.
                         foreach (var eventEntity in await EventLifecycle.UnfinishedEvents(alloyContext).ToListAsync())

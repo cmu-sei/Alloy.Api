@@ -45,6 +45,11 @@ namespace Alloy.Api.ViewModels
         public DateTime? EndDate { get; set; }
         /// <summary>When ending was requested. EndDate records successful cleanup.</summary>
         public DateTime? EndRequestedAt { get; set; }
+        /// <summary>
+        /// While the Event is Suspended (ended, inside the grace period), when the grace period ends.
+        /// Until then POST /api/events/{id}/recover gives it back; after it, its resources are destroyed.
+        /// </summary>
+        public DateTime? RecoverableUntil { get; set; }
         public DateTime? ExpirationDate { get; set; }
         public IEnumerable<string> EventPermissions { get; set; }
     }

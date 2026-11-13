@@ -13,7 +13,14 @@ namespace Alloy.Api.Data
         Planning = 6,
         Applying = 8,
         Failed = 10,
-        Ending = 11
+        Ending = 11,
+        /// <summary>
+        /// Ended, but inside the grace period: access is suspended and nothing has been destroyed,
+        /// so the Event can still be recovered until <c>RecoverableUntil</c>.
+        /// </summary>
+        Suspended = 12,
+        /// <summary>A Suspended Event is being given back its access after a recover request.</summary>
+        Recovering = 13
     }
 
     public enum InternalEventStatus
@@ -47,7 +54,10 @@ namespace Alloy.Api.Data
         PlanningRedeploy = 35,
         PlannedRedeploy = 36,
         ApplyingRedeploy = 37,
-        AppliedRedeploy = 38
+        AppliedRedeploy = 38,
+        SuspendingView = 39,
+        Suspended = 40,
+        ResumingView = 41
     }
 
     public enum AlloyClaimTypes

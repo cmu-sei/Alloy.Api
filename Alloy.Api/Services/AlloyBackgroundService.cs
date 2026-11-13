@@ -32,6 +32,7 @@ namespace Alloy.Api.Services
     {
         private readonly ILogger<AlloyBackgroundService> _logger;
         private readonly IOptionsMonitor<Infrastructure.Options.ClientOptions> _clientOptions;
+        private readonly IOptionsMonitor<Infrastructure.Options.ResourceOptions> _resourceOptions;
         private readonly IServiceScopeFactory _scopeFactory;
         private readonly IAlloyEventQueue _eventQueue;
         private readonly IHttpClientFactory _httpClientFactory;
@@ -41,6 +42,7 @@ namespace Alloy.Api.Services
         public AlloyBackgroundService(
                 ILogger<AlloyBackgroundService> logger,
                 IOptionsMonitor<Infrastructure.Options.ClientOptions> clientOptions,
+                IOptionsMonitor<Infrastructure.Options.ResourceOptions> resourceOptions,
                 IServiceScopeFactory scopeFactory,
                 IAlloyEventQueue eventQueue,
                 IHttpClientFactory httpClientFactory,
@@ -50,6 +52,7 @@ namespace Alloy.Api.Services
         {
             _logger = logger;
             _clientOptions = clientOptions;
+            _resourceOptions = resourceOptions;
             _scopeFactory = scopeFactory;
             _eventQueue = eventQueue;
             _httpClientFactory = httpClientFactory;
@@ -104,12 +107,14 @@ namespace Alloy.Api.Services
                         {
                             var maxEndRetries = _clientOptions.CurrentValue.ApiClientEndFailureMaxRetries;
 
-                            // get event entities that are currently "in process"
+                            // get event entities that are currently "in process". A Suspended Event is
+                            // waiting out its grace period; the query service queues it once that passes.
                             var eventEntities = await alloyContext.Events
                                 .Where(o => (o.Status != EventStatus.Active &&
                                         o.Status != EventStatus.Failed &&
                                         o.Status != EventStatus.Ended &&
-                                        o.Status != EventStatus.Expired) ||
+                                        o.Status != EventStatus.Expired &&
+                                        o.Status != EventStatus.Suspended) ||
                                     ((o.Status == EventStatus.Active || o.Status == EventStatus.Paused) &&
                                         o.EndRequestedAt != null && o.EndDate == null) ||
                                     // Retry failed cleanup with remaining resources and retry budget.
@@ -253,14 +258,37 @@ namespace Alloy.Api.Services
                     RetryAfter(result);
                 }
 
+                // Restoring access is best effort: a view that can't be reactivated still leaves a running
+                // Event, so its owner gets it back with the reason rather than losing it.
+                void HandleResumeFailure(ApiCallResult result)
+                {
+                    if (result.IsPermanent)
+                    {
+                        updateTheEntity = FinishRecovery(eventEntity, result);
+                    }
+                    else
+                    {
+                        RetryAfter(result);
+                    }
+                }
+
+                // A Suspended Event is queued only once its grace period has passed (or by a stale
+                // notification, which this ignores). A recover that got there first wins.
+                if (eventEntity.Status == EventStatus.Suspended)
+                {
+                    await EventLifecycle.BeginTeardownAsync(alloyContext, eventEntity, DateTime.UtcNow, ct);
+                }
+
                 // Active/Paused end requests and explicitly retried Failed cleanup must
                 // enter the state machine before its loop condition is evaluated.
                 await AdoptPendingEndAsync(alloyContext, eventEntity, ct, allowFailed: retryFailed);
                 if (eventEntity.Status == EventStatus.Ending && eventEntity.WorkspaceId != null &&
-                    eventEntity.InternalStatus != InternalEventStatus.EndQueued)
+                    eventEntity.InternalStatus != InternalEventStatus.EndQueued &&
+                    eventEntity.InternalStatus != InternalEventStatus.SuspendingView)
                 {
                     // Reconcile Caster once on recovery, including teardown states saved
                     // by older versions that could still have an unfinished launch run.
+                    // Suspension never touches Caster, so it has nothing to reconcile.
                     eventEntity.InternalStatus = InternalEventStatus.EndQueued;
                     await alloyContext.SaveChangesAsync(ct);
                 }
@@ -268,10 +296,10 @@ namespace Alloy.Api.Services
                     .AnyAsync(x => x.Id == eventEntity.Id && x.EndRequestedAt != null, ct);
 
                 // LOOP until this thread's process is complete
-                while (EventLifecycle.IsLaunching(eventEntity.Status) || eventEntity.Status == EventStatus.Ending)
+                while (EventLifecycle.IsInProgress(eventEntity.Status))
                 {
-                    // A failure before reload must not trigger post-launch end adoption.
-                    var processingLaunch = false;
+                    // A failure before reload must not trigger post-step end adoption.
+                    var stepMayAdoptEnd = false;
 
                     try
                     {
@@ -290,7 +318,9 @@ namespace Alloy.Api.Services
                             retryCount = 0;
                         }
 
-                        processingLaunch = EventLifecycle.IsLaunching(eventEntity.Status);
+                        // Launch and recovery steps can be overtaken by an end request.
+                        stepMayAdoptEnd = EventLifecycle.IsLaunching(eventEntity.Status) ||
+                            eventEntity.Status == EventStatus.Recovering;
 
                         // each time through the loop, one state (case) is handled based on Status and InternalStatus.  This allows for retries of a failed state.
                         switch (eventEntity.Status)
@@ -584,6 +614,41 @@ namespace Alloy.Api.Services
                                 {
                                     switch (eventEntity.InternalStatus)
                                     {
+                                        // Ended inside the grace period: hide the view and keep everything
+                                        // else, so a recover has something to give back.
+                                        case InternalEventStatus.SuspendingView:
+                                            {
+                                                // An administrator ended it now (or the grace period already passed):
+                                                // there is nothing to hide the view for.
+                                                if (eventEntity.RecoverableUntil <= DateTime.UtcNow)
+                                                {
+                                                    eventEntity.InternalStatus = InternalEventStatus.EndQueued;
+                                                    updateTheEntity = true;
+                                                    resetRetries = true;
+                                                    break;
+                                                }
+
+                                                var result = ApiCallResult.Ok();
+                                                if (eventEntity.ViewId != null)
+                                                {
+                                                    (playerApiClient, tokenResponse) = await RefreshClient(playerApiClient, tokenResponse, scope.ServiceProvider, ct);
+                                                    result = await PlayerApiExtensions.SetPlayerViewStatusAsync(playerApiClient, eventEntity.ViewId.Value, Player.Api.Client.ViewStatus.Inactive, _logger, ct);
+                                                }
+                                                if (result.IsSuccess)
+                                                {
+                                                    updateTheEntity = Suspend(eventEntity, null);
+                                                    resetRetries = true;
+                                                }
+                                                else if (result.IsPermanent)
+                                                {
+                                                    updateTheEntity = Suspend(eventEntity, result);
+                                                }
+                                                else
+                                                {
+                                                    RetryEndAfter(result);
+                                                }
+                                                break;
+                                            }
                                         case InternalEventStatus.EndQueued:
                                             {
                                                 settleDeadline ??= DateTime.UtcNow.AddMinutes(_clientOptions.CurrentValue.CasterDestroyMaxWaitMinutes);
@@ -849,6 +914,42 @@ namespace Alloy.Api.Services
                                     }
                                     break;
                                 }
+                            // the "Recovering" state means a Suspended event is being given its access back
+                            case EventStatus.Recovering:
+                                {
+                                    switch (eventEntity.InternalStatus)
+                                    {
+                                        case InternalEventStatus.ResumingView:
+                                            {
+                                                var result = ApiCallResult.Ok();
+                                                if (eventEntity.ViewId != null)
+                                                {
+                                                    (playerApiClient, tokenResponse) = await RefreshClient(playerApiClient, tokenResponse, scope.ServiceProvider, ct);
+                                                    result = await PlayerApiExtensions.SetPlayerViewStatusAsync(playerApiClient, eventEntity.ViewId.Value, Player.Api.Client.ViewStatus.Active, _logger, ct);
+                                                }
+                                                if (result.IsSuccess)
+                                                {
+                                                    updateTheEntity = FinishRecovery(eventEntity, null);
+                                                    resetRetries = true;
+                                                }
+                                                else
+                                                {
+                                                    HandleResumeFailure(result);
+                                                }
+                                                break;
+                                            }
+                                        default:
+                                            {
+                                                // Nothing was destroyed, so an unexpected state is no reason to
+                                                // tear the event down; give it back with the reason.
+                                                updateTheEntity = FinishRecovery(eventEntity, ApiCallResult.Permanent(
+                                                    "The event is in an unexpected state.",
+                                                    $"Unhandled state combination {eventEntity.Status} - {eventEntity.InternalStatus}."));
+                                                break;
+                                            }
+                                    }
+                                    break;
+                                }
                         }
                     }
                     catch (Exception ex)
@@ -859,6 +960,10 @@ namespace Alloy.Api.Services
                         if (eventEntity.Status == EventStatus.Ending)
                         {
                             RetryEndAfter(result);
+                        }
+                        else if (eventEntity.Status == EventStatus.Recovering)
+                        {
+                            HandleResumeFailure(result);
                         }
                         else
                         {
@@ -895,6 +1000,20 @@ namespace Alloy.Api.Services
                                     ref retryCount, ref resetRetries);
                             }
                             else if (eventEntity.Status == EventStatus.Ending &&
+                                eventEntity.InternalStatus == InternalEventStatus.SuspendingView &&
+                                retryCount >= endMaxRetries && endMaxRetries > 0)
+                            {
+                                // Hiding the view is not worth destroying a recoverable event over.
+                                updateTheEntity = Suspend(eventEntity, CeilingFailure(
+                                    "Player could not be reached.", endMaxRetries, eventEntity, lastTransientFailure));
+                            }
+                            else if (eventEntity.Status == EventStatus.Recovering &&
+                                retryCount >= launchMaxRetries && launchMaxRetries > 0)
+                            {
+                                updateTheEntity = FinishRecovery(eventEntity, CeilingFailure(
+                                    "Player could not be reached.", launchMaxRetries, eventEntity, lastTransientFailure));
+                            }
+                            else if (eventEntity.Status == EventStatus.Ending &&
                                 retryCount >= endMaxRetries && endMaxRetries > 0)
                             {
                                 updateTheEntity = FailEnd(eventEntity, CeilingFailure(
@@ -927,7 +1046,7 @@ namespace Alloy.Api.Services
                             await alloyContext.SaveChangesAsync(ct);
 
                             // Persist any resource acquired by the step before adopting end intent.
-                            if (processingLaunch)
+                            if (stepMayAdoptEnd)
                             {
                                 // The next pass or periodic recovery retries a failed adoption,
                                 // including a request persisted just as the event became Active.
@@ -970,15 +1089,35 @@ namespace Alloy.Api.Services
                 (!EventLifecycle.CanAdoptEnd(eventEntity.Status) && !(allowFailed && eventEntity.Status == EventStatus.Failed)))
                 return false;
 
-            var requestedAt = await alloyContext.Events.AsNoTracking()
-                .Where(x => x.Id == eventEntity.Id).Select(x => x.EndRequestedAt).FirstOrDefaultAsync(ct);
+            var request = await alloyContext.Events.AsNoTracking()
+                .Where(x => x.Id == eventEntity.Id)
+                .Select(x => new { x.EndRequestedAt, x.RecoverableUntil })
+                .FirstOrDefaultAsync(ct);
+            var requestedAt = request?.EndRequestedAt;
             if (requestedAt == null)
                 return false;
 
-            _logger.LogInformation("Ending Event {EventId} after request at {EndRequestedAt}.", eventEntity.Id, requestedAt);
+            // A recoverable-until already set on a running Event is an end that skips the grace period.
+            var graceMinutes = _resourceOptions.CurrentValue.EndGracePeriodMinutes;
+            var suspend = graceMinutes > 0 && request.RecoverableUntil == null &&
+                EventLifecycle.CanSuspend(eventEntity.Status);
+
+            _logger.LogInformation("Ending Event {EventId} after request at {EndRequestedAt}{Grace}.", eventEntity.Id, requestedAt,
+                suspend ? $", recoverable for {graceMinutes} minutes" : string.Empty);
             eventEntity.EndRequestedAt = requestedAt;
             eventEntity.Status = EventStatus.Ending;
-            eventEntity.InternalStatus = InternalEventStatus.EndQueued;
+
+            if (suspend)
+            {
+                // Suspend access first; nothing is destroyed until the grace period has passed.
+                eventEntity.InternalStatus = InternalEventStatus.SuspendingView;
+                eventEntity.RecoverableUntil = requestedAt.Value.AddMinutes(graceMinutes);
+            }
+            else
+            {
+                eventEntity.InternalStatus = InternalEventStatus.EndQueued;
+                eventEntity.RecoverableUntil = request.RecoverableUntil;
+            }
             eventEntity.StatusDate = DateTime.UtcNow;
             await alloyContext.SaveChangesAsync(ct);
             return true;
@@ -1102,6 +1241,56 @@ namespace Alloy.Api.Services
             eventEntity.Status = EventStatus.Failed;
             eventEntity.InternalStatus = InternalEventStatus.FailedDestroy;
             retryCount = 0;
+
+            return true;
+        }
+
+        /// <summary>
+        /// Parks an ended Event for its grace period. A failure to hide the view is recorded, not
+        /// fatal: nothing has been destroyed, and destroying it now would take away the recover.
+        /// </summary>
+        private bool Suspend(EventEntity eventEntity, ApiCallResult failure)
+        {
+            if (failure == null)
+            {
+                eventEntity.ClearFailureState();
+            }
+            else
+            {
+                _logger.LogError("Event {EventId} is suspended, but its Player View {ViewId} could not be set inactive: {Summary}",
+                    eventEntity.Id, eventEntity.ViewId, failure.Summary);
+                RecordError(eventEntity, ApiCallResult.Permanent(
+                    $"The event was ended, but its Player view could not be hidden, so it may still be listed in Player until it is torn down. {failure.Summary}",
+                    failure.Detail));
+            }
+
+            eventEntity.Status = EventStatus.Suspended;
+            eventEntity.InternalStatus = InternalEventStatus.Suspended;
+
+            return true;
+        }
+
+        /// <summary>
+        /// Hands a recovered Event back as Active. A failure to show the view again is recorded, not
+        /// fatal: the Event's resources are all there, so tearing it down would lose them for nothing.
+        /// </summary>
+        private bool FinishRecovery(EventEntity eventEntity, ApiCallResult failure)
+        {
+            if (failure == null)
+            {
+                eventEntity.ClearFailureState();
+            }
+            else
+            {
+                _logger.LogError("Event {EventId} is recovered, but its Player View {ViewId} could not be set active: {Summary}",
+                    eventEntity.Id, eventEntity.ViewId, failure.Summary);
+                RecordError(eventEntity, ApiCallResult.Permanent(
+                    $"The event was recovered, but its Player view could not be made visible again, so it may not be listed in Player. Please contact an administrator. {failure.Summary}",
+                    failure.Detail));
+            }
+
+            eventEntity.Status = EventStatus.Active;
+            eventEntity.InternalStatus = InternalEventStatus.Launched;
 
             return true;
         }

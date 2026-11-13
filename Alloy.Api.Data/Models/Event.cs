@@ -53,6 +53,12 @@ namespace Alloy.Api.Data.Models
         public DateTime? LaunchDate { get; set; }
         public DateTime? EndDate { get; set; }
         public DateTime? EndRequestedAt { get; set; }
+
+        /// <summary>
+        /// The end of the grace period after an end request: until then the Event is only suspended and
+        /// can be recovered; after it, the worker destroys its resources. Null when there is no grace period.
+        /// </summary>
+        public DateTime? RecoverableUntil { get; set; }
         public DateTime? ExpirationDate { get; set; }
         public virtual ICollection<EventMembershipEntity> Memberships { get; set; } = new List<EventMembershipEntity>();
     }

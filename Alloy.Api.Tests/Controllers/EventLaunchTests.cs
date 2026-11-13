@@ -195,6 +195,54 @@ public class EventLaunchTests(DatabaseFixture fixture, AlloyAppFactory factory) 
         Assert.Equal(1, await context.Events.CountAsync(x => x.EventTemplateId == template.Id, Ct));
     }
 
+    /// <summary>An ended event inside its grace period still holds its resources, so it blocks a second launch, and the caller is told how to get it back.</summary>
+    [Fact]
+    public async Task Launch_answers_a_suspended_event_of_the_same_template_with_a_conflict_naming_the_recover()
+    {
+        var template = await SeedTemplate(published: true);
+        var actor = await Actor().SeedAsync();
+        await SeedSuspendedEvent(template.Id, actor.Id);
+
+        var problem = await AssertJsonError(HttpStatusCode.Conflict, await Launch(actor, template.Id, new CreateEventCommand()));
+
+        Assert.Equal(
+            $"You ended an event from this template, and it can be recovered until {RecoverableUntilText}. Recover it, or launch another after that time.",
+            problem.Title);
+        await using var context = NewContext();
+        Assert.Equal(1, await context.Events.CountAsync(x => x.EventTemplateId == template.Id, Ct));
+    }
+
+    [Fact]
+    public async Task Launch_for_another_user_answers_their_suspended_event_of_the_same_template_with_a_conflict()
+    {
+        var template = await SeedTemplate();
+        var actor = await Actor().WithSystemPermissions(SystemPermission.ViewEventTemplates, SystemPermission.ManageEventTemplates).SeedAsync();
+        var owner = Guid.NewGuid();
+        await SeedSuspendedEvent(template.Id, owner);
+
+        var problem = await AssertJsonError(HttpStatusCode.Conflict, await Launch(actor, template.Id, new CreateEventCommand { UserId = owner, Username = "Owner" }));
+
+        Assert.Equal(
+            $"This user ended an event from this template, and it can be recovered until {RecoverableUntilText}. Another can be launched after that time.",
+            problem.Title);
+    }
+
+    /// <summary>A suspended event counts toward Resource:MaxEventsForBasicUser (2) like an active one.</summary>
+    [Fact]
+    public async Task Launch_counts_a_suspended_event_toward_a_basic_users_limit()
+    {
+        var first = await SeedTemplate(published: true);
+        var second = await SeedTemplate(published: true);
+        var third = await SeedTemplate(published: true);
+        var actor = await Actor().SeedAsync();
+        await SeedSuspendedEvent(first.Id, actor.Id);
+        await Launch(actor, second.Id, new CreateEventCommand());
+
+        var problem = await AssertJsonError(HttpStatusCode.Conflict, await Launch(actor, third.Id, new CreateEventCommand()));
+
+        Assert.Equal("You already have as many active events as you can have at once (2). End one before launching another.", problem.Title);
+    }
+
     /// <summary>Resource:MaxEventsForBasicUser is 2 as shipped; the third is a conflict naming the limit.</summary>
     [Fact]
     public async Task Launch_answers_a_basic_users_third_active_event_with_a_conflict()
@@ -483,6 +531,20 @@ public class EventLaunchTests(DatabaseFixture fixture, AlloyAppFactory factory) 
         await Seed(template);
 
         return template;
+    }
+
+    /// <summary>The grace period's end the suspended events are seeded with.</summary>
+    private static readonly DateTime RecoverableUntil = new(2099, 1, 2, 3, 4, 0, DateTimeKind.Utc);
+
+    /// <summary><see cref="RecoverableUntil"/> as a conflict message writes it.</summary>
+    private const string RecoverableUntilText = "2099-01-02 03:04 UTC";
+
+    private async Task SeedSuspendedEvent(Guid templateId, Guid userId)
+    {
+        var suspended = TestData.Event(templateId, EventStatus.Suspended, InternalEventStatus.Suspended, userId);
+        suspended.EndRequestedAt = TestData.DefaultDate;
+        suspended.RecoverableUntil = RecoverableUntil;
+        await Seed(suspended);
     }
 
     /// <summary>

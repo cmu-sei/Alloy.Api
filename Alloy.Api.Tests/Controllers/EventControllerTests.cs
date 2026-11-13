@@ -11,6 +11,7 @@ using System.Threading.Tasks;
 using Alloy.Api.Data;
 using Alloy.Api.Data.Models;
 using Alloy.Api.Hubs;
+using Alloy.Api.Services;
 using Alloy.Api.Tests.Support;
 using Alloy.Api.ViewModels;
 using Microsoft.EntityFrameworkCore;
@@ -77,6 +78,19 @@ public class EventControllerTests(DatabaseFixture fixture, AlloyAppFactory facto
         var read = await ReadAsync<Event>(await Client(actor).GetAsync($"api/events/{evt.Id}", Ct));
 
         Assert.Equal(evt.Name, read.Name);
+    }
+
+    /// <summary>The UI offers the recover, and says until when, from these two fields.</summary>
+    [Fact]
+    public async Task Get_returns_a_suspended_events_status_and_recoverable_until()
+    {
+        var recoverableUntil = new DateTime(2099, 1, 2, 3, 4, 0, DateTimeKind.Utc);
+        var evt = await SeedSuspendedEvent(recoverableUntil);
+
+        var read = await ReadAsync<Event>(await RootClient.GetAsync($"api/events/{evt.Id}", Ct));
+
+        Assert.Equal(EventStatus.Suspended, read.Status);
+        Assert.Equal(recoverableUntil, read.RecoverableUntil?.ToUniversalTime());
     }
 
     [Fact]
@@ -366,6 +380,230 @@ public class EventControllerTests(DatabaseFixture fixture, AlloyAppFactory facto
         await AssertJsonError(HttpStatusCode.Forbidden, await Client(actor).DeleteAsync($"api/events/{evt.Id}/end", Ct));
     }
 
+    [Fact]
+    public async Task End_immediately_by_a_caller_holding_ManageEvents_leaves_the_event_no_grace()
+    {
+        var evt = await SeedEvent();
+        var actor = await Actor().WithSystemPermissions(SystemPermission.ManageEvents).SeedAsync();
+
+        await AssertStatus(HttpStatusCode.NoContent, await Client(actor).DeleteAsync($"api/events/{evt.Id}/end?immediate=true", Ct));
+
+        var saved = await Stored(evt.Id);
+        Assert.NotNull(saved.EndRequestedAt);
+        Assert.Equal(saved.EndRequestedAt, saved.RecoverableUntil);
+    }
+
+    /// <summary>The event-level ManageEvent that allows a plain end does not allow skipping the grace period.</summary>
+    [Fact]
+    public async Task End_immediately_is_forbidden_for_a_member_holding_only_ManageEvent_on_the_event()
+    {
+        var evt = await SeedEvent();
+        var actor = await Actor().OnEvent(evt.Id, [EventPermission.ManageEvent]).SeedAsync();
+
+        var problem = await AssertJsonError(HttpStatusCode.Forbidden, await Client(actor).DeleteAsync($"api/events/{evt.Id}/end?immediate=true", Ct));
+
+        Assert.Equal("Only administrators who can manage all events can end an event without its grace period.", problem.Title);
+        var saved = await Stored(evt.Id);
+        Assert.Equal((null, null), (saved.EndRequestedAt, saved.RecoverableUntil));
+    }
+
+    [Fact]
+    public async Task End_immediately_is_forbidden_for_a_member_holding_ManageEvent_on_the_event_and_only_EditEvents()
+    {
+        var evt = await SeedEvent();
+        var actor = await Actor().WithSystemPermissions(SystemPermission.EditEvents).OnEvent(evt.Id, [EventPermission.ManageEvent]).SeedAsync();
+
+        await AssertJsonError(HttpStatusCode.Forbidden, await Client(actor).DeleteAsync($"api/events/{evt.Id}/end?immediate=true", Ct));
+
+        Assert.Null((await Stored(evt.Id)).EndRequestedAt);
+    }
+
+    /// <summary>Ending a suspended event immediately keeps when it was first ended and closes its grace now.</summary>
+    [Fact]
+    public async Task End_immediately_of_a_suspended_event_closes_its_grace_and_keeps_the_first_request()
+    {
+        var evt = await SeedSuspendedEvent(DateTime.UtcNow.AddMinutes(30));
+        var actor = await Actor().WithSystemPermissions(SystemPermission.ManageEvents).SeedAsync();
+
+        await AssertStatus(HttpStatusCode.NoContent, await Client(actor).DeleteAsync($"api/events/{evt.Id}/end?immediate=true", Ct));
+
+        var saved = await Stored(evt.Id);
+        Assert.Equal(evt.EndRequestedAt.Value, saved.EndRequestedAt.Value, TimeSpan.FromMilliseconds(1));
+        Assert.True(saved.RecoverableUntil <= DateTime.UtcNow);
+        Assert.True(saved.RecoverableUntil > saved.EndRequestedAt);
+    }
+
+    /// <summary>Once an administrator has ended an event immediately, its owner can no longer recover it.</summary>
+    [Fact]
+    public async Task Recover_after_an_immediate_end_is_a_conflict()
+    {
+        var evt = await SeedSuspendedEvent(DateTime.UtcNow.AddMinutes(30));
+        await using (var context = NewContext())
+        {
+            await EventLifecycle.RequestEndAsync(context, await context.Events.SingleAsync(x => x.Id == evt.Id, Ct), DateTime.UtcNow, Ct, immediate: true);
+        }
+
+        var problem = await AssertJsonError(HttpStatusCode.Conflict, await RootClient.PostAsync($"api/events/{evt.Id}/recover", null, Ct));
+
+        Assert.Equal("The grace period for this event has passed, so it is being torn down and can't be recovered.", problem.Title);
+        Assert.Equal(EventStatus.Suspended, (await Stored(evt.Id)).Status);
+    }
+
+    // POST api/events/{id}/recover
+
+    [Fact]
+    public async Task Recover_by_a_member_holding_ManageEvent_hands_the_suspended_event_back_to_the_worker()
+    {
+        var evt = await SeedSuspendedEvent(DateTime.UtcNow.AddMinutes(30));
+        var actor = await Actor().OnEvent(evt.Id, [EventPermission.ManageEvent]).SeedAsync();
+
+        await AssertStatus(HttpStatusCode.NoContent, await Client(actor).PostAsync($"api/events/{evt.Id}/recover", null, Ct));
+
+        var saved = await Stored(evt.Id);
+        Assert.Equal((EventStatus.Recovering, InternalEventStatus.ResumingView), (saved.Status, saved.InternalStatus));
+        Assert.Equal((null, null), (saved.EndRequestedAt, saved.RecoverableUntil));
+        Assert.Equal((evt.ViewId, evt.WorkspaceId), (saved.ViewId, saved.WorkspaceId));
+    }
+
+    [Fact]
+    public async Task Recover_by_a_caller_holding_ManageEvents_hands_the_suspended_event_back_to_the_worker()
+    {
+        var evt = await SeedSuspendedEvent(DateTime.UtcNow.AddMinutes(30));
+        var actor = await Actor().WithSystemPermissions(SystemPermission.ManageEvents).SeedAsync();
+
+        await AssertStatus(HttpStatusCode.NoContent, await Client(actor).PostAsync($"api/events/{evt.Id}/recover", null, Ct));
+
+        Assert.Equal(EventStatus.Recovering, (await Stored(evt.Id)).Status);
+    }
+
+    [Fact]
+    public async Task Recover_broadcasts_the_recovered_status()
+    {
+        var evt = await SeedSuspendedEvent(DateTime.UtcNow.AddMinutes(30));
+
+        await RootClient.PostAsync($"api/events/{evt.Id}/recover", null, Ct);
+
+        var broadcast = Assert.Single(Factory.Hub.ToGroup(evt.Id));
+        Assert.Equal(EngineHubMethods.EventUpdated, broadcast.Method);
+        Assert.Contains("status", Assert.IsType<string[]>(broadcast.Arguments[1]));
+    }
+
+    /// <summary>An event that expired into its grace period gets the template's duration again, from the recover.</summary>
+    [Fact]
+    public async Task Recover_of_an_expired_event_extends_its_expiration_by_the_templates_duration()
+    {
+        var evt = await SeedSuspendedEvent(DateTime.UtcNow.AddMinutes(30), x => x.ExpirationDate = DateTime.UtcNow.AddMinutes(-5), durationHours: 3);
+        var before = DateTime.UtcNow;
+
+        await AssertStatus(HttpStatusCode.NoContent, await RootClient.PostAsync($"api/events/{evt.Id}/recover", null, Ct));
+
+        var expiration = (await Stored(evt.Id)).ExpirationDate.Value;
+        Assert.InRange(expiration, before.AddHours(3).AddSeconds(-1), DateTime.UtcNow.AddHours(3));
+    }
+
+    [Fact]
+    public async Task Recover_is_forbidden_for_a_caller_holding_ManageEvent_only_on_another_event()
+    {
+        var evt = await SeedSuspendedEvent(DateTime.UtcNow.AddMinutes(30));
+        var actor = await Actor().OnNewEvent(evt.EventTemplateId, EventPermission.ManageEvent).SeedAsync();
+
+        await AssertJsonError(HttpStatusCode.Forbidden, await Client(actor).PostAsync($"api/events/{evt.Id}/recover", null, Ct));
+
+        Assert.Equal(EventStatus.Suspended, (await Stored(evt.Id)).Status);
+    }
+
+    [Fact]
+    public async Task Recover_is_forbidden_for_a_member_holding_only_EditEvent()
+    {
+        var evt = await SeedSuspendedEvent(DateTime.UtcNow.AddMinutes(30));
+        var actor = await Actor().OnEvent(evt.Id, [EventPermission.ViewEvent, EventPermission.EditEvent]).SeedAsync();
+
+        await AssertJsonError(HttpStatusCode.Forbidden, await Client(actor).PostAsync($"api/events/{evt.Id}/recover", null, Ct));
+
+        Assert.Equal(EventStatus.Suspended, (await Stored(evt.Id)).Status);
+    }
+
+    [Fact]
+    public async Task Recover_is_forbidden_for_a_caller_holding_only_ExecuteEvents()
+    {
+        var evt = await SeedSuspendedEvent(DateTime.UtcNow.AddMinutes(30));
+        var actor = await Actor().WithSystemPermissions(SystemPermission.ExecuteEvents).SeedAsync();
+
+        await AssertJsonError(HttpStatusCode.Forbidden, await Client(actor).PostAsync($"api/events/{evt.Id}/recover", null, Ct));
+
+        Assert.Equal(EventStatus.Suspended, (await Stored(evt.Id)).Status);
+    }
+
+    [Fact]
+    public async Task Recover_answers_an_active_event_with_a_conflict()
+    {
+        var evt = await SeedEvent();
+
+        var problem = await AssertJsonError(HttpStatusCode.Conflict, await RootClient.PostAsync($"api/events/{evt.Id}/recover", null, Ct));
+
+        Assert.Equal("This event has not been ended, so there is nothing to recover.", problem.Title);
+        Assert.Equal(EventStatus.Active, (await Stored(evt.Id)).Status);
+    }
+
+    [Fact]
+    public async Task Recover_answers_a_suspended_event_whose_grace_has_passed_with_a_conflict()
+    {
+        var evt = await SeedSuspendedEvent(DateTime.UtcNow.AddMinutes(-1));
+
+        var problem = await AssertJsonError(HttpStatusCode.Conflict, await RootClient.PostAsync($"api/events/{evt.Id}/recover", null, Ct));
+
+        Assert.Equal("The grace period for this event has passed, so it is being torn down and can't be recovered.", problem.Title);
+        var saved = await Stored(evt.Id);
+        Assert.Equal(EventStatus.Suspended, saved.Status);
+        Assert.NotNull(saved.EndRequestedAt);
+    }
+
+    [Fact]
+    public async Task Recover_answers_an_ended_event_with_a_conflict()
+    {
+        var evt = await SeedEvent(x =>
+        {
+            x.Status = EventStatus.Ended;
+            x.InternalStatus = InternalEventStatus.Ended;
+            x.EndRequestedAt = TestData.DefaultDate;
+            x.EndDate = TestData.DefaultDate;
+        });
+
+        var problem = await AssertJsonError(HttpStatusCode.Conflict, await RootClient.PostAsync($"api/events/{evt.Id}/recover", null, Ct));
+
+        Assert.Equal("This event has been torn down, so it can't be recovered.", problem.Title);
+        Assert.Equal(EventStatus.Ended, (await Stored(evt.Id)).Status);
+    }
+
+    /// <summary>Each other status a user can meet gets its own reason.</summary>
+    [Theory]
+    [InlineData(EventStatus.Ending, InternalEventStatus.SuspendingView, "This event is still being ended. Try again in a moment.")]
+    [InlineData(EventStatus.Ending, InternalEventStatus.EndQueued, "This event is being torn down, so it can't be recovered.")]
+    [InlineData(EventStatus.Recovering, InternalEventStatus.ResumingView, "This event is already being recovered.")]
+    [InlineData(EventStatus.Failed, InternalEventStatus.FailedDestroy, "This event failed, so it can't be recovered.")]
+    [InlineData(EventStatus.Active, InternalEventStatus.Launched, "This event is still being ended. Try again in a moment.")]
+    public async Task Recover_answers_each_unrecoverable_status_with_its_own_reason(EventStatus status, InternalEventStatus internalStatus, string message)
+    {
+        var evt = await SeedEvent(x =>
+        {
+            x.Status = status;
+            x.InternalStatus = internalStatus;
+            x.EndRequestedAt = TestData.DefaultDate;
+            x.RecoverableUntil = DateTime.UtcNow.AddMinutes(30);
+        });
+
+        var problem = await AssertJsonError(HttpStatusCode.Conflict, await RootClient.PostAsync($"api/events/{evt.Id}/recover", null, Ct));
+
+        Assert.Equal(message, problem.Title);
+        Assert.Equal(status, (await Stored(evt.Id)).Status);
+    }
+
+    [Fact]
+    public async Task Recover_of_an_unknown_event_is_not_found()
+    {
+        await AssertJsonError(HttpStatusCode.NotFound, await RootClient.PostAsync($"api/events/{Guid.NewGuid()}/recover", null, Ct));
+    }
+
     // POST api/events/{id}/redeploy
 
     /// <summary>Caster is asked with Alloy's own resource-owner token, not the caller's.</summary>
@@ -413,6 +651,8 @@ public class EventControllerTests(DatabaseFixture fixture, AlloyAppFactory facto
     [InlineData(EventStatus.Ending, true, false, "This event is ending, so it can no longer be redeployed.")]
     [InlineData(EventStatus.Ended, true, true, "This event is no longer active, so it can't be redeployed.")]
     [InlineData(EventStatus.Failed, false, false, "This event is no longer active, so it can't be redeployed.")]
+    [InlineData(EventStatus.Suspended, true, false, "This event has been ended. Recover it before redeploying it.")]
+    [InlineData(EventStatus.Recovering, false, false, "This event is being recovered. It can be redeployed once it is active.")]
     public async Task Redeploy_answers_each_inactive_status_with_its_own_reason(EventStatus status, bool endRequested, bool ended, string message)
     {
         var evt = await SeedEvent(x =>
@@ -650,6 +890,25 @@ public class EventControllerTests(DatabaseFixture fixture, AlloyAppFactory facto
         Assert.Equal("This event has ended, so it can no longer be joined.", problem.Title);
     }
 
+    [Theory]
+    [InlineData(EventStatus.Suspended, "This event has been ended, so it can't be joined unless its owner recovers it.")]
+    [InlineData(EventStatus.Recovering, "This event is being recovered. Try the invitation again in a few minutes.")]
+    public async Task Enlist_in_an_ended_or_recovering_event_is_a_conflict_naming_the_recover(EventStatus status, string message)
+    {
+        var evt = await SeedEvent(x =>
+        {
+            x.ShareCode = $"code-{Guid.NewGuid():N}";
+            x.Status = status;
+            x.RecoverableUntil = DateTime.UtcNow.AddMinutes(30);
+        });
+
+        var problem = await AssertJsonError(HttpStatusCode.Conflict, await RootClient.PostAsync($"api/events/enlist/{evt.ShareCode}", null, Ct));
+
+        Assert.Equal(message, problem.Title);
+        await using var context = NewContext();
+        Assert.False(await context.EventMemberships.AnyAsync(x => x.EventId == evt.Id, Ct));
+    }
+
     // POST api/events/{id}/enlist/{userId}
 
     [Fact]
@@ -823,6 +1082,40 @@ public class EventControllerTests(DatabaseFixture fixture, AlloyAppFactory facto
         var events = await ReadAsync<List<Event>>(await Client(actor).GetAsync("api/events/mine?includeEnded=false", Ct));
 
         Assert.Equal([actor.NewEvents[0]], events.Select(x => x.Id));
+    }
+
+    /// <summary>A suspended event can still be recovered, so it stays in the list of events that have not ended.</summary>
+    [Fact]
+    public async Task GetMine_without_ended_events_keeps_a_suspended_event()
+    {
+        var actor = await Actor().OnNewEvent(null, EventPermission.ViewEvent).SeedAsync();
+        await using (var context = NewContext())
+        {
+            var row = await context.Events.SingleAsync(x => x.Id == actor.NewEvents[0], Ct);
+            row.Status = EventStatus.Suspended;
+            row.InternalStatus = InternalEventStatus.Suspended;
+            row.RecoverableUntil = DateTime.UtcNow.AddMinutes(30);
+            await context.SaveChangesAsync(Ct);
+        }
+
+        var events = await ReadAsync<List<Event>>(await Client(actor).GetAsync("api/events/mine?includeEnded=false", Ct));
+
+        Assert.Equal([actor.NewEvents[0]], events.Select(x => x.Id));
+    }
+
+    /// <summary>An event the worker suspended a minute ago, recoverable until <paramref name="recoverableUntil"/>, its view and workspace kept.</summary>
+    private async Task<EventEntity> SeedSuspendedEvent(DateTime recoverableUntil, Action<EventEntity> configure = null, int durationHours = 1)
+    {
+        var template = TestData.EventTemplate(durationHours: durationHours);
+        var entity = TestData.Event(template.Id, EventStatus.Suspended, InternalEventStatus.Suspended);
+        entity.EndRequestedAt = DateTime.UtcNow.AddMinutes(-1);
+        entity.RecoverableUntil = recoverableUntil;
+        entity.ViewId = Guid.NewGuid();
+        entity.WorkspaceId = Guid.NewGuid();
+        configure?.Invoke(entity);
+        await Seed(template, entity);
+
+        return entity;
     }
 
     private async Task<EventEntity> SeedEvent(Action<EventEntity> configure = null)
