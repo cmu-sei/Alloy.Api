@@ -80,14 +80,14 @@ public class PlayerApiExtensionsTests
     }
 
     [Fact]
-    public async Task A_clone_with_no_team_for_the_service_user_fails_and_is_deleted()
+    public async Task A_clone_with_no_team_for_the_service_user_fails_before_anyone_is_added_and_is_deleted()
     {
         var player = ScriptedPlayer(withAutomationTeam: false);
 
         var result = await Create(player, serviceUserIds: [_serviceUserId], serviceTeamRoleId: AutomationRoleId);
 
         Assert.True(result.IsPermanent);
-        Assert.DoesNotContain(Joins(player), x => x.EndsWith($"/users/{_serviceUserId}", StringComparison.Ordinal));
+        Assert.Empty(Joins(player));
         Assert.Contains(player.Sent, x => x.Method == HttpMethod.Delete && x.Path == $"api/views/{_cloneId}");
     }
 
@@ -106,16 +106,27 @@ public class PlayerApiExtensionsTests
     }
 
     [Fact]
-    public void Without_an_all_permissions_role_a_team_granted_ManageView_is_the_service_team()
+    public void Without_an_all_permissions_role_a_team_granted_ManageView_and_a_Vm_read_permission_is_the_service_team()
     {
         var managerTeamId = Guid.NewGuid();
         var teams = new[]
         {
             new Team { Id = _memberTeamId, RoleId = MemberRoleId, Permissions = [] },
-            new Team { Id = managerTeamId, Permissions = [new TeamPermissionModel { Name = "ManageView" }] },
+            new Team { Id = managerTeamId, Permissions = [new TeamPermissionModel { Name = "ManageView" }, new TeamPermissionModel { Name = "ViewViewVms" }] },
         };
 
         Assert.Equal(managerTeamId, PlayerApiExtensions.GetServiceTeamId(teams, Roles(), teamRoleId: null));
+    }
+
+    [Fact]
+    public void A_team_granted_ManageView_without_a_Vm_read_permission_is_not_a_service_team()
+    {
+        var teams = new[]
+        {
+            new Team { Id = Guid.NewGuid(), Permissions = [new TeamPermissionModel { Name = "ManageView" }] },
+        };
+
+        Assert.Null(PlayerApiExtensions.GetServiceTeamId(teams, Roles(), teamRoleId: null));
     }
 
     [Fact]

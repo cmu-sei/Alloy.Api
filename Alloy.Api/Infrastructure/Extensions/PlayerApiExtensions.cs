@@ -41,6 +41,19 @@ namespace Alloy.Api.Infrastructure.Extensions
                 var roles = await playerApiClient.GetTeamRolesAsync(ct);
                 var teams = await playerApiClient.GetViewTeamsAsync(clonedView.Id, ct);
 
+                // Settle the service team before anyone joins, so a View that can't have one fails
+                // before any work is done in it.
+                var serviceUserIdList = serviceUserIds?.Distinct().ToList() ?? [];
+                Guid? serviceTeamId = null;
+                if (serviceUserIdList.Count > 0)
+                {
+                    serviceTeamId = GetServiceTeamId(teams, roles, serviceTeamRoleId);
+                    if (!serviceTeamId.HasValue)
+                        throw new PermanentFailureException(serviceTeamRoleId.HasValue
+                            ? $"Player View {eventTemplateEntity.ViewId} has no team with role {serviceTeamRoleId} for the ClonedViewServiceUserIds to join."
+                            : $"Player View {eventTemplateEntity.ViewId} has no team whose role grants all permissions, or ManageView with ViewViewVms or ControlViewVms, for the ClonedViewServiceUserIds to join.");
+                }
+
                 // add user to default team or first non-admin team
                 var defaultTeamId = GetDefaultTeamId(clonedView, teams, roles);
 
@@ -57,7 +70,7 @@ namespace Alloy.Api.Infrastructure.Extensions
                 }
 
                 var participantIds = userList.Select(x => x.Id).Append(eventEntity.UserId).ToHashSet();
-                await AddServiceUsersAsync(playerApiClient, clonedView.Id, teams, roles, serviceUserIds, serviceTeamRoleId, defaultTeamId, participantIds, ct);
+                await AddServiceUsersAsync(playerApiClient, serviceTeamId, serviceUserIdList, defaultTeamId, participantIds, ct);
 
                 return ApiCallResult<Guid>.Ok(clonedView.Id);
             }
@@ -132,25 +145,14 @@ namespace Alloy.Api.Infrastructure.Extensions
         /// </summary>
         private static async Task AddServiceUsersAsync(
             PlayerApiClient playerApiClient,
-            Guid viewId,
-            ICollection<Team> teams,
-            ICollection<TeamRole> roles,
-            IReadOnlyCollection<Guid> serviceUserIds,
-            Guid? serviceTeamRoleId,
+            Guid? teamId,
+            IReadOnlyCollection<Guid> userIds,
             Guid participantTeamId,
             IReadOnlySet<Guid> participantIds,
             CancellationToken ct)
         {
-            var userIds = serviceUserIds?.Distinct().ToList() ?? [];
-            if (userIds.Count == 0)
-                return;
-
-            var teamId = GetServiceTeamId(teams, roles, serviceTeamRoleId);
-
             if (!teamId.HasValue)
-                throw new PermanentFailureException(serviceTeamRoleId.HasValue
-                    ? $"Player View {viewId} has no team with role {serviceTeamRoleId} for the ClonedViewServiceUserIds to join."
-                    : $"Player View {viewId} has no admin team (a team with all permissions or ManageView) for the ClonedViewServiceUserIds to join.");
+                return;
 
             foreach (var userId in userIds)
             {
@@ -167,7 +169,9 @@ namespace Alloy.Api.Infrastructure.Extensions
 
         /// <summary>
         /// The team with <paramref name="teamRoleId"/>, or else the View's admin team: a team whose role
-        /// grants all permissions, then one granted ManageView by its role or directly.
+        /// grants all permissions, then one granted ManageView together with a Vm read permission. Vm.Api
+        /// creates Vms under ManageView but reads them back only under ViewViewVms or ControlViewVms, so
+        /// ManageView alone would let a launch create Vms it then can't read.
         /// </summary>
         internal static Guid? GetServiceTeamId(ICollection<Team> teams, ICollection<TeamRole> roles, Guid? teamRoleId)
         {
@@ -175,11 +179,14 @@ namespace Alloy.Api.Infrastructure.Extensions
                 return teams.FirstOrDefault(t => t.RoleId == teamRoleId)?.Id;
 
             TeamRole RoleOf(Team team) => roles.FirstOrDefault(r => r.Id == team.RoleId);
-            static bool GrantsManageView(IEnumerable<TeamPermissionModel> permissions) =>
-                permissions?.Any(p => p.Name == "ManageView") ?? false;
+            bool CanManageAndReadVms(Team team)
+            {
+                var names = (team.Permissions ?? []).Concat(RoleOf(team)?.Permissions ?? []).Select(p => p.Name).ToHashSet();
+                return names.Contains("ManageView") && (names.Contains("ViewViewVms") || names.Contains("ControlViewVms"));
+            }
 
             return (teams.FirstOrDefault(t => RoleOf(t)?.AllPermissions ?? false)
-                ?? teams.FirstOrDefault(t => GrantsManageView(t.Permissions) || GrantsManageView(RoleOf(t)?.Permissions)))?.Id;
+                ?? teams.FirstOrDefault(CanManageAndReadVms))?.Id;
         }
 
         /// <summary>

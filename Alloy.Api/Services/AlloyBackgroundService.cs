@@ -317,7 +317,9 @@ namespace Alloy.Api.Services
                                                         .Select(m => m.User)
                                                         .ToListAsync(ct);
                                                     var clientOptions = _clientOptions.CurrentValue;
-                                                    var result = await PlayerApiExtensions.CreatePlayerViewAsync(playerApiClient, eventEntity, eventTemplateEntity, users, clientOptions.ClonedViewServiceUserIds, clientOptions.ClonedViewServiceTeamRoleId, _logger, ct);
+                                                    // Only Caster's Terraform provider needs these accounts in the View, and Caster is skipped without a Directory.
+                                                    var serviceUserIds = eventTemplateEntity.DirectoryId == null ? [] : clientOptions.ClonedViewServiceUserIds;
+                                                    var result = await PlayerApiExtensions.CreatePlayerViewAsync(playerApiClient, eventEntity, eventTemplateEntity, users, serviceUserIds, clientOptions.ClonedViewServiceTeamRoleId, _logger, ct);
                                                     if (result.IsSuccess)
                                                     {
                                                         eventEntity.ViewId = result.Value;
