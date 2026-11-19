@@ -25,7 +25,7 @@ namespace Alloy.Api.Infrastructure.Extensions
             return apiClient;
         }
 
-        public static async Task<ApiCallResult<Guid>> CreatePlayerViewAsync(PlayerApiClient playerApiClient, EventEntity eventEntity, EventTemplateEntity eventTemplateEntity, List<UserEntity> userList, ILogger logger, CancellationToken ct)
+        public static async Task<ApiCallResult<Guid>> CreatePlayerViewAsync(PlayerApiClient playerApiClient, EventEntity eventEntity, EventTemplateEntity eventTemplateEntity, List<UserEntity> userList, IReadOnlyCollection<Guid> serviceUserIds, Guid? serviceTeamRoleId, ILogger logger, CancellationToken ct)
         {
             View clonedView = null;
             try
@@ -38,8 +38,24 @@ namespace Alloy.Api.Infrastructure.Extensions
                 };
                 clonedView = await playerApiClient.CloneViewAsync((Guid)eventTemplateEntity.ViewId, body, ct);
 
+                var roles = await playerApiClient.GetTeamRolesAsync(ct);
+                var teams = await playerApiClient.GetViewTeamsAsync(clonedView.Id, ct);
+
+                // Settle the service team before anyone joins, so a View that can't have one fails
+                // before any work is done in it.
+                var serviceUserIdList = serviceUserIds?.Distinct().ToList() ?? [];
+                Guid? serviceTeamId = null;
+                if (serviceUserIdList.Count > 0)
+                {
+                    serviceTeamId = GetServiceTeamId(teams, roles, serviceTeamRoleId);
+                    if (!serviceTeamId.HasValue)
+                        throw new PermanentFailureException(serviceTeamRoleId.HasValue
+                            ? $"Player View {eventTemplateEntity.ViewId} has no team with role {serviceTeamRoleId} for the ClonedViewServiceUserIds to join."
+                            : $"Player View {eventTemplateEntity.ViewId} has no team whose role grants all permissions, or ManageView with ViewViewVms or ControlViewVms, for the ClonedViewServiceUserIds to join.");
+                }
+
                 // add user to default team or first non-admin team
-                var defaultTeamId = await GetDefaultTeamId(playerApiClient, clonedView, ct);
+                var defaultTeamId = GetDefaultTeamId(clonedView, teams, roles);
 
                 await EnsurePlayerUserAsync(playerApiClient, eventEntity.UserId, eventEntity.Username, ct);
                 await playerApiClient.AddUserToTeamAsync(defaultTeamId, eventEntity.UserId, ct);
@@ -52,6 +68,9 @@ namespace Alloy.Api.Infrastructure.Extensions
                         await playerApiClient.AddUserToTeamAsync(defaultTeamId, user.Id, ct);
                     }
                 }
+
+                var participantIds = userList.Select(x => x.Id).Append(eventEntity.UserId).ToHashSet();
+                await AddServiceUsersAsync(playerApiClient, serviceTeamId, serviceUserIdList, defaultTeamId, participantIds, ct);
 
                 return ApiCallResult<Guid>.Ok(clonedView.Id);
             }
@@ -120,6 +139,57 @@ namespace Alloy.Api.Infrastructure.Extensions
         }
 
         /// <summary>
+        /// A clone copies the template's teams but none of its members, so an account that works in the
+        /// View on Alloy's behalf, such as Caster's Terraform provider creating Vms, has no access to it.
+        /// Putting those accounts on one of the clone's own teams scopes their rights to this View.
+        /// </summary>
+        private static async Task AddServiceUsersAsync(
+            PlayerApiClient playerApiClient,
+            Guid? teamId,
+            IReadOnlyCollection<Guid> userIds,
+            Guid participantTeamId,
+            IReadOnlySet<Guid> participantIds,
+            CancellationToken ct)
+        {
+            if (!teamId.HasValue)
+                return;
+
+            foreach (var userId in userIds)
+            {
+                // Player keeps one membership per user and team, so a participant already on this team
+                // would make a second add fail.
+                if (teamId == participantTeamId && participantIds.Contains(userId))
+                    continue;
+
+                // A service account that has never called Player gets its real name the first time it does.
+                await EnsurePlayerUserAsync(playerApiClient, userId, userId.ToString(), ct);
+                await playerApiClient.AddUserToTeamAsync(teamId.Value, userId, ct);
+            }
+        }
+
+        /// <summary>
+        /// The team with <paramref name="teamRoleId"/>, or else the View's admin team: a team whose role
+        /// grants all permissions, then one granted ManageView together with a Vm read permission. Vm.Api
+        /// creates Vms under ManageView but reads them back only under ViewViewVms or ControlViewVms, so
+        /// ManageView alone would let a launch create Vms it then can't read.
+        /// </summary>
+        internal static Guid? GetServiceTeamId(ICollection<Team> teams, ICollection<TeamRole> roles, Guid? teamRoleId)
+        {
+            if (teamRoleId.HasValue)
+                return teams.FirstOrDefault(t => t.RoleId == teamRoleId)?.Id;
+
+            TeamRole RoleOf(Team team) => roles.FirstOrDefault(r => r.Id == team.RoleId);
+            bool CanManageAndReadVms(Team team)
+            {
+                var names = (team.Permissions ?? []).Concat(RoleOf(team)?.Permissions ?? []).Select(p => p.Name).ToHashSet();
+                return names.Contains("ManageView") && (names.Contains("ViewViewVms") || names.Contains("ControlViewVms"));
+            }
+
+            return (teams.FirstOrDefault(t => RoleOf(t)?.AllPermissions ?? false)
+                ?? teams.FirstOrDefault(CanManageAndReadVms))?.Id;
+        }
+
+        /// <summary>
         /// Player needs a User record before anyone can be put on a Team, and an Event owner may
         /// never have signed in to Player.
         /// </summary>
@@ -147,15 +217,14 @@ namespace Alloy.Api.Infrastructure.Extensions
         private static async Task<Guid> GetDefaultTeamId(PlayerApiClient playerApiClient, Guid viewId, CancellationToken ct)
         {
             var view = await playerApiClient.GetViewAsync(viewId, ct);
-            return await GetDefaultTeamId(playerApiClient, view, ct);
-        }
-
-        private static async Task<Guid> GetDefaultTeamId(PlayerApiClient playerApiClient, View view, CancellationToken ct)
-        {
-            // add user to default team or first non-admin team
             var roles = await playerApiClient.GetTeamRolesAsync(ct);
             var teams = await playerApiClient.GetViewTeamsAsync(view.Id, ct);
+            return GetDefaultTeamId(view, teams, roles);
+        }
 
+        private static Guid GetDefaultTeamId(View view, ICollection<Team> teams, ICollection<TeamRole> roles)
+        {
+            // add user to default team or first non-admin team
             Guid? defaultTeamId = null;
 
             if (view.DefaultTeamId.HasValue)
